@@ -1,0 +1,11 @@
+It's important to me that, as emails come into my Gmail inbox, they have labels applied to them that are consistent with the content of the emails. For example, if an email comes in that wants me to approve something, it should have an "approval required" label or similar. If a bill comes in, it should have a label saying that it's a bill. Also, if it's a bill that needs to be approved, it would then have both of those labels. This will be important for setting up automatic filtering and processing.
+
+To that end, I'd like to set up a Google App Service. I think that's what it's called. This is JavaScript based. It will be called when email comes in, and it will call out to an external API called Jev (J-E-V). It's a new classification service.
+
+The initial deployment will likely be a static configuration file. Its goal is to be able to pass the email and a bunch of textual questions to that API endpoint. The classifier will then return a confidence score for the answer to each of those questions. Those questions will then relate to labels.
+
+In the future, this might be expanded to act on the emails based on the responses from Jev, but the initial version will just apply labels. The initial version will also be one question to one label, and we'll apply the label by comparing the confidence score returned by the classifier against a minimum threshold.
+
+The Jev API key can be found in the .env folder file at the root of the repository.
+
+Focus should be on realizing that this process happens in the background, and on finding the best way both to not exceed the Google Apps Script thresholds and limitations and to batch requests to the Jev classifier to optimize for cost.
