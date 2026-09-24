@@ -44,15 +44,11 @@ Emails are ordered newest first. If the thread is too long for [Jev's request li
 
 ### Avoiding reprocessing
 
-After classifying a thread, the script adds a `Jev/Processed` label to it. Adding a label to a thread tags every email in it *at that moment*. Gmail search matches individual emails, so a later reply arrives without the tag. The search for work is therefore:
+After classifying a thread, the script adds a `Jev/Processed` label to it and excludes processed threads from the normal work search:
 
-```text
--label:Jev/Processed -label:Jev/Error after:<install date>
-```
+    -label:Jev/Processed -label:Jev/Error after:<install date>
 
-This search finds new threads, and also processed threads that have received a new email since they were classified. A thread with no new email never matches, so it is never sent to Jev again. When a thread gets a new email, the whole thread is reclassified, because the reply can change what the conversation is about.
-
-(This relies on Gmail matching `-label:` per email rather than per thread. It should be confirmed with a quick test before building on it.)
+Gmail search matches labels at the thread level (a thread matches if any message in it has the label), so an already-processed thread will not match this query again even if it later receives a new message. If “reclassify on new replies” is required, the fallback is to persist each thread’s last-seen message ID (or timestamp) and compare it during polling.
 
 ### Failures
 
