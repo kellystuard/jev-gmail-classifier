@@ -1,6 +1,6 @@
 # Jev Gmail Classifier: Product Vision
 
-> This is the top-level statement of what the product is for. The [Product Design Document](product-design-document.md) turns it into scope, design, and epics, and the [README](../README.md) holds the detailed mechanics. Decided on 2026-09-24.
+> This is the top-level statement of what the product is for. The [Product Design Document](product-design-document.md) turns it into scope, design, and epics, the [Solution Design](solution-design.md) says how it is built, and the [README](../README.md) holds the user-facing mechanics. Decided on 2026-09-24.
 
 ## Vision Statement
 

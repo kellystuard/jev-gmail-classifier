@@ -9,13 +9,13 @@ To decide what a conversation is about, the script asks **[Jev](https://docs.typ
 
 > **Privacy:** The content of your email (selected headers and the plain-text body) is sent to TypeSafe AI's API for classification. Attachments are never sent, and you can keep any mail from being sent at all with an [exclusion query](#configuration). See [What is sent to Jev](#what-is-sent-to-jev).
 
-> **Status:** Design phase. No code has been written yet. This README describes the intended result. See the [Product Vision](output/product-vision.md) and [Product Design Document](output/product-design-document.md) for why and what.
+> **Status:** Design phase. No code has been written yet. This README describes the intended result. See the [Product Vision](output/product-vision.md) and [Product Design Document](output/product-design-document.md) for why and what, and the [Solution Design](output/solution-design.md) for how.
 
 ## Why
 
 Unlabeled email is hard to find, sort, and process automatically. This project labels and routes each conversation according to its content, so that Gmail searches, saved views, and your own downstream automation have something reliable to work with. Because other automation builds on its labels, it favors precision: a missing label is better than a wrong one.
 
-The classifier adds labels and moves conversations. In v1 it never removes your labels, and it never replies to, forwards, sends, or permanently deletes mail.
+The classifier adds labels and moves conversations. It never removes labels, and it never replies to, forwards, sends, or permanently deletes mail. It isn't even given permission to permanently delete (see [Permissions](#permissions)).
 
 | Email                          | Outcome                          |
 | ------------------------------ | -------------------------------- |
@@ -26,16 +26,15 @@ The classifier adds labels and moves conversations. In v1 it never removes your 
 
 ## How It Works
 
-Gmail groups messages into **threads** (conversations), and Gmail labels in Apps Script are applied to whole threads ([`GmailThread`](https://developers.google.com/apps-script/reference/gmail/gmail-thread)). The classifier therefore works on threads too. In this README, "email" means one message and "thread" means the conversation that contains it.
+Gmail groups messages into **threads** (conversations), and Gmail labels apply to whole threads. The classifier therefore works on threads too. In this README, "email" means one message and "thread" means the conversation that contains it.
 
 ### Scheduled runs
 
 1. Apps Script cannot react when mail arrives. Instead, a [time-driven trigger](https://developers.google.com/apps-script/guides/triggers/installable#time-driven_triggers) runs the classifier on a timer: every 10 minutes by default, configurable in [Configuration](#configuration).
-2. Each run searches Gmail for threads that need classification (see [Avoiding reprocessing](#avoiding-reprocessing)). Scheduled runs only look at threads with mail received since the classifier was [installed](#setup-planned), and skip anything matching your exclusion query. To classify older mail, use a [manual run](#manual-runs).
+2. Each run asks Gmail what has changed since the last run (see [Keeping track of new mail](#keeping-track-of-new-mail)). Each thread that got a new email, received or sent, is queued for classification. Threads matching your exclusion query are dropped from the queue before anything is read for Jev. To classify mail from before installation, use a [manual run](#manual-runs).
 3. For each thread, the script sends one request to Jev. The request contains the thread's content and every configured question (see [What is sent to Jev](#what-is-sent-to-jev)).
 4. Jev returns a probability from 0 to 1 for each question: its estimate that the answer is "yes". The value comes from Jev's yes/no question type, [Noul](https://docs.typesafe.ai/primitives/noul).
 5. A question's rule **fires** when its probability is at least its **threshold**, the minimum probability required (see [Configuration](#configuration)). The script then applies the outcomes (see [Labels and moves](#labels-and-moves)). A thread can receive any number of labels, including none.
-6. The thread is marked as processed.
 
 ### Labels and moves
 
@@ -50,84 +49,106 @@ Each rule either adds a **label** or **moves** the thread:
 
 - Every label rule that fires is applied. Missing labels, including nested names such as `Finance/Bill`, are created automatically.
 - At most one move is applied. If several move rules fire, the first one in `config.yaml` wins.
-- Moves only happen the **first** time a thread is classified (or during a manual run with the reprocess option). When a reply makes a processed thread eligible again, only labels are added. That way the classifier never undoes your own correction, such as clicking "Not spam."
+- Moves only happen for a **brand-new** thread, meaning all of its email arrived since the last check, or during a manual run with the `applyMoves` option. When a reply arrives on an existing thread, it is reclassified and only labels are added. That way the classifier never undoes your own correction, such as clicking "Not spam."
 - Labels are never removed.
+- The classifier adds only your classification labels, plus `Jev/Error` for threads that need your attention (see [Failures](#failures)).
 
 ### What is sent to Jev
 
-Each request sends the thread as Jev's [`state`](https://docs.typesafe.ai/concepts/state), which is Jev's term for the input being classified. For each email in the thread, `state` includes:
+Each request sends the thread as Jev's [`state`](https://docs.typesafe.ai/concepts/state), which is Jev's term for the input being classified. It is a list of the thread's emails, newest first. For each email it includes:
 
-- a fixed set of headers that help classification: `From`, `Sender`, `Reply-To`, `To`, `Cc`, `Subject`, `Date`, `List-Id`, `List-Unsubscribe`, `Precedence`, and `Auto-Submitted`;
-- the body as plain text only (HTML-only emails are converted to plain text).
+- a fixed set of headers that help classification: `From`, `Sender`, `Reply-To`, `To`, `Cc`, `Subject`, `Date`, `List-Id`, `List-Unsubscribe`, `Precedence`, and `Auto-Submitted`. Headers an email doesn't have are left out;
+- the body as plain text only. For HTML-only emails, the HTML is converted to plain text (see `plainTextMethod` in [Configuration](#configuration)).
 
-Emails are ordered newest first. If the thread is too long for [Jev's request limit](#jev), the oldest content is cut first. Attachments and all other headers are never sent. Mail matching your exclusion query is never sent at all.
+If the thread is too long for [Jev's request limit](#jev), the oldest content is cut first. Attachments and all other headers are never sent. Threads matching your exclusion query are never sent at all: if **any** email in a thread matches, the whole thread is kept back.
 
-### Avoiding reprocessing
+### Keeping track of new mail
 
-After classifying a thread, the script adds a `Jev/Processed` label to it and excludes processed threads from the normal work search:
+The classifier keeps its place using Gmail's [history](https://developers.google.com/workspace/gmail/api/guides/sync), a record of changes to the mailbox. The position is stored in the script's Script Properties. Each run reads only the changes since the saved position, so a thread is classified once, and again only when it receives a new email, because the reply can change what the conversation is about. Drafts, Spam, and Trash are ignored.
 
-```text
--label:Jev/Processed -label:Jev/Error after:<install date> <exclusion query>
-```
+No "processed" label is added to your mail. Each run's log reports how many threads were classified, excluded, retried, and marked as errors.
 
-This search finds new threads, and also processed threads that have received a new email since they were classified. A thread with no new email never matches, so it is never sent to Jev again. When a thread gets a new email, the whole thread is reclassified, because the reply can change what the conversation is about. Gmail search skips Spam and Trash, so threads there are never reclassified.
-
-(This relies on Gmail matching `-label:` per email rather than per thread. It should be confirmed with a quick test before building on it.)
+If the classifier stops for so long that Gmail no longer has the history it needs (typically more than a week), it falls back to a date-based search from its last successful run, and emails you an alert.
 
 ### Failures
 
-- **Temporary errors** (rate limits, overload, server and network errors) are retried with exponential backoff: each wait doubles, with random jitter, up to a fixed number of attempts, as [TypeSafe recommends](https://docs.typesafe.ai/api#handling-rate-limits). If a thread still fails, it is left unprocessed so the next run tries it again.
+- **Temporary errors** (rate limits, overload, network errors) are retried with exponential backoff: each wait doubles, with random jitter, up to a fixed number of attempts, as [TypeSafe recommends](https://docs.typesafe.ai/api#handling-rate-limits). If a thread still fails, it stays queued so the next run tries it again.
 - **Repeated failures:** a thread that fails on 3 consecutive runs gets a `Jev/Error` label and is no longer retried automatically.
 - **Invalid request** (HTTP `422`): the thread gets `Jev/Error` immediately, because retrying the same content will not help.
-- **Bad API key** (HTTP `401`): the run stops and logs the error, and no thread is marked. Once the key is fixed, the next run continues normally.
-- **Daily token budget reached:** no more requests are sent until the next day (see [Configuration](#configuration)).
+- **Bad API key** (HTTP `401`): the run stops and logs the error, and no thread is marked. Once the key is fixed, the next run continues where it left off.
+- **Daily token budget reached:** no more requests are sent until the next day (see [Configuration](#configuration)). Queued threads wait.
+- **Missing permission:** if a permission was not granted (see [Permissions](#permissions)), the run logs which one and what it disables, emails you an alert, and carries on with what still works. For example, if a move can't be made, the labels are still applied and the log records the skipped move.
 
-To retry a thread marked `Jev/Error`, remove that label in Gmail.
+To retry a thread marked `Jev/Error`, remove that label in Gmail. The next run picks it up. A new reply on its own does not retry a thread marked `Jev/Error`, and manual runs skip such threads.
 
 ### Monitoring
 
-- **Execution logs** list, for each thread, its ID, subject, sender, each question's probability, and the actions taken. Email bodies are never logged. Use the probabilities to tune thresholds.
-- **Alert emails** are sent to you when the API key is rejected, threads are newly marked `Jev/Error`, runs fail or time out repeatedly, or the daily token budget is reached. Each condition sends at most one alert per day.
+- **Execution logs** are structured JSON. For each thread they list its ID, subject, sender, each question's probability (by rule `id`), and the actions taken. Each run ends with a summary of counts, tokens used, and time taken. Email bodies are never logged. Use the probabilities to tune thresholds.
+- **Alert emails** are sent to you when:
+  - the API key is rejected or missing;
+  - threads are newly marked `Jev/Error`;
+  - runs fail or time out repeatedly;
+  - the daily token budget is reached;
+  - a permission is missing;
+  - the configuration is invalid;
+  - Gmail's history had expired.
+
+  Each condition sends at most one alert per day.
 
 ### Manual runs
 
-A manual run classifies existing mail, which scheduled runs skip. You start it from the Apps Script editor and give it a [Gmail search query](https://support.google.com/mail/answer/7190), for example `newer_than:1y`. Your exclusion query is always added to it. It also takes an option to reprocess threads already marked `Jev/Processed`. Use that option after adding or changing questions, since scheduled runs do not revisit old threads.
+A manual run classifies existing mail, which scheduled runs skip. Apps Script editor functions can't take arguments, so you set the run's options as Script Properties (**Project Settings → Script Properties**) and then run `startManualRun` from the editor:
 
-Reprocessing counts as a first classification, so **move rules apply**. A new `trash` rule with reprocess can move a lot of old mail; the run log reports how many threads went to each destination.
+| Property             | Example            | Meaning                                                                 |
+| -------------------- | ------------------ | ----------------------------------------------------------------------- |
+| `MANUAL_QUERY`       | `label:Receipts`   | A [Gmail search query](https://support.google.com/mail/answer/7190).    |
+| `MANUAL_TIMESPAN`    | `2h`, `7d`         | Only mail from this recent period. It can be combined with `MANUAL_QUERY`. |
+| `MANUAL_APPLY_MOVES` | `true`             | Also apply move rules. The default is labels only.                      |
+| `MANUAL_REPLACE`     | `true`             | Replace a manual run that hasn't finished yet.                          |
 
-A large manual run cannot finish within a single execution (see [Google Apps Script limits](#google-apps-script)). It works through matching threads in chunks and continues across executions until it is done.
+At least one of `MANUAL_QUERY` or `MANUAL_TIMESPAN` is required. Your exclusion query is always applied, and threads marked `Jev/Error` are skipped. Every matching thread is reclassified. Use this after adding or changing questions, since scheduled runs don't revisit old threads.
+
+With `MANUAL_APPLY_MOVES`, **move rules apply** to every matching thread. A new `trash` rule with `applyMoves` can move a lot of old mail. The run log reports how many threads went to each destination.
+
+A large manual run cannot finish within a single execution (see [Google Apps Script limits](#google-apps-script)). It continues in the spare time of scheduled runs, after new mail has been handled. To go faster, run `continueManualRun` from the editor as many times as you like. `cancelManualRun` stops it.
 
 ## Features (v1)
 
 - **Content-based sorting.** Labels and moves come from what an email says, not from sender or subject rules that you write and maintain by hand.
 - **One question, one outcome.** Each configured question maps to exactly one label or one move (Archive, Spam, Trash, or Move to label).
 - **Default and per-question thresholds.**
-- **Static configuration** in a single YAML file, validated at build time.
+- **Static configuration** in a single YAML file, validated at build time and again when the script runs.
 - **Thread-aware.** A thread is classified once, and again only when it receives a new email.
-- **Privacy control.** An exclusion query keeps matching mail from ever being sent to Jev.
+- **Clean labels.** Only your classification labels are added, plus `Jev/Error` when something needs attention.
+- **Privacy control.** An exclusion query keeps matching threads from ever being sent to Jev.
+- **Least privilege.** The script can't permanently delete mail.
 - **Retries and error handling** as described in [Failures](#failures).
-- **Monitoring** through execution logs and alert emails.
+- **Monitoring** through structured execution logs and alert emails.
 - **Quota-aware.** Works in bounded chunks to stay within the [Google Apps Script limits](#google-apps-script).
 - **Cost-aware.** One request per thread with all questions together, only useful headers, trimmed content, no repeat classification of unchanged threads, and a daily token budget.
 
 ## Configuration
 
-Configuration lives in `config.yaml` at the repository root. Each entry under `rules` pairs one yes/no question with a label or a move:
+Configuration lives in `config.yaml` at the repository root. It is git-ignored, because your rules and exclusion query describe your mail. Start by copying `config.example.yaml` to `config.yaml`. Each entry under `rules` pairs one yes/no question with a label or a move:
 
 ```yaml
 defaultThreshold: 0.8          # used by any rule without its own threshold
 triggerIntervalMinutes: 10     # 1, 5, 10, 15, or 30 (the intervals Apps Script supports)
 jevModel: jev-latest           # or a pinned version, such as jev-1.13.0
 dailyTokenBudget: 20000000     # about $1.00/day at $0.042 per million tokens
-excludeQuery: -from:mybank.com -label:Private   # mail matching this is never sent to Jev
+excludeQuery: from:mybank.com OR label:Private   # threads with any matching email are never sent to Jev
+plainTextMethod: basic         # how HTML-only emails become plain text
 
 rules:
-  - question: Does this email ask the recipient to approve something?
+  - id: approval
+    question: Does this email ask the recipient to approve something?
     label: Approval Required
-  - question: Is this email a bill or invoice?
+  - id: bill
+    question: Is this email a bill or invoice?
     label: Bill
     threshold: 0.9             # overrides defaultThreshold
-  - question: Is this email unsolicited marketing?
+  - id: marketing
+    question: Is this email unsolicited marketing?
     action: move               # default is label
     destination: spam          # archive, spam, trash, or label:<name>
     threshold: 0.95
@@ -139,14 +160,18 @@ rules:
 | `triggerIntervalMinutes` | No              | How often scheduled runs happen. Defaults to `10`. Accounts with more quota (such as Workspace) can run more often. |
 | `jevModel`               | No              | Jev model version. Defaults to `jev-latest`. Pin a version if you want thresholds to stay stable across model releases. |
 | `dailyTokenBudget`       | No              | Maximum Jev input tokens per day, across all runs. Defaults to `20000000`. |
-| `excludeQuery`           | No              | Gmail search terms for mail that must never be sent to Jev. Applied to every run. |
+| `excludeQuery`           | No              | A Gmail search describing mail that must never be sent to Jev. If any email in a thread matches, the whole thread is skipped. Applied to every run. |
+| `plainTextMethod`        | No              | How HTML-only emails are converted to text. `basic` (default) uses the email's plain-text version when it has one, otherwise a simple built-in HTML-to-text conversion. `advanced` is reserved for a future, fuller converter. |
+| `rules[].id`             | Yes             | A short, unique name for the rule, such as `bill`. Used in the request to Jev and in the logs, so it should stay the same when you reword or reorder rules. |
 | `rules[].question`       | Yes             | The yes/no question sent to Jev.                                   |
 | `rules[].action`         | No              | `label` (default) or `move`.                                       |
 | `rules[].label`          | For `label`     | The label to add.                                                  |
 | `rules[].destination`    | For `move`      | `archive`, `spam`, `trash`, or `label:<name>`.                     |
 | `rules[].threshold`      | No              | Per-rule override of `defaultThreshold`. Consider a high value for move rules. |
 
-Apps Script cannot read YAML files, so a build step validates `config.yaml` and converts it into a script file before [deployment](#setup-planned). An invalid config fails the build.
+Apps Script cannot read YAML files, so a build step validates `config.yaml` and converts it into a script file before [deployment](#setup-planned). An invalid config fails the build. The script checks the configuration again each time it runs, and stops with an alert if the configuration is invalid.
+
+**Time zone.** "A day" for the token budget and for alert limits follows the script's time zone, set by `timeZone` in `appsscript.json`. It defaults to `Etc/UTC`. Change it to your own zone, such as `America/New_York`, if you prefer.
 
 ### API Key
 
@@ -158,16 +183,32 @@ JEV_API_KEY=your-key-here
 
 A deployed Apps Script cannot read `.env`. You copy the key into the script's [Script Properties](https://developers.google.com/apps-script/guides/properties), Apps Script's built-in key-value store, once during [setup](#setup-planned).
 
+## Permissions
+
+When you run `install`, Google asks you to grant the script these permissions ([OAuth scopes](https://developers.google.com/apps-script/concepts/scopes)). Nothing else is requested.
+
+| Permission (scope) | Why it's needed | If not granted |
+| ------------------ | --------------- | -------------- |
+| `https://www.googleapis.com/auth/gmail.modify` | Read your mail's change history and threads, search for excluded mail, create and apply labels, and move threads to Archive, Spam, or Trash. Also reads your address, to send alerts. | Nothing works. |
+| `https://www.googleapis.com/auth/script.external_request` | Send thread content to the Jev API. | Nothing is classified. |
+| `https://www.googleapis.com/auth/script.scriptapp` | Create and remove the timed trigger, and check which permissions were granted. | `install` and `uninstall` fail. |
+| `https://www.googleapis.com/auth/script.send_mail` | Send alert emails to you. | Alerts are only written to the log. |
+
+**Moving to Trash needs only `gmail.modify`.** Permanent deletion would need the full-access scope `https://mail.google.com/`, which the classifier **never requests**, so it can't permanently delete mail even by mistake. The code uses Gmail's [Advanced Gmail Service](https://developers.google.com/apps-script/advanced/gmail) rather than `GmailApp` for exactly this reason: `GmailApp` requires the full-access scope.
+
+Google may let you untick individual permissions on the consent screen. If a permission is missing, the script logs which one and what it disables, emails you (if it can), and keeps doing what it still can. To fix it, run `install` again and grant the missing permission.
+
 ## Setup (planned)
 
-1. Build: validate `config.yaml` and convert it into a script file.
-2. Push the code to Apps Script with [clasp](https://developers.google.com/apps-script/guides/clasp), Google's command-line tool for Apps Script projects.
-3. In the Apps Script editor, go to **Project Settings → Script Properties** and add `JEV_API_KEY` with the value from `.env`.
-4. In the editor, run the `install` function once. It asks for Gmail, email-sending, and external-request permissions, records the install date, and creates the time-driven trigger.
+1. Copy `config.example.yaml` to `config.yaml` and write your rules.
+2. Build: `npm run build` validates `config.yaml` and converts it into a script file.
+3. Create an Apps Script project, copy `.clasp.json.example` to `.clasp.json` with your script ID, and push the code with [clasp](https://developers.google.com/apps-script/guides/clasp), Google's command-line tool for Apps Script projects.
+4. In the Apps Script editor, go to **Project Settings → Script Properties** and add `JEV_API_KEY` with the value from `.env`.
+5. In the editor, run the `install` function once. It asks for the [permissions](#permissions) above, saves its starting position in your mail's history, and creates the time-driven trigger. Only mail that arrives after this point is classified automatically.
 
-After changing `triggerIntervalMinutes`, build, push, and run `install` again to replace the trigger. To upgrade, pull, build, and push; labels and stored state carry over.
+After changing `triggerIntervalMinutes`, build, push, and run `install` again to replace the trigger. Running `install` again keeps the saved position, so no mail is skipped or classified twice. To upgrade, pull, build, and push; labels and stored state carry over.
 
-To stop the classifier, run the `uninstall` function. It removes the trigger and stored state, and leaves all labels in place.
+To stop the classifier, run the `uninstall` function. It removes the trigger and stored state, and leaves all labels and your API key in place. Mail that arrives while it is uninstalled is only classified with a [manual run](#manual-runs).
 
 ## Limits and Cost
 
@@ -201,7 +242,7 @@ Published [quotas](https://developers.google.com/apps-script/guides/services/quo
 | Gmail read/write      | 20,000 / day         | 50,000 / day      |
 | Email recipients      | See quota page        | See quota page      |
 
-The default 10-minute trigger fires 144 times a day. On a consumer account, that leaves an average of about 37 seconds per run within the 90-minute daily runtime budget.
+The default 10-minute trigger fires 144 times a day. On a consumer account, that leaves an average of about 37 seconds per run within the 90-minute daily runtime budget. Only one execution runs at a time; a run that starts while another is still going exits immediately.
 
 ## Roadmap
 
@@ -209,6 +250,7 @@ The default 10-minute trigger fires 144 times a day. On a consumer account, that
 - [ ] Remove labels when a newer classification no longer matches.
 - [ ] Dry run or evaluation harness for tuning questions.
 - [ ] Periodic digest email.
+- [ ] A fuller HTML-to-text converter (`plainTextMethod: advanced`).
 - [ ] Automated deployment from `main` through a GitHub Action.
 - [ ] Real-time processing.
 - [ ] Workspace Add-on or Marketplace listing with a settings UI.
@@ -219,6 +261,9 @@ See the [Product Vision](output/product-vision.md#possible-future-directions) fo
 
 - [Product Vision](output/product-vision.md): who the product is for, its principles, success measures, and non-goals.
 - [Product Design Document](output/product-design-document.md): v1 scope, design, risks, release criteria, and epics.
+- [Solution Design](output/solution-design.md): architecture, components, runtime flows, data, and integrations.
+- [Engineering Standards](output/engineering-standards.md): tooling, code conventions, testing, git workflow, and the Definition of Done.
+- [Architecture Decision Records](output/adr/README.md): the reasoning behind each significant technical decision.
 - [Archive](docs/archive/): the original notes and the superseded product requirements.
 
 ### External References
@@ -226,6 +271,8 @@ See the [Product Vision](output/product-vision.md#possible-future-directions) fo
 - [Jev models, limits, and pricing](https://docs.typesafe.ai/models)
 - [TypeSafe API reference](https://docs.typesafe.ai/api)
 - [Apps Script quotas](https://developers.google.com/apps-script/guides/services/quotas)
+- [Gmail API: synchronizing clients (history)](https://developers.google.com/workspace/gmail/api/guides/sync)
+- [Gmail API scopes](https://developers.google.com/workspace/gmail/api/auth/scopes)
 - [Gmail search operators](https://support.google.com/mail/answer/7190)
 
 ## License
