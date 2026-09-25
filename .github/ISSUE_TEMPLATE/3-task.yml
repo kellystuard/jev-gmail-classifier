@@ -1,0 +1,29 @@
+name: Task
+description: One PR's worth of work. Belongs to one story.
+title: "<imperative: what to do>"
+labels: ["type: task"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Link this task to its story as a **sub-issue**. The PR that does it says `Closes #<this issue>`.
+  - type: textarea
+    id: work
+    attributes:
+      label: Work
+      description: What to change, and where.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      value: |
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: References, open questions, or constraints.

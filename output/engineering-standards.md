@@ -154,3 +154,21 @@ A story is done when:
 1. **Tests pass, lint is clean, and the typecheck passes** locally and in CI. Tests follow [§8](#8-testing).
 2. **The documentation is updated in the same PR:** README, PDD, Solution Design, or an ADR, whichever the change affects. That includes new events, state keys, and settled starting values.
 3. **New config fields** are in the Zod schema, `config.example.yaml`, the README table, and the PDD §5 table.
+
+## 13. Work Tracking
+
+Work is tracked in GitHub Issues on this repository, in the **Jev v1** Project, under the **v1.0** milestone.
+
+- **Three levels**, marked by one label each and linked as **sub-issues**:
+
+  | Level | Label | Is | Closes when |
+  |-------|-------|----|-------------|
+  | Epic | `type: epic` | One of E1–E10 from [PDD §14](product-design-document.md#14-epics), with the same name and dependencies. | All its stories are closed. |
+  | Story | `type: story` | An outcome that can be shown or tested, with acceptance criteria traced to the design documents. The [Definition of Done](#12-definition-of-done) applies to it. | All its tasks are closed and its acceptance criteria are checked. |
+  | Task | `type: task` | One PR's worth of work. | Its PR merges (`Closes #N` in the PR description). |
+
+  Bugs use the `bug` label and may sit under a story or stand alone.
+- **Every issue** is opened from its form in `.github/ISSUE_TEMPLATE/`, has exactly one type label, and (except epics and standalone bugs) has one parent.
+- **Dependencies** between epics are written in the epic's "Depends on" field. A task that can't start until another closes says so in its Notes.
+- **The Project** holds every issue. Its `Status` field (Todo, In progress, Done) is the one place to see what's in flight.
+- **Changing the plan.** When an epic settles a detail that changes later work, update the affected stories and tasks in the same PR or right after it merges.
