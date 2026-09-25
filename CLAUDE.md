@@ -18,7 +18,7 @@ The v1 work lives in GitHub, in the **[Jev v1](https://github.com/users/kellystu
   - **Task** (`type: task`): one PR's worth of work, under one story.
 
   Stories and tasks are #17–#160.
-- **New issues** come from the forms in `.github/ISSUE_TEMPLATE/`. Each gets its type label, the `v1.0` milestone, a parent via the sub-issues API, and a place on the Project.
+- **New issues** come from the forms in `.github/ISSUE_TEMPLATE/`. Each gets its type label, the `v1.0` milestone, a parent via the sub-issues API, a place on the Project, and the matching Project `Level` value (🟣 Epic, 🔷 Story, ✅ Task; field `PVTSSF_lAHOACXgPs4Bktm_zhjdVrc`, set with `gh project item-edit`).
 - **PRs:** each PR closes one task (`Closes #N`). Move items through the Project's Status field (Todo, In Progress, Done).
 - **Tooling note:** the local `gh` (2.45) has no `--parent` flag, so link a sub-issue with `gh api -X POST repos/kellystuard/jev-gmail-classifier/issues/<parent>/sub_issues -F sub_issue_id=<child's numeric id>`. The ID is the issue's `id` field, not its number. Project commands need the `project` token scope.
 
