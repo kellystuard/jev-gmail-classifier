@@ -1,0 +1,38 @@
+name: Story
+description: An outcome that can be shown or tested. Belongs to one epic; its tasks are sub-issues.
+title: "<outcome, in plain words>"
+labels: ["type: story"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Link this story to its epic as a **sub-issue**, and its tasks to it the same way.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What is true when this story is done, from the user's or the system's point of view.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checkable statements, each traceable to a design document.
+      value: |
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: PDD, Solution Design, and ADR sections.
+  - type: checkboxes
+    id: dod
+    attributes:
+      label: Definition of Done (Engineering Standards §12)
+      options:
+        - label: Tests pass, lint is clean, and the typecheck passes locally and in CI.
+        - label: Documentation is updated in the same PR (README, PDD, Solution Design, or an ADR).
+        - label: New config fields are in the Zod schema, `config.example.yaml`, the README table, and the PDD §5 table.

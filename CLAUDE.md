@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Design phase: no code, build tooling, or tests exist yet. The repo is documentation only. There are no build/lint/test commands to run. When code is added (E2), the planned commands are `npm run build`, `npm run lint`, `npm run typecheck`, `npm test`, `npm run probe`, and `npm run push` (see `output/engineering-standards.md` §2); update this file once they exist.
 
+## Work tracking
+
+Work is planned as Epics → Stories → Tasks in GitHub Issues (type labels plus sub-issues), in the **Jev v1** Project and the **v1.0** milestone. The conventions are in `output/engineering-standards.md` §13. Each PR closes one task.
+
 ## Source-of-truth documents
 
 Read them in this order. A higher document wins when two disagree:
