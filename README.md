@@ -199,6 +199,7 @@ Published [quotas](https://developers.google.com/apps-script/guides/services/quo
 | Total trigger runtime | 90 min / day         | 6 hr / day        |
 | `UrlFetchApp` calls   | 20,000 / day         | 100,000 / day     |
 | Gmail read/write      | 20,000 / day         | 50,000 / day      |
+| Email recipients      | See quota page        | See quota page      |
 
 The default 10-minute trigger fires 144 times a day. On a consumer account, that leaves an average of about 37 seconds per run within the 90-minute daily runtime budget.
 
