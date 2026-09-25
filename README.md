@@ -64,7 +64,7 @@ Emails are ordered newest first. If the thread is too long for [Jev's request li
 
 ### Avoiding reprocessing
 
-After classifying a thread, the script adds a `Jev/Processed` label to it. Adding a label to a thread tags every email in it *at that moment*. Gmail search matches individual emails, so a later reply arrives without the tag. The search for work is therefore:
+After classifying a thread, the script adds a `Jev/Processed` label to it and excludes processed threads from the normal work search:
 
 ```text
 -label:Jev/Processed -label:Jev/Error after:<install date> <exclusion query>
@@ -199,7 +199,6 @@ Published [quotas](https://developers.google.com/apps-script/guides/services/quo
 | Total trigger runtime | 90 min / day         | 6 hr / day        |
 | `UrlFetchApp` calls   | 20,000 / day         | 100,000 / day     |
 | Gmail read/write      | 20,000 / day         | 50,000 / day      |
-| Email recipients      | 100 / day            | 1,500 / day       |
 
 The default 10-minute trigger fires 144 times a day. On a consumer account, that leaves an average of about 37 seconds per run within the 90-minute daily runtime budget.
 
