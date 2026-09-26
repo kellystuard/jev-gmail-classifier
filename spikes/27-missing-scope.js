@@ -291,11 +291,16 @@ function s27_probe_(context) {
     return ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); });
   });
 
-  // P7: create a one-off trigger, then delete it (script.scriptapp)
+  // P7: create a one-off trigger, then delete it (script.scriptapp). Deleting
+  // the object create() returned fails with a bare HTTP 500 in the same
+  // execution (spikes/README.md, Limits), so delete the getProjectTriggers() copy.
   p.P7 = s27_try_(function () {
     var t = ScriptApp.newTrigger('s27_noop').timeBased().after(3600000).create();
+    var id = t.getUniqueId();
     var created = { created: true, handler: t.getHandlerFunction() };
-    ScriptApp.deleteTrigger(t);
+    var copy = ScriptApp.getProjectTriggers().filter(function (x) { return x.getUniqueId() === id; })[0];
+    if (!copy) throw new Error('created trigger not found in getProjectTriggers()');
+    ScriptApp.deleteTrigger(copy);
     created.deleted = true;
     return created;
   });
