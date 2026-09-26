@@ -191,3 +191,4 @@ Copy this for each spike's `spikes/NN-slug.md`:
 | Spike | Task | Result |
 |-------|------|--------|
 | [00-profile](00-profile.md) | #18, #163 | Works: `s00_profile` returned a `historyId` through `node spikes/run.mjs` and the `spikes.yml` workflow (2026-09-26). The runner checks (`163-runner.js`) are recorded there too. |
+| [21-history-expiry](21-history-expiry.md) | #21 | Day 0 (2026-09-26): an expired or future position throws `GoogleJsonResponseException` with `details.code` 404; a non-numeric one gives 400. History reached back about 28 days. 7-day watch in progress. Installs a live daily trigger, `s21_daily`: remove it with `s21_removeTrigger` when the 7-day observation ends. |
