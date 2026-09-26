@@ -436,8 +436,55 @@ function s29_defs_() {
       })
     ]);
   });
-  add('14', 'forward-as-attachment', 'maintainer', 's29-14 forward', null);
+  // Scenario 14 is API-built: Gmail's UI puts "Forward as attachment" in the thread
+  // list, not in the open message's menu, so the maintainer step couldn't be done as
+  // written. This stand-in follows the structure of Gmail's forward-as-attachment
+  // (a multipart/mixed with an alternative body and a message/rfc822 attachment
+  // named <subject>.eml). 14b is the same inner message as an inline message/rfc822
+  // part (no filename, no Content-Disposition), as some other clients send it.
+  add('14', 'forward-as-attachment', 'insert', 's29-14 forward (API-built)', function () {
+    return s29_forward_(true);
+  });
+  add('14b', 'forward-inline-rfc822', 'insert', 's29-14b inline message/rfc822 (API-built)', function () {
+    return s29_forward_(false);
+  });
+  defs['14'].markerOnly = true;
+  defs['14b'].markerOnly = true;
   return defs;
+}
+
+/**
+ * Scenario 14/14b body: an alternative body plus a message/rfc822 part holding a
+ * synthetic inner message (RFC 2047 subject, UTF-8 alternative body with the
+ * marker text). asAttachment adds name/filename and Content-Disposition.
+ */
+function s29_forward_(asAttachment) {
+  var T = s29_texts_();
+  var inner = s29_multi_('alternative', [
+    s29_leaf_({ type: 'text/plain', params: '; charset="UTF-8"', cte: 'base64', text: T.s14innerPlain }),
+    s29_leaf_({ type: 'text/html', params: '; charset="UTF-8"', cte: 'base64', text: T.s14innerHtml })
+  ]);
+  inner.headers = [
+    ['From', s29_encodedWordQ_('José Müller', 'ISO-8859-1') + ' <jose@example.com>'],
+    ['To', 'Recipient <recipient@example.org>'],
+    ['Subject', s29_encodedWordB_('s29-14 inner Größe café 日本')],
+    ['Date', 'Wed, 23 Sep 2026 09:30:00 +0000'],
+    ['Message-ID', '<s29-14-inner@example.com>'],
+    ['MIME-Version', '1.0']
+  ].concat(inner.headers);
+  var rfc = {
+    headers: [['Content-Type', 'message/rfc822' + (asAttachment ? '; name="s29-14 inner.eml"' : '')]],
+    bodyBytes: s29_serialize_(inner),
+    expect: { mimeType: 'message/rfc822', text: null, attachment: asAttachment }
+  };
+  if (asAttachment) rfc.headers.push(['Content-Disposition', 'attachment; filename="s29-14 inner.eml"']);
+  return s29_multi_('mixed', [
+    s29_multi_('alternative', [
+      s29_leaf_({ type: 'text/plain', params: '; charset="UTF-8"', cte: '7bit', text: T.s14outerPlain }),
+      s29_leaf_({ type: 'text/html', params: '; charset="UTF-8"', cte: '7bit', text: T.s14outerHtml })
+    ]),
+    rfc
+  ]);
 }
 
 /** Known source text for every scenario (CRLF line endings, as sent). */
@@ -481,6 +528,10 @@ function s29_texts_() {
     s10: 'Scenario 10: RFC 2047 encoded Subject, From, and To display names. ASCII body.\r\n',
     s11: large.join('\r\n') + '\r\n',
     s12marker: 'Größe café 日本',
+    s14outerPlain: 'Scenario 14: forwarded message attached.\r\n',
+    s14outerHtml: '<div dir="ltr">Scenario 14: forwarded message attached.</div>\r\n',
+    s14innerPlain: 'Inner message of scenario 14. Größe café 日本.\r\n',
+    s14innerHtml: '<div dir="ltr">Inner message of scenario 14. <b>Größe café 日本</b>.</div>\r\n',
     s13plain: 'Scenario 13: synthetic calendar invite.\r\nWhen: 2026-10-01 15:00 UTC.\r\n',
     s13html: '<html><body><p>Scenario 13: synthetic calendar invite.</p><p>When: 2026-10-01 15:00 UTC.</p></body></html>\r\n',
     s13ics: ics
@@ -729,8 +780,8 @@ function s29_findBySubject_(prefix) {
 function s29_inspectThread_(target, ctx) {
   var thread = Gmail.Users.Threads.get('me', target.threadId, { format: 'full' });
   var built = target.def.build ? s29_build_(target.def, 'x', '') : null;
-  var leaves = built ? built.leaves : [];
-  var marker = target.def.method === 'maintainer' ? s29_texts_().s12marker : null;
+  var leaves = built && !target.def.markerOnly ? built.leaves : [];
+  var marker = target.def.method === 'maintainer' || target.def.markerOnly ? s29_texts_().s12marker : null;
   var messages = (thread.messages || []).map(function (m) {
     var parts = [];
     var leafIndex = { i: 0 };
@@ -930,10 +981,12 @@ var s29_ADDRESS_HEADERS = ['from', 'sender', 'reply-to', 'to', 'cc', 'list-unsub
 
 /** {"<partId>": "<decoded text>"} for each text part: known source text, or the decoded text if unknown. */
 function s29_expectedMap_(thread, target, ctx) {
-  var built = target.def.build ? s29_build_(target.def, 'x', '') : null;
+  var built = target.def.build && !target.def.markerOnly ? s29_build_(target.def, 'x', '') : null;
   var leaves = built ? built.leaves : [];
   var map = {};
-  var source = built ? 'spike source text' : 'decoded from the Gmail response (UI-composed; no source text)';
+  var source = built ? 'spike source text'
+    : target.def.markerOnly ? 'decoded from the Gmail response (nested parts; checked by marker)'
+      : 'decoded from the Gmail response (UI-composed; no source text)';
   var multi = (thread.messages || []).length > 1;
   (thread.messages || []).forEach(function (m, mi) {
     var idx = 0;

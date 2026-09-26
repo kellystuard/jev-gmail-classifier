@@ -8,8 +8,8 @@ They come from the spike in [`spikes/29-part-encoding.md`](../../../spikes/29-pa
 
 For each scenario:
 
-- `NN-slug.json`: the scrubbed `threads.get` response, with the same keys, nesting, and `body.data` form (string or byte array) the Advanced Service returned.
-- `NN-slug.expected.json`: `{ "<partId>": "<decoded text>" }` for each text part (`text/*`). For a thread with more than one message, the key is `"<message number>:<partId>"`. The text is the spike's source text, except for the UI-composed scenarios (12 and 14), where it is the decoded text.
+- `NN-slug.json`: the scrubbed `threads.get` response, with the same keys, nesting, and `body.data` form (always a byte array, as the Advanced Service returned it).
+- `NN-slug.expected.json`: `{ "<partId>": "<decoded text>" }` for each text part (`text/*`). For a thread with more than one message, the key is `"<message number>:<partId>"`. The text is the spike's source text, except for scenario 12 (UI-composed) and 14/14b (nested parts), where it is the decoded text, checked against a marker phrase. It includes text parts inside attachments and forwarded messages, so it describes decoding, not what `basic` should send.
 
 | File | Scenario | Covers | Made by (`insert`/`import` by the spike) | Date |
 |------|----------|--------|---------|------|
@@ -28,8 +28,9 @@ For each scenario:
 | [`10-rfc2047-headers.json`](10-rfc2047-headers.json) | 10 | RFC 2047 Subject (folded, B), From (ISO-8859-1 Q), To (UTF-8 Q): values arrive decoded. | insert | 2026-09-26 |
 | [`11-large-plain.json`](11-large-plain.json) | 11 | About 1 MB `text/plain` body, inline (no `attachmentId`). The fixture is 3.6 MB and the expected text 1 MB. | insert | 2026-09-26 |
 | [`13-calendar-invite.json`](13-calendar-invite.json) | 13 | Calendar invite (proxy): `text/calendar` part gets `filename` `invite.ics` and an `attachmentId`; plus `application/ics` attachment. | import | 2026-09-26 |
-| `12-gmail-composed-html.json` | 12 | pending (maintainer UI send) | Gmail web UI | |
-| `14-forward-as-attachment.json` | 14 | pending (maintainer UI send) | Gmail web UI | |
+| [`12-gmail-composed-html.json`](12-gmail-composed-html.json) | 12 | HTML mail composed in Gmail's web UI and sent to itself: Gmail-built `multipart/alternative`, a hard-wrapped plain alternative, and a decoded non-ASCII subject. From/To replaced by the test-account placeholder. | Gmail web UI | 2026-09-26 |
+| [`14-forward-as-attachment.json`](14-forward-as-attachment.json) | 14 | Forward as attachment (**API-built stand-in**): `message/rfc822` attachment expanded into nested parts (`1.0`, `1.0.0`, `1.0.1`); the inner text parts have no `filename` or `attachmentId`. | insert | 2026-09-26 |
+| [`14b-forward-inline-rfc822.json`](14b-forward-inline-rfc822.json) | 14b | The same inner message as an inline `message/rfc822` part (no `filename`, no `attachmentId`), also expanded. | insert | 2026-09-26 |
 
 ## Scrubbing rules
 

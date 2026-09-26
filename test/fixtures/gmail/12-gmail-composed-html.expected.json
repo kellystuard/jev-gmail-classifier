@@ -1,0 +1,4 @@
+{
+  "0": "Synthetic s29-12 body: *bold words* and a link <https://example.com>. Größe\r\ncafé 日本.\r\n",
+  "1": "<div dir=\"ltr\">Synthetic s29-12 body: <b>bold words</b> and <a href=\"https://example.com\">a link</a>. Größe café 日本.</div>\r\n"
+}

@@ -1,0 +1,215 @@
+{
+  "id": "thread-14",
+  "messages": [
+    {
+      "historyId": "1001",
+      "threadId": "thread-14",
+      "sizeEstimate": 1732,
+      "payload": {
+        "parts": [
+          {
+            "filename": "",
+            "body": {
+              "size": 0
+            },
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "multipart/alternative; boundary=\"s29b_alternative_2\""
+              }
+            ],
+            "mimeType": "multipart/alternative",
+            "parts": [
+              {
+                "filename": "",
+                "body": {
+                  "size": 42,
+                  "data": [83,99,101,110,97,114,105,111,32,49,52,58,32,102,111,114,119,97,114,100,101,100,32,109,101,115,115,97,103,101,32,97,116,116,97,99,104,101,100,46,13,10]
+                },
+                "mimeType": "text/plain",
+                "headers": [
+                  {
+                    "value": "text/plain; charset=\"UTF-8\"",
+                    "name": "Content-Type"
+                  },
+                  {
+                    "name": "Content-Transfer-Encoding",
+                    "value": "7bit"
+                  }
+                ],
+                "partId": "0.0"
+              },
+              {
+                "partId": "0.1",
+                "mimeType": "text/html",
+                "headers": [
+                  {
+                    "value": "text/html; charset=\"UTF-8\"",
+                    "name": "Content-Type"
+                  },
+                  {
+                    "name": "Content-Transfer-Encoding",
+                    "value": "7bit"
+                  }
+                ],
+                "filename": "",
+                "body": {
+                  "size": 63,
+                  "data": [60,100,105,118,32,100,105,114,61,34,108,116,114,34,62,83,99,101,110,97,114,105,111,32,49,52,58,32,102,111,114,119,97,114,100,101,100,32,109,101,115,115,97,103,101,32,97,116,116,97,99,104,101,100,46,60,47,100,105,118,62,13,10]
+                }
+              }
+            ],
+            "partId": "0"
+          },
+          {
+            "mimeType": "message/rfc822",
+            "parts": [
+              {
+                "headers": [
+                  {
+                    "value": "\"José Müller\" <jose@example.com>",
+                    "name": "From"
+                  },
+                  {
+                    "name": "To",
+                    "value": "Recipient <recipient@example.org>"
+                  },
+                  {
+                    "name": "Subject",
+                    "value": "s29-14 inner Größe café 日本"
+                  },
+                  {
+                    "name": "Date",
+                    "value": "Wed, 23 Sep 2026 09:30:00 +0000"
+                  },
+                  {
+                    "value": "REDACTED",
+                    "name": "Message-ID"
+                  },
+                  {
+                    "name": "MIME-Version",
+                    "value": "1.0"
+                  },
+                  {
+                    "name": "Content-Type",
+                    "value": "multipart/alternative; boundary=\"s29b_alternative_1\""
+                  }
+                ],
+                "body": {
+                  "size": 0
+                },
+                "filename": "",
+                "mimeType": "multipart/alternative",
+                "parts": [
+                  {
+                    "partId": "1.0.0",
+                    "headers": [
+                      {
+                        "value": "text/plain; charset=\"UTF-8\"",
+                        "name": "Content-Type"
+                      },
+                      {
+                        "value": "base64",
+                        "name": "Content-Transfer-Encoding"
+                      }
+                    ],
+                    "filename": "",
+                    "body": {
+                      "data": [73,110,110,101,114,32,109,101,115,115,97,103,101,32,111,102,32,115,99,101,110,97,114,105,111,32,49,52,46,32,71,114,-61,-74,-61,-97,101,32,99,97,102,-61,-87,32,-26,-105,-91,-26,-100,-84,46,13,10],
+                      "size": 53
+                    },
+                    "mimeType": "text/plain"
+                  },
+                  {
+                    "filename": "",
+                    "partId": "1.0.1",
+                    "mimeType": "text/html",
+                    "body": {
+                      "data": [60,100,105,118,32,100,105,114,61,34,108,116,114,34,62,73,110,110,101,114,32,109,101,115,115,97,103,101,32,111,102,32,115,99,101,110,97,114,105,111,32,49,52,46,32,60,98,62,71,114,-61,-74,-61,-97,101,32,99,97,102,-61,-87,32,-26,-105,-91,-26,-100,-84,60,47,98,62,46,60,47,100,105,118,62,13,10],
+                      "size": 81
+                    },
+                    "headers": [
+                      {
+                        "value": "text/html; charset=\"UTF-8\"",
+                        "name": "Content-Type"
+                      },
+                      {
+                        "name": "Content-Transfer-Encoding",
+                        "value": "base64"
+                      }
+                    ]
+                  }
+                ],
+                "partId": "1.0"
+              }
+            ],
+            "filename": "s29-14 inner.eml",
+            "partId": "1",
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "message/rfc822; name=\"s29-14 inner.eml\""
+              },
+              {
+                "value": "attachment; filename=\"s29-14 inner.eml\"",
+                "name": "Content-Disposition"
+              }
+            ],
+            "body": {
+              "attachmentId": "att-14-1",
+              "size": 750
+            }
+          }
+        ],
+        "filename": "",
+        "body": {
+          "size": 0
+        },
+        "partId": "",
+        "mimeType": "multipart/mixed",
+        "headers": [
+          {
+            "name": "Received",
+            "value": "REDACTED"
+          },
+          {
+            "value": "Synthetic Sender <sender@example.com>",
+            "name": "From"
+          },
+          {
+            "value": "Recipient <recipient@example.org>",
+            "name": "To"
+          },
+          {
+            "value": "s29-14 forward (API-built)",
+            "name": "Subject"
+          },
+          {
+            "name": "Date",
+            "value": "Thu, 24 Sep 2026 12:00:00 +0000"
+          },
+          {
+            "value": "REDACTED",
+            "name": "Message-ID"
+          },
+          {
+            "name": "MIME-Version",
+            "value": "1.0"
+          },
+          {
+            "value": "multipart/mixed; boundary=\"s29b_mixed_3\"",
+            "name": "Content-Type"
+          }
+        ]
+      },
+      "labelIds": [
+        "UNREAD",
+        "INBOX"
+      ],
+      "snippet": "Synthetic snippet for scenario 14, message 1.",
+      "id": "msg-14-1",
+      "internalDate": "1790251200000"
+    }
+  ],
+  "historyId": "1000"
+}

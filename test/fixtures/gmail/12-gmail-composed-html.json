@@ -1,0 +1,97 @@
+{
+  "historyId": "1000",
+  "messages": [
+    {
+      "payload": {
+        "partId": "",
+        "mimeType": "multipart/alternative",
+        "body": {
+          "size": 0
+        },
+        "parts": [
+          {
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain; charset=\"UTF-8\""
+              },
+              {
+                "value": "quoted-printable",
+                "name": "Content-Transfer-Encoding"
+              }
+            ],
+            "filename": "",
+            "mimeType": "text/plain",
+            "partId": "0",
+            "body": {
+              "size": 94,
+              "data": [83,121,110,116,104,101,116,105,99,32,115,50,57,45,49,50,32,98,111,100,121,58,32,42,98,111,108,100,32,119,111,114,100,115,42,32,97,110,100,32,97,32,108,105,110,107,32,60,104,116,116,112,115,58,47,47,101,120,97,109,112,108,101,46,99,111,109,62,46,32,71,114,-61,-74,-61,-97,101,13,10,99,97,102,-61,-87,32,-26,-105,-91,-26,-100,-84,46,13,10]
+            }
+          },
+          {
+            "body": {
+              "data": [60,100,105,118,32,100,105,114,61,34,108,116,114,34,62,83,121,110,116,104,101,116,105,99,32,115,50,57,45,49,50,32,98,111,100,121,58,32,60,98,62,98,111,108,100,32,119,111,114,100,115,60,47,98,62,32,97,110,100,32,60,97,32,104,114,101,102,61,34,104,116,116,112,115,58,47,47,101,120,97,109,112,108,101,46,99,111,109,34,62,97,32,108,105,110,107,60,47,97,62,46,32,71,114,-61,-74,-61,-97,101,32,99,97,102,-61,-87,32,-26,-105,-91,-26,-100,-84,46,60,47,100,105,118,62,13,10],
+              "size": 131
+            },
+            "mimeType": "text/html",
+            "headers": [
+              {
+                "value": "text/html; charset=\"UTF-8\"",
+                "name": "Content-Type"
+              },
+              {
+                "value": "quoted-printable",
+                "name": "Content-Transfer-Encoding"
+              }
+            ],
+            "partId": "1",
+            "filename": ""
+          }
+        ],
+        "filename": "",
+        "headers": [
+          {
+            "value": "1.0",
+            "name": "MIME-Version"
+          },
+          {
+            "name": "Date",
+            "value": "Sat, 26 Sep 2026 12:40:36 -0500"
+          },
+          {
+            "name": "Message-ID",
+            "value": "REDACTED"
+          },
+          {
+            "value": "s29-12 Größe café 日本",
+            "name": "Subject"
+          },
+          {
+            "value": "\"Test Account\" <test-account@example.com>",
+            "name": "From"
+          },
+          {
+            "value": "\"Test Account\" <test-account@example.com>",
+            "name": "To"
+          },
+          {
+            "name": "Content-Type",
+            "value": "multipart/alternative; boundary=\"000000000000b91552065c6654a6\""
+          }
+        ]
+      },
+      "internalDate": "1790444436000",
+      "sizeEstimate": 922,
+      "threadId": "thread-12",
+      "historyId": "1001",
+      "labelIds": [
+        "IMPORTANT",
+        "SENT",
+        "INBOX"
+      ],
+      "snippet": "Synthetic snippet for scenario 12, message 1.",
+      "id": "msg-12-1"
+    }
+  ],
+  "id": "thread-12"
+}
