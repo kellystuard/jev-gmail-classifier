@@ -344,7 +344,12 @@ async function run(s, fn, argsJson) {
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   if (r.status !== 200) {
     const e = r.data?.error ?? {};
-    const hint = r.status === 404 ? ' Hint: if the project has no API-executable deployment, run `node spikes/run.mjs deploy` once.' : hintFor(r.status, String(e.message ?? ''));
+    const hint =
+      r.status === 404
+        ? ' Hint: if the project has no API-executable deployment, run `node spikes/run.mjs deploy` once.'
+        : r.status === 500
+          ? ' Hint: an uncaught internal Apps Script error (such as "Unexpected error while getting the method or property ...") comes back as a bare HTTP 500. Wrap the spike\'s steps in try/catch and return the message to see it.'
+          : hintFor(r.status, String(e.message ?? ''));
     throw new Fail(`scripts.run failed: HTTP ${r.status} ${e.status ?? ''}: ${e.message ?? JSON.stringify(r.data)}.${hint}`);
   }
   // Script errors come back inside an HTTP 200 response.
@@ -440,7 +445,8 @@ async function main(argv) {
 
 export function runMain(fn) {
   fn(process.argv.slice(2)).catch((e) => {
-    note(e instanceof Fail ? e.message : e?.stack ?? String(e));
+    const network = e?.code ?? e?.errors?.[0]?.code;
+    note(e instanceof Fail ? e.message : network ? `Network error (${network}); try again.` : e?.stack ?? String(e));
     process.exitCode = e instanceof Fail ? e.exitCode : 2;
   });
 }

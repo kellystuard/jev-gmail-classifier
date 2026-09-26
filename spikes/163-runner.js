@@ -24,14 +24,67 @@ function s163_echo(input) {
 function s163_trigger() {
   var trigger = ScriptApp.newTrigger('s163_noop').timeBased().everyHours(1).create();
   var id = trigger.getUniqueId();
-  var found = ScriptApp.getProjectTriggers().some(function (t) {
+  var fresh = ScriptApp.getProjectTriggers().filter(function (t) {
     return t.getUniqueId() === id;
   });
-  ScriptApp.deleteTrigger(trigger);
+  var found = fresh.length === 1;
+  // Deleting the object returned by create() in the same execution fails
+  // ("Unexpected error while getting the method or property deleteTrigger"),
+  // so delete the copy returned by getProjectTriggers() instead.
+  fresh.forEach(function (t) {
+    ScriptApp.deleteTrigger(t);
+  });
   var left = ScriptApp.getProjectTriggers().filter(function (t) {
     return t.getHandlerFunction().indexOf('s163_') === 0;
   }).length;
   var result = { created: true, found: found, deleted: left === 0 };
+  console.log(JSON.stringify(result));
+  return result;
+}
+
+/**
+ * s163_triggerSteps: the same as s163_trigger, one step at a time, catching
+ * each step's error, to find which call fails when s163_trigger does.
+ * step: 'list' (default), 'create', or 'cleanup' (deletes s163_ triggers).
+ */
+function s163_triggerSteps(step) {
+  step = step || 'list';
+  var result = { step: step };
+  function mine() {
+    return ScriptApp.getProjectTriggers().filter(function (t) {
+      return t.getHandlerFunction().indexOf('s163_') === 0;
+    });
+  }
+  try {
+    if (step === 'create') {
+      var t = ScriptApp.newTrigger('s163_noop').timeBased().everyHours(1).create();
+      result.createdId = t.getUniqueId();
+    }
+    if (step === 'roundtrip') {
+      result.at = 'create';
+      var rt = ScriptApp.newTrigger('s163_noop').timeBased().everyHours(1).create();
+      result.at = 'getUniqueId';
+      var rtId = rt.getUniqueId();
+      result.at = 'find';
+      result.found = mine().some(function (x) {
+        return x.getUniqueId() === rtId;
+      });
+      result.at = 'delete';
+      ScriptApp.deleteTrigger(rt);
+      result.at = 'done';
+    }
+    if (step === 'cleanup') {
+      var list = mine();
+      list.forEach(function (t) {
+        ScriptApp.deleteTrigger(t);
+      });
+      result.deleted = list.length;
+    }
+    result.s163Triggers = mine().length;
+    result.allTriggers = ScriptApp.getProjectTriggers().length;
+  } catch (e) {
+    result.error = String(e && e.message ? e.message : e);
+  }
   console.log(JSON.stringify(result));
   return result;
 }

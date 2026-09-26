@@ -68,7 +68,11 @@ jobs:
           {
             echo "### Spike \`$FUNCTION\` (exit $code)"
             echo
-            if [ -s "$RUNNER_TEMP/result.json" ]; then
+            # The job summary holds at most 1 MiB; larger results are in the log only.
+            size=$(wc -c < "$RUNNER_TEMP/result.json")
+            if [ "$size" -gt 900000 ]; then
+              echo "Result is $size bytes, too large for the summary; see the job log."
+            elif [ "$size" -gt 0 ]; then
               echo '```json'; cat "$RUNNER_TEMP/result.json"; echo '```'
             fi
             if [ -s "$RUNNER_TEMP/stderr.txt" ]; then

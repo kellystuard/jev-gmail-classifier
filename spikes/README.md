@@ -109,9 +109,10 @@ Consequences to know:
 
 - **6 minutes per execution**, as in the editor. The runner waits up to 7 minutes. Design long spikes as several calls, or as triggers that store results in `sNN.` Script Properties.
 - **Only return values come back.** `console.log` output goes to Cloud Logging, not the API response. Parameters and return values must be plain JSON types (strings, numbers, booleans, arrays, objects).
-- **Response size.** Google documents no limit for `scripts.run`. The runner prints the response size to stderr after each run. The measured behavior is recorded in [00-profile.md](00-profile.md#automated-run) (`s163_echo` with `{"bytes": N}`); keep results well under that, and summarize large ones.
-- **Parallel runs are fine.** The runner keeps no temp files or locks; each process refreshes its own access token.
-- **Triggers.** A function run through the API can create and delete time-driven triggers (`s163_trigger` checks this). Triggers then run as the test account on the project's current code.
+- **Response size.** Google documents no limit for `scripts.run`, and none was hit: `s163_echo` returned 100 MB in 4.3 s (2026-09-26, [00-profile.md](00-profile.md#automated-run)). The practical limits are elsewhere: the Actions **job summary holds at most 1 MiB** (the workflow puts larger results in the log only), and big results are hard to read. Return summaries and counts, not raw lists. The runner prints each response's size to stderr.
+- **Parallel runs are fine.** The runner keeps no temp files or locks; each process refreshes its own access token. Two concurrent `run`s were tested.
+- **Script errors.** A thrown JavaScript error comes back as `USER_ERROR` with the message and stack, and `run` exits 1. An *internal* Apps Script error (for example "Unexpected error while getting the method or property …") comes back as a bare **HTTP 500 INTERNAL** with no details. If a spike gets one, wrap its steps in `try`/`catch` and return the message.
+- **Triggers.** A function run through the API can create and delete time-driven triggers (`s163_trigger` checks this). Triggers then run as the test account on the project's current code. **Pitfall:** deleting the `Trigger` object returned by `create()` in the same execution fails with an internal error (HTTP 500). Delete the copy returned by `ScriptApp.getProjectTriggers()` instead, matched by `getUniqueId()` or handler name.
 
 ### GitHub Actions
 
@@ -152,7 +153,7 @@ Do these once, **signed in as the test account** throughout, so that it owns the
 
 After that, `node spikes/run.mjs check` should report the account match, six scopes, and the project's files, and `node spikes/run.mjs run s00_profile` should return a `historyId`.
 
-**If `run` returns HTTP 404** even though `check` works, the project may need an API-executable deployment: run `node spikes/run.mjs deploy` once (the token already carries `script.deployments` for this). `devMode` still runs the latest pushed code, not the deployed version.
+**No versioned deployment is needed.** With `"executionApi": { "access": "MYSELF" }` in the manifest, the project's HEAD deployment has an `EXECUTION_API` entry point, and `scripts.run` with `devMode: true` on the script ID works (verified 2026-09-26). `node spikes/run.mjs deploy` is a fallback only, in case `run` ever returns HTTP 404 while `check` works.
 
 ### Revoking and re-minting the token
 
@@ -189,4 +190,4 @@ Copy this for each spike's `spikes/NN-slug.md`:
 
 | Spike | Task | Result |
 |-------|------|--------|
-| [00-profile](00-profile.md) | #18 | Manual runbook documented; first run recorded by #163. |
+| [00-profile](00-profile.md) | #18, #163 | Works: `s00_profile` returned a `historyId` through `node spikes/run.mjs` (2026-09-26). The runner checks (`163-runner.js`) are recorded there too. |
