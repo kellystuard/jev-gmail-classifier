@@ -52,12 +52,13 @@ function s20_setup(args) {
         references: refs.length ? refs.join(' ') : null
       }, threadId);
       ids.push(m.id);
+      if (!map._importResponseKeys) map._importResponseKeys = m.responseKeys;
       threadId = threadId || m.threadId;
       lastHeader = m.messageIdHeader;
       refs.push(m.messageIdHeader);
       if (m.threadId !== threadId) map[sc + '-threadMismatch'] = true;
     }
-    var t = Gmail.Users.Threads.modify({ addLabelIds: [label.id] }, 'me', threadId);
+    var t = s20_retry_(function () { return Gmail.Users.Threads.modify({ addLabelIds: [label.id] }, 'me', threadId); });
     map[sc] = {
       threadId: threadId,
       messageIds: ids,
@@ -291,6 +292,35 @@ function s20_state(args) {
   return s20_out_({ labelId: label && label.id, threads: threads }, null);
 }
 
+/**
+ * How to build a thread with import: a new message, then replies built three
+ * ways (headers only; headers + resource.threadId; threadId only). Returns
+ * each outcome and the resulting threadId. Subjects start E1-20-P.
+ */
+function s20_probeImport(args) {
+  var ctx = s20_ctx_();
+  var out = {};
+  var tryImport = function (key, o, resource) {
+    try {
+      var built = s20_raw_(ctx, o);
+      var m = Gmail.Users.Messages['import'](resource, 'me', Utilities.newBlob(built.raw, 'message/rfc822'), { neverMarkSpam: true });
+      out[key] = { ok: true, responseKeys: Object.keys(m).sort(), id: m.id, threadId: m.threadId || null, header: built.messageIdHeader };
+      if (!m.threadId) out[key].threadIdFromGet = Gmail.Users.Messages.get('me', m.id, { format: 'minimal' }).threadId;
+    } catch (e) {
+      out[key] = { ok: false, error: s20_err_(e) };
+    }
+    return out[key];
+  };
+  var subject = 'E1-20-P import threading';
+  var a = tryImport('newMessage', { tag: 'P-a', from: 'alice@example.com', subject: subject }, { labelIds: ['INBOX', 'UNREAD'] });
+  var tid = a.threadId || a.threadIdFromGet;
+  tryImport('replyHeadersOnly', { tag: 'P-b', from: 'bob@example.com', subject: 'Re: ' + subject, inReplyTo: a.header, references: a.header }, { labelIds: ['INBOX', 'UNREAD'] });
+  tryImport('replyHeadersAndThreadId', { tag: 'P-c', from: 'carol@example.com', subject: 'Re: ' + subject, inReplyTo: a.header, references: a.header }, { labelIds: ['INBOX', 'UNREAD'], threadId: tid });
+  tryImport('replyThreadIdOnly', { tag: 'P-d', from: 'dave@example.com', subject: 'Re: ' + subject }, { labelIds: ['INBOX', 'UNREAD'], threadId: tid });
+  tryImport('replyHeadersNoLabels', { tag: 'P-e', from: 'erin@example.com', subject: 'Re: ' + subject, inReplyTo: a.header, references: a.header }, {});
+  return s20_out_({ expectedThreadId: tid, results: out }, ctx);
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -352,8 +382,8 @@ function s20_ctx_() {
   return { address: Gmail.Users.getProfile('me').emailAddress };
 }
 
-/** Messages.import(resource, userId, mediaData, optionalArgs), neverMarkSpam. */
-function s20_import_(ctx, o, threadId) {
+/** Build an RFC 2822 message: {raw, messageIdHeader}. */
+function s20_raw_(ctx, o) {
   var messageIdHeader = '<e1-20-' + o.tag.toLowerCase() + '-' + Date.now() + '-' +
     Math.floor(Math.random() * 1e6) + '@example.com>';
   var lines = [
@@ -367,11 +397,44 @@ function s20_import_(ctx, o, threadId) {
   if (o.references) lines.push('References: ' + o.references);
   lines.push('MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8', '',
     'Synthetic test message for spike #20 (' + o.tag + ').\r\n');
-  var resource = { labelIds: ['INBOX', 'UNREAD'] };
-  if (threadId) resource.threadId = threadId;
-  var blob = Utilities.newBlob(lines.join('\r\n'), 'message/rfc822');
-  var m = Gmail.Users.Messages['import'](resource, 'me', blob, { neverMarkSpam: true });
-  return { id: m.id, threadId: m.threadId, labelIds: m.labelIds || [], messageIdHeader: messageIdHeader };
+  return { raw: lines.join('\r\n'), messageIdHeader: messageIdHeader };
+}
+
+/**
+ * Messages.import(resource, userId, mediaData, optionalArgs), neverMarkSpam.
+ * Replies join a thread through In-Reply-To/References and the subject;
+ * threadId is only the expected thread (see s20_probeImport for why it
+ * isn't sent). The response may lack threadId/labelIds; if so they are read
+ * back with Messages.get.
+ */
+function s20_import_(ctx, o, threadId) {
+  var built = s20_raw_(ctx, o);
+  var blob = Utilities.newBlob(built.raw, 'message/rfc822');
+  var m = s20_retry_(function () {
+    return Gmail.Users.Messages['import']({ labelIds: ['INBOX', 'UNREAD'] }, 'me', blob, { neverMarkSpam: true });
+  });
+  var responseKeys = Object.keys(m).sort();
+  if (!m.threadId) m = Gmail.Users.Messages.get('me', m.id, { format: 'minimal' });
+  return { id: m.id, threadId: m.threadId, labelIds: m.labelIds || [], messageIdHeader: built.messageIdHeader, responseKeys: responseKeys };
+}
+
+/**
+ * Retry fn on Gmail's per-user rate limit ("Quota exceeded ... per minute per
+ * user", 429, or 403 rateLimitExceeded), which every spike on the account
+ * shares. Waits 20 s, 40 s, 60 s.
+ */
+function s20_retry_(fn) {
+  for (var attempt = 1; ; attempt++) {
+    try {
+      return fn();
+    } catch (e) {
+      var code = e && e.details && e.details.code;
+      var msg = String(e && e.message);
+      var rate = code === 429 || /Quota exceeded|rateLimitExceeded|User-rate limit/i.test(msg);
+      if (!rate || attempt > 3) throw e;
+      Utilities.sleep(20000 * attempt);
+    }
+  }
 }
 
 function s20_props_() {
