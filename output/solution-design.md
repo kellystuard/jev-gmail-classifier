@@ -295,7 +295,13 @@ sequenceDiagram
   - The change applies to every message in the thread, including the user's own sent messages. They get `SPAM` or `TRASH` and keep `SENT`.
   - Repeating a call is safe: no error, no change, and no history record. A move creates only `labelsAdded`/`labelsRemoved` history records, one per label, never `messagesAdded`, so E3 doesn't re-queue a thread the classifier just moved.
   - A later reply lands in the Inbox whatever the move was, including Spam and Trash, and doesn't get the thread's labels. The earlier messages stay where they were. The reply is then reclassified for labels only (seen with self-sent replies).
-- **Labels.** Label IDs are looked up once per run from `labels.list`. Missing labels, including nested names like `Finance/Bill`, are created.
+- **Labels.** Label IDs are looked up once per run from `labels.list`. It returns every label in one response, with no paging. Missing labels, including nested names like `Finance/Bill`, are created. Corrected by E1 ([`spikes/25-nested-labels.md`](../spikes/25-nested-labels.md)):
+  - Gmail doesn't create parents: `Finance/Bill` is created alone. The web UI nests a label only under ancestors that exist, and otherwise shows it flat with its full name. So missing ancestors are created top-down first (`Finance`, then `Finance/Bill`). A parent is cosmetic, so a failure to create one doesn't block the leaf.
+  - Names are compared case-insensitively, with spaces around `/` ignored. Gmail treats `finance/bill` and `Finance / Bill` as the existing `Finance/Bill`.
+  - A 409 "Label name exists or conflicts" on create means the label already exists. The cache is refreshed and the name is looked up once more.
+  - Labels are applied by ID only: a name gives 400 "Invalid label", and a stale ID gives 400 "labelId not found".
+  - Reserved names such as `Inbox` or `Spam` give 400 "Invalid label name". The config schema rejects them.
+  - A label can be created and applied in the same run.
 - **Never removed.** The classifier never removes a classification label, and it never removes `Jev/Error`.
 - **Missing scope.** If an action fails because a scope isn't granted, the per-action result is `scope`. Labels that could be applied are applied, the move is skipped, and `moveSkipped: "scope"` is logged. The thread counts as handled, so it isn't re-sent to Jev every run, and a `scope_missing` alert is queued. After the user fixes the scope, a manual run with `applyMoves` redoes the moves ([ADR-0003](adr/0003-advanced-gmail-service-and-scopes.md)).
 

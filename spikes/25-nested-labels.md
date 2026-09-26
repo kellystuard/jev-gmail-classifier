@@ -1,7 +1,7 @@
 # 25: Nested label creation and label ID lookup
 
 - Task: #25
-- Date run: 2026-09-26 (UI observations and cleanup: pending)
+- Date run: 2026-09-26
 - Account: `<test-account>` (consumer)
 - Run by: agent via #163 (`node spikes/run.mjs`), plus the maintainer's Gmail web UI observations
 - Test thread: synthetic messages (3, grouped by subject; see the notes under Results), created with `Gmail.Users.Messages.import` (placeholder From `s25-sender@example.test`, `neverMarkSpam: true`, labels `INBOX`, `UNREAD`)
@@ -49,22 +49,22 @@ Asked for in one PR comment after runbook steps 1–4, not before (there is noth
 
 ## Results
 
-Run 2026-09-26 through `node spikes/run.mjs`. Every failure is a `GoogleJsonResponseException` whose `e.message` is `API call to gmail.users.<method> failed with error: <text>`; the table gives `<text>`, and `e.details` holds `{code, message, errors: [{domain: "global", reason, message}]}`. Labels created through the API had `labelListVisibility: labelShow` and `messageListVisibility: show` in every case. `labels.create` doesn't return `type` (`labels.list` gives `user`). The UI column is pending the maintainer's observations.
+Run 2026-09-26 through `node spikes/run.mjs`. The UI column comes from the maintainer's two screenshots (17:58Z): the left-hand label list, expanded ("Less" shown, so nothing hidden under "More"), and the open test thread. Every failure is a `GoogleJsonResponseException` whose `e.message` is `API call to gmail.users.<method> failed with error: <text>`; the table gives `<text>`, and `e.details` holds `{code, message, errors: [{domain: "global", reason, message}]}`. Labels created through the API had `labelListVisibility: labelShow` and `messageListVisibility: show` in every case. `labels.create` doesn't return `type` (`labels.list` gives `user`).
 
 | # | Input | Result (ok / HTTP status) | Returned `id` | Returned `name` | Visibility fields | `e.name` and `e.message` | Gmail web UI observation |
 |---|-------|---------------------------|---------------|-----------------|-------------------|--------------------------|--------------------------|
-| 1 | create `S25none/B/C` | ok | `Label_8` | `S25none/B/C` | `labelShow` / `show` | — | (pending) |
-| 2 | list; then create `S25none/B`, `S25none` | list: neither parent exists; both creates ok | `Label_9`, `Label_10` | `S25none/B`, `S25none` | `labelShow` / `show` | — (**no parents were auto-created**, so creating them later succeeds) | (pending) |
-| 3 | create `S25some`, then `S25some/B/C` | ok, ok | `Label_11`, `Label_12` | as input | `labelShow` / `show` | — (`S25some/B` was not created) | (pending) |
-| 4 | create `S25all`, `S25all/B`, `S25all/B/C` | ok ×3 | `Label_13`–`Label_15` | as input | `labelShow` / `show` | — | (pending) |
+| 1 | create `S25none/B/C` | ok | `Label_8` | `S25none/B/C` | `labelShow` / `show` | — | Nested: `S25none` › `B` › `C`, because the parents were created afterwards (case 2). No parent appeared that the script didn't create. |
+| 2 | list; then create `S25none/B`, `S25none` | list: neither parent exists; both creates ok | `Label_9`, `Label_10` | `S25none/B`, `S25none` | `labelShow` / `show` | — (**no parents were auto-created**, so creating them later succeeds) | Nested (see case 1). |
+| 3 | create `S25some`, then `S25some/B/C` | ok, ok | `Label_11`, `Label_12` | as input | `labelShow` / `show` | — (`S25some/B` was not created) | Nested one level: `S25some` › **`B/C`**. With `S25some/B` missing, the UI shows the rest of the path as one child; it invents no `B`. |
+| 4 | create `S25all`, `S25all/B`, `S25all/B/C` | ok ×3 | `Label_13`–`Label_15` | as input | `labelShow` / `show` | — | Nested: `S25all` › `B` › `C`. |
 | 5 | create `S25all/B/C` again | **409** | — | — | — | `GoogleJsonResponseException`: `Label name exists or conflicts` (`reason: aborted`) | — |
 | 6 | create `s25all/b/c`, `S25ALL` | **409**, **409** | — | — | — | `Label name exists or conflicts` (`reason: aborted`) for both: **names are case-insensitive** | — |
-| 7 | create `Inbox`, `INBOX`, `inbox`, `Spam`, `Trash`, `Sent`, `Drafts`, `Starred`, `Important`, `Unread`, `Chats`, `Social` | **400** for all but `Social`; `Social` ok | `Social`: `Label_16` | `Social` | `labelShow` / `show` | `Invalid label name` (`reason: invalidArgument`) for `Inbox`, `INBOX`, `inbox`, `Spam`, `Trash`, `Sent`, `Drafts`, `Starred`, `Important`, `Unread`, `Chats` | (pending: does `Social` clash with the category?) |
-| 8 | create `Inbox/S25x`, `Spam/S25x` | ok, ok | `Label_17`, `Label_18` | as input | `labelShow` / `show` | — (a reserved name is allowed as a **parent** segment) | (pending) |
-| 9 | create `S25odd/`, `/S25odd`, `S25odd//X`, `S25odd / X`, `S25odd/ X` | ok ×4, then **409** | `Label_19`–`Label_22` | stored **exactly as given** (no trimming or collapsing) | `labelShow` / `show` | `S25odd/ X`: `Label name exists or conflicts`: it conflicts with `S25odd / X`, so Gmail compares names ignoring spaces around `/` | (pending) |
-| 10 | create `S25vis` (name only), `S25vis2` (`labelShow`, `show`) | ok, ok | `Label_23`, `Label_24` | as input | **both** `labelShow` / `show`: the defaults already show the label | — | (pending: is `S25vis` shown?) |
+| 7 | create `Inbox`, `INBOX`, `inbox`, `Spam`, `Trash`, `Sent`, `Drafts`, `Starred`, `Important`, `Unread`, `Chats`, `Social` | **400** for all but `Social`; `Social` ok | `Social`: `Label_16` | `Social` | `labelShow` / `show` | `Invalid label name` (`reason: invalidArgument`) for `Inbox`, `INBOX`, `inbox`, `Spam`, `Trash`, `Sent`, `Drafts`, `Starred`, `Important`, `Unread`, `Chats` | `Social` appears as an ordinary user label. The screenshot doesn't show the Categories section, so whether it looks confusable with the Social category can't be judged from it. |
+| 8 | create `Inbox/S25x`, `Spam/S25x` | ok, ok | `Label_17`, `Label_18` | as input | `labelShow` / `show` | — (a reserved name is allowed as a **parent** segment) | Both **flat** user labels (`Inbox/S25x`, `Spam/S25x`), not nested under the system Inbox or Spam. |
+| 9 | create `S25odd/`, `/S25odd`, `S25odd//X`, `S25odd / X`, `S25odd/ X` | ok ×4, then **409** | `Label_19`–`Label_22` | stored **exactly as given** (no trimming or collapsing) | `labelShow` / `show` | `S25odd/ X`: `Label name exists or conflicts`: it conflicts with `S25odd / X`, so Gmail compares names ignoring spaces around `/` | `/S25odd` flat. `S25odd//X` nested under `S25odd/` and shown as **`/X`**. `S25odd / X` flat. (`S25odd/ X` was never created.) |
+| 10 | create `S25vis` (name only), `S25vis2` (`labelShow`, `show`) | ok, ok | `Label_23`, `Label_24` | as input | **both** `labelShow` / `show`: the defaults already show the label | — | Both `S25vis` and `S25vis2` shown in the label list. |
 | 11 | `labels.list` shape | ok | user IDs all `Label_<n>`; system IDs are names (`INBOX`, `SPAM`, `CATEGORY_SOCIAL`, …) | full path with slashes, for example `S25none/B/C` | `labelShow` / `show`, `type: user` | response keys: `labels` only; **no `nextPageToken`** (38 labels in the account) | — |
-| 12 | create `S25apply/X/Y` (no parents) and apply it by ID in the same execution; apply `S25none/B/C` by ID | ok, ok, ok | `Label_25` | `S25apply/X/Y` | `labelShow` / `show` | — (every message in the thread got `Label_25` and `Label_8`) | (pending: does the UI invent `S25apply` parents?) |
+| 12 | create `S25apply/X/Y` (no parents) and apply it by ID in the same execution; apply `S25none/B/C` by ID | ok, ok, ok | `Label_25` | `S25apply/X/Y` | `labelShow` / `show` | — (every message in the thread got `Label_25` and `Label_8`) | `S25apply/X/Y` shown **flat**, with its full name: no `S25apply` or `S25apply/X` parent appears. The thread shows the chips `Inbox`, `S25apply/X/Y`, `S25none/B/C` (maintainer: "Confirmed"). |
 | 13 | `threads.modify` `addLabelIds: ['S25none/B/C']` (a name) | **400** | — | — | — | `Invalid label: S25none/B/C` (`reason: invalidArgument`); the thread is unchanged | — |
 | 14 | `threads.modify` `addLabelIds: ['Label_999999999']` | **400** | — | — | — | `labelId not found` (`reason: invalidArgument`); the thread is unchanged | — |
 
@@ -811,20 +811,32 @@ Results from `node spikes/run.mjs`, reduced to the fields that matter. Error det
 
 ## Conclusion
 
-(Final after the maintainer's UI observations and cleanup.)
-
-- **Are parents auto-created?** No. `labels.create` for `A/B/C` succeeds without `A` or `A/B` and creates only `A/B/C` (cases 1, 3, 12). Creating a parent later succeeds (case 2). Whether the web UI still nests the label under a parent it shows is pending.
-- **Are names case-insensitive?** Yes. `s25all/b/c` and `S25ALL` conflict with the existing labels (409). Gmail also ignores spaces around `/` when it compares names (case 9).
+- **Are parents auto-created?** No. `labels.create` for `A/B/C` succeeds without `A` or `A/B` and creates only `A/B/C` (cases 1, 3, 12). The **web UI nests a label only under ancestors that exist:**
+  - `S25apply/X/Y` (no parents) is shown flat, with its full name.
+  - `S25some/B/C` (only `S25some`) is shown as `B/C` under `S25some`.
+  - Creating the parents later nests the label (`S25none` › `B` › `C`).
+  - The API doesn't need parents; only the display does.
+- **Are names case-insensitive?** Yes. `s25all/b/c` and `S25ALL` conflict with the existing labels (409). Gmail also ignores spaces around `/` when it compares names: `S25odd/ X` conflicts with `S25odd / X` (case 9). Names are stored exactly as given, spaces and empty segments included.
 - **What each failure returns:**
   - duplicate or case variant: 409 `Label name exists or conflicts` (`reason: aborted`)
-  - reserved name: 400 `Invalid label name` (`reason: invalidArgument`) for `Inbox` (any case), `Spam`, `Trash`, `Sent`, `Drafts`, `Starred`, `Important`, `Unread`, `Chats`; `Social` and reserved names used as a parent segment (`Inbox/S25x`) are allowed
+  - reserved name: 400 `Invalid label name` (`reason: invalidArgument`) for `Inbox` (any case), `Spam`, `Trash`, `Sent`, `Drafts`, `Starred`, `Important`, `Unread`, `Chats`. `Social` is allowed. A reserved name used as a parent segment is allowed too (`Inbox/S25x`), but it's shown as a flat user label, not under the system Inbox.
   - a name in place of an ID: 400 `Invalid label: <name>`
   - unknown ID: 400 `labelId not found`
-- **Visibility on create:** a name-only create already gets `labelShow` / `show`. E6 can pass both explicitly anyway, so the result doesn't depend on a default.
-- **Create-then-apply in one execution:** works (case 12).
+- **Visibility on create:** a name-only create already gets `labelShow` / `show`, and the label is shown. E6 can pass both explicitly anyway, so the result doesn't depend on a default.
+- **Create-then-apply in one execution:** works (case 12). The UI shows the applied labels on the thread.
 
-**For E6 (#106):** create missing labels by name, and look names up case-insensitively, with spaces around `/` ignored. Treat a 409 on create as "exists": refresh the cache from `labels.list` and look it up again once. Whether E6 must also create parents depends on the pending UI observations (for the web UI's nesting only; the API doesn't need them). **For #41 (config schema):** reject label names that are reserved (`Inbox`, `Spam`, `Trash`, `Sent`, `Drafts`, `Starred`, `Important`, `Unread`, `Chats`, any case), and reject two rules whose labels differ only in case or in spaces around `/`.
+**For E6 (#106):**
+- Create missing ancestors top-down before the label itself (`Finance`, then `Finance/Bill`), so the label list nests the way the user wrote it. Parents are cosmetic, so a failure to create one shouldn't block the leaf.
+- Look names up case-insensitively, with spaces around `/` ignored.
+- Treat a 409 on create as "already exists": refresh the cache from `labels.list` and look the name up once more.
+- `labels.list` returns every label in one response: there's no `nextPageToken` to page.
+
+**For #41 (config schema):** reject label names that are reserved (`Inbox`, `Spam`, `Trash`, `Sent`, `Drafts`, `Starred`, `Important`, `Unread`, `Chats`, any case), and names with empty segments or a leading or trailing `/`. Also reject two rules whose labels differ only in case or in spaces around `/`.
 
 ## Design changes
 
-(Pending: SD §6.5 "Labels" bullet; #106 and #41.)
+- **SD §6.5 "Labels":** corrected. Gmail doesn't create parents, and the web UI nests a label only under existing ones, so E6 creates missing ancestors top-down. The bullet also records case-insensitive matching and the 409 handling, with "Confirmed by E1".
+- **#106:** updated with the creation and lookup rules above.
+- **#41:** updated with the validation rules above.
+- **No ADR:** ADR-0003's per-run label cache stands.
+- **Cleanup (21:45Z):** `s25_cleanup` deleted all 18 labels (every `S25` label, plus `Social`) with no failures, and `s25_listSpikeLabels` then returned none. The imported test thread (3 messages) is left in the Inbox.
