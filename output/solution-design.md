@@ -277,11 +277,15 @@ sequenceDiagram
   - A rule fires when `p ≥ (rule.threshold ?? defaultThreshold)`.
   - Every firing label rule contributes its label.
   - Moves are considered only if the item is a first classification, or a manual job with `applyMoves`. When they are, the **first** firing move rule in config order wins.
-- **Apply** (`GmailPort`). Adding labels and removing `INBOX` go into as few `threads.modify` calls as possible:
+- **Apply** (`GmailPort`). Every label add and the move go into **one** `threads.modify` call. Confirmed by E1 ([`spikes/26-moves.md`](../spikes/26-moves.md)):
   - `archive` removes `INBOX`.
-  - `spam` adds `SPAM` and removes `INBOX`.
+  - `spam` adds `SPAM` and removes `INBOX`. Adding `SPAM` alone also removes `INBOX`, so sending both is harmless. Gmail then shows the thread as reported by the user ([§14](#14-technical-risks-and-items-to-verify)).
   - `label:<name>` adds the label and removes `INBOX`.
-  - `trash` calls `threads.trash`.
+  - `trash` adds `TRASH` in the same call. It gives the same labels as `threads.trash` (both remove `INBOX`), which stays an equivalent second call if E6 prefers it.
+  - User labels are kept in Spam and Trash, and can be added after a thread is trashed.
+  - The change applies to every message in the thread, including the user's own sent messages. They get `SPAM` or `TRASH` and keep `SENT`.
+  - Repeating a call is safe: no error, no change, and no history record. A move creates only `labelsAdded`/`labelsRemoved` history records, one per label, never `messagesAdded`, so E3 doesn't re-queue a thread the classifier just moved.
+  - A later reply lands in the Inbox whatever the move was, including Spam and Trash, and doesn't get the thread's labels. The earlier messages stay where they were. The reply is then reclassified for labels only (seen with self-sent replies).
 - **Labels.** Label IDs are looked up once per run from `labels.list`. Missing labels, including nested names like `Finance/Bill`, are created.
 - **Never removed.** The classifier never removes a classification label, and it never removes `Jev/Error`.
 - **Missing scope.** If an action fails because a scope isn't granted, the per-action result is `scope`. Labels that could be applied are applied, the move is skipped, and `moveSkipped: "scope"` is logged. The thread counts as handled, so it isn't re-sent to Jev every run, and a `scope_missing` alert is queued. After the user fixes the scope, a manual run with `applyMoves` redoes the moves ([ADR-0003](adr/0003-advanced-gmail-service-and-scopes.md)).
@@ -623,7 +627,7 @@ This updates the PDD's [epic list](product-design-document.md#14-epics) with the
 | **E3 History sync** (was *Thread discovery*) | Ingest, position, work queue, first-classification flag, exclusion filter, expiry fallback. | Queue cap and sharding. How exclusion is batched. The fallback window. |
 | **E4 Thread → `state`** | State builder, header keys, `BodyConverter` `basic`, truncation. | The chars-per-token ratio and safety margin. The entity list. A `basic` quality check on real HTML-only mail using the probe. |
 | **E5 Jev client** | Pure request and response logic, the `fetchAll` transport, retry rounds, token accounting, daily budget. | Retry counts and delays. The per-status classification. Batch size per `fetchAll`. |
-| **E6 Outcomes** | Decide and apply, label ID cache and creation, `Jev/Error` and the 3-strike rule, the `scope` result. | How `threads.modify` calls are combined. |
+| **E6 Outcomes** | Decide and apply, label ID cache and creation, `Jev/Error` and the 3-strike rule, the `scope` result. | Settled by E1 ([`spikes/26-moves.md`](../spikes/26-moves.md)): every label add plus the move go in one `threads.modify`, with `trash` as an added `TRASH` label ([§6.5](#65-applying-outcomes)). |
 | **E7 Scheduling and lifecycle** | Run controller, lock, `Deadline`, trigger, `install`/`uninstall`, scope preflight. | Chunk size, soft limits, reserve. The exact scope-introspection API. |
 | **E8 Manual runs** | `MANUAL_*` inputs, the job in state, spare-time continuation, `continueManualRun`/`cancelManualRun`, per-destination counts. | The search cursor design. The timespan grammar. |
 | **E9 Observability** | Log events and fields, `redact`, alert conditions and rate limits, heartbeat. | Alert email format. |
@@ -639,7 +643,7 @@ This updates the PDD's [epic list](product-design-document.md#14-epics) with the
 | A combined search for manual runs, `(<query>) (<excludeQuery>)`, misses threads whose matches are split across messages. | Privacy. | Confirmed by E1 (it leaks). The manual job search never includes `excludeQuery`; manual items go through the §6.4 chunk filter ([ADR-0017](adr/0017-exclusion-search-per-chunk-for-all-work.md)). |
 | `threads.get` returns Spam and Trash messages of a thread. | Mail the user trashed or that Gmail marked as spam could be sent to Jev. | Found by E1; E4 decides whether the state builder skips `SPAM`/`TRASH` messages ([§8.3](#83-state-layout)). |
 | The Gmail per-user, per-minute quota ("Total Query Cost", "Units per minute per user", 6,000 units/minute per user per Cloud project) is shared by everything using the account through that project, and is easy to hit: E1 hit it at about 2,900 units in 18 s of back-to-back calls ([`spikes/30-gmail-quota.md`](../spikes/30-gmail-quota.md)), and again while several spikes ran at once. | Runs fail mid-chunk with a quota exception (HTTP 403, `rateLimitExceeded`). | E7 sizes runs by quota units as well as time, and treats the error as retryable in a later run: it stops Gmail work for the run, not a per-thread failure and not the daily stop ([§9](#9-gmail-integration)). |
-| Adding `SPAM` via the API may or may not report the thread to Google. | A surprising side effect. | E1. Documented in the README. |
+| Adding `SPAM` via the API reports the thread to Google as spam. | A surprising side effect: Google receives a copy, and the sender's later mail may be filtered. | E1 ([`spikes/26-moves.md`](../spikes/26-moves.md)): treat it as a report. A thread spammed through the API shows the same banner as one the user reported with "Report spam" ("You reported this message as spam from your inbox"). Google's Help says that when you report spam "or move an email into Spam", Google receives a copy and may analyze it. The API docs are silent, and the test had no outside sender. The README Permissions section (#151) says to use `spam` only for mail the user would report themselves. |
 | How well `basic` HTML conversion works for classification. | Precision on HTML-only mail. | E4 probe check. `advanced` converter reserved. |
 | Character-based token estimate. | A 422 from Jev because the request is too large. | E4 margin. A 422 goes to `Jev/Error`, so it is visible and never silent. |
 | Consumer trigger runtime of about 37 s per run. | Backlog. | Bounded chunks, concurrent `fetchAll`, configurable interval, back-pressure. |

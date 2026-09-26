@@ -1,7 +1,7 @@
 # 26: Archive, spam, trash, and move-to-label through the Gmail API
 
 - Task: #26
-- Date run: 2026-09-26 (spam follow-up and UI observations: pending)
+- Date run: 2026-09-26
 - Account: `<test-account>` (consumer)
 - Run by: agent via #163 (`node spikes/run.mjs`), plus the maintainer's Gmail web UI observations and one "Report spam" click
 - Test threads: see [How each test thread was created](#how-each-test-thread-was-created). Run tag `rwc25` (in every subject of the clean run).
@@ -28,7 +28,7 @@ SD §6.5 assumes: `archive` removes `INBOX`; `spam` adds `SPAM` and removes `INB
 | `S26-RA`, `-RL`, `-RS`, `-RT` | Self-sent with `Messages.send` from `<test-account>` to `<test-account>+s26` | Gmail's own delivery path. Each is **one** message labelled `SENT`, `INBOX`, `UNREAD`. There's no outside sender (#7, option C), so R evidence is weaker than a reply from outside. |
 | R replies | Self-sent into each R thread (`threadId`, `In-Reply-To`, `References`) | Same caveat. All four joined their threads. |
 | RI replies | `Messages.import` into A1, L1, S2, T1 with **no** `labelIds`, `neverMarkSpam: true` | `threadId` rejected as above, so they rely on headers. `neverMarkSpam: true` because with `false` every `example.test` import is spam-classified, which would hide where threading alone puts the reply. |
-| Follow-ups X, Y, Z | `Messages.import`, neutral subject and body, no `labelIds`, `neverMarkSpam: false` | Z (`s26-z@`) had no earlier action: the baseline. (Pending.) |
+| Follow-ups X, Y, Z | `Messages.import`, neutral subject and body, no `labelIds`, `neverMarkSpam: false` | Z (`s26-z@`) had no earlier action: the baseline. |
 | Follow-up self-send | `Messages.send` to `<test-account>+s26`, neutral subject | After RS was spammed through the API. |
 
 ## Functions
@@ -64,7 +64,7 @@ State between runs is in Script Properties: `s26.t.<case>` per thread, and `s26.
 
 Runbook step 4 changes the task's "How it runs" step 3, which predates option C: the agent self-sends the R threads instead of the maintainer sending them.
 
-**What actually happened (2026-09-26):** step 2 first ran with `neverMarkSpam: false` and was discarded ([First run](#first-run-discarded)); `s26_reset` trashed those threads (its first attempt failed on one thread with `400 Precondition check failed`, and a retry a minute later succeeded), and step 2 was re-run. Step 4's first `s26_sendReal` hit Gmail's per-user rate limit (other stories share the account); after a 5-minute backoff it succeeded. Step 5 was posted on #26.
+**What actually happened (2026-09-26):** step 2 first ran with `neverMarkSpam: false` and was discarded ([First run](#first-run-discarded)); `s26_reset` trashed those threads (its first attempt failed on one thread with `400 Precondition check failed`, and a retry a minute later succeeded), and step 2 was re-run. Step 4's first `s26_sendReal` hit Gmail's per-user rate limit (other stories share the account); after a 5-minute backoff it succeeded. Step 5 was posted on #26; the maintainer answered at 17:37Z (UI screenshot, S2 and U1 banners, Report spam on U1). Steps 6–8 ran at 17:40Z, 17:51Z and 17:51Z.
 
 ## Maintainer steps
 
@@ -78,27 +78,30 @@ Asked for in one comment on #26 after runbook step 4, so every thread already ex
 
 ## Results
 
-Clean run, 2026-09-26 (run tag `rwc25`). Label lists are per message, in thread order; `S26/Moved` and `S26/Tag` stand for their `Label_N` IDs. "Synthetic SENT" is the imported reply in S3 and T5. The UI column is pending the maintainer's observations.
+Clean run, 2026-09-26 (run tag `rwc25`). Label lists are per message, in thread order; `S26/Moved` and `S26/Tag` stand for their `Label_N` IDs. "Synthetic SENT" is the imported reply in S3 and T5. The UI column comes from the maintainer's screenshot of the search `rwc25 in:anywhere`, taken after the R replies and before U1 was reported. It shows each thread's location chips, and the number after a sender is the message count.
 
 | # | Call(s) | ok / error | Per-message `labelIds` before | Per-message `labelIds` after | Gmail web UI observation |
 |---|---------|------------|-------------------------------|------------------------------|--------------------------|
-| A1 | modify: remove `INBOX` | ok | `UNREAD, INBOX` | `UNREAD` | (pending) |
-| L1 | modify: add `S26/Moved`, remove `INBOX` | ok | `UNREAD, INBOX` | `UNREAD, S26/Moved` | (pending) |
-| L2 | modify: add `S26/Tag`, `S26/Moved`, remove `INBOX` (one call) | ok | `UNREAD, INBOX` | `UNREAD, S26/Moved, S26/Tag` | (pending) |
-| S1 | modify: add `SPAM` only | ok | `UNREAD, INBOX` | `UNREAD, SPAM`: **`INBOX` removed by Gmail** | (pending) |
-| S2 | modify: add `SPAM`, `S26/Tag`, remove `INBOX` | ok | `UNREAD, INBOX` | `UNREAD, S26/Tag, SPAM`: the user label survives in Spam | (pending; banner) |
-| S3 | same as S2, thread with synthetic `SENT` | ok | original `UNREAD, INBOX`; sent `SENT` | original `UNREAD, S26/Tag, SPAM`; sent **`S26/Tag, SENT, SPAM`** | (pending: still in Sent?) |
-| T1 | `threads.trash` | ok | `UNREAD, INBOX` | `UNREAD, TRASH`: `INBOX` removed | (pending) |
-| T2 | modify: add `TRASH` | **ok** | `UNREAD, INBOX` | `UNREAD, TRASH`: same result as `threads.trash` | (pending) |
-| T3 | modify: add `S26/Tag`; then `threads.trash` | ok, ok | `UNREAD, INBOX` | `UNREAD, S26/Tag, TRASH`: the label is kept in Trash | (pending) |
-| T4 | `threads.trash`; then modify: add `S26/Tag` | ok, ok | `UNREAD, INBOX` | `UNREAD, S26/Tag, TRASH`: a label can be added after trashing; the thread stays in Trash | (pending) |
-| T5 | `threads.trash`, thread with synthetic `SENT` | ok | original `UNREAD, INBOX`; sent `SENT` | original `UNREAD, TRASH`; sent **`TRASH, SENT`** | (pending) |
+| A1 | modify: remove `INBOX` | ok | `UNREAD, INBOX` | `UNREAD` | No chip (All Mail only). 2 messages, with the RI reply. |
+| L1 | modify: add `S26/Moved`, remove `INBOX` | ok | `UNREAD, INBOX` | `UNREAD, S26/Moved` | `S26/Moved` chip; 2 messages (with RI). |
+| L2 | modify: add `S26/Tag`, `S26/Moved`, remove `INBOX` (one call) | ok | `UNREAD, INBOX` | `UNREAD, S26/Moved, S26/Tag` | `S26/Moved` and `S26/Tag` chips. |
+| S1 | modify: add `SPAM` only | ok | `UNREAD, INBOX` | `UNREAD, SPAM`: **`INBOX` removed by Gmail** | `Spam` chip. |
+| S2 | modify: add `SPAM`, `S26/Tag`, remove `INBOX` | ok | `UNREAD, INBOX` | `UNREAD, S26/Tag, SPAM`: the user label survives in Spam | `Spam` and `S26/Tag` chips. Banner: **"Why is this message in spam? You reported this message as spam from your inbox."** |
+| S3 | same as S2, thread with synthetic `SENT` | ok | original `UNREAD, INBOX`; sent `SENT` | original `UNREAD, S26/Tag, SPAM`; sent **`S26/Tag, SENT, SPAM`** | `Spam` and `S26/Tag` chips, "S26, me 2". Whether it's still listed under Sent wasn't observed. |
+| T1 | `threads.trash` | ok | `UNREAD, INBOX` | `UNREAD, TRASH`: `INBOX` removed | `Trash` chip; 2 messages (with RI). |
+| T2 | modify: add `TRASH` | **ok** | `UNREAD, INBOX` | `UNREAD, TRASH`: same result as `threads.trash` | `Trash` chip, same as T1. |
+| T3 | modify: add `S26/Tag`; then `threads.trash` | ok, ok | `UNREAD, INBOX` | `UNREAD, S26/Tag, TRASH`: the label is kept in Trash | `Trash` and `S26/Tag` chips. |
+| T4 | `threads.trash`; then modify: add `S26/Tag` | ok, ok | `UNREAD, INBOX` | `UNREAD, S26/Tag, TRASH`: a label can be added after trashing; the thread stays in Trash | `Trash` and `S26/Tag` chips. |
+| T5 | `threads.trash`, thread with synthetic `SENT` | ok | original `UNREAD, INBOX`; sent `SENT` | original `UNREAD, TRASH`; sent **`TRASH, SENT`** | `Trash` chip, "S26, me 2". |
+| U1 | (control) maintainer clicked **Report spam** in the web UI | — | `UNREAD, INBOX` | `SPAM` (read by the maintainer) | Banner: **"Why is this message in spam? You reported this message as spam from your inbox."**, identical to S2. |
 | I1 | repeat A1, L1, S2, T1 | all ok | as "after" above | **unchanged** | — |
 | H1 | `history.list` from before the moves | ok, 1 page | — | 26 label records on our threads (15 `labelsAdded`, 11 `labelsRemoved`), **0 `messagesAdded`**, and **no records at all from the repeats**. One record per label change (L2's call gave 3 records). S1 records `labelsRemoved INBOX` although only `SPAM` was requested. Some records carry only `messages`, with no change type. | — |
-| R1 | self-sent reply to RA (archived) and RL (`S26/Moved`) | ok, joined | RA: `UNREAD, SENT`; RL: `UNREAD, S26/Moved, SENT` | reply: `UNREAD, SENT, INBOX`. **Back in the Inbox; the reply does not get `S26/Moved`.** The earlier message is unchanged. | (pending) |
-| R2 | self-sent reply to RS (spammed) | ok, joined | `UNREAD, SENT, SPAM` | reply: `UNREAD, SENT, INBOX`: **Inbox, not Spam**; the earlier message stays in Spam | (pending) |
-| R3 | self-sent reply to RT (trashed) | ok, joined | `UNREAD, TRASH, SENT` | reply: `UNREAD, SENT, INBOX`: **Inbox, not Trash**; the earlier message stays in Trash | (pending) |
-| RI | imported reply, no `labelIds`, in A1, L1, S2, T1 | ok (`threadId` dropped: `400 threadId not allowed`) | as "after" above | reply: **no labels at all** (not `INBOX`, not even `UNREAD`). Joined A1, L1, T1 through headers; in S2 (Spam) it started a **new** thread. Import doesn't stand in for delivery. | (pending) |
+| R1 | self-sent reply to RA (archived) and RL (`S26/Moved`) | ok, joined | RA: `UNREAD, SENT`; RL: `UNREAD, S26/Moved, SENT` | reply: `UNREAD, SENT, INBOX`. **Back in the Inbox; the reply does not get `S26/Moved`.** The earlier message is unchanged. | RA: `Inbox` chip. RL: `Inbox` and `S26/Moved` chips (the thread spans both). |
+| R2 | self-sent reply to RS (spammed) | ok, joined | `UNREAD, SENT, SPAM` | reply: `UNREAD, SENT, INBOX`: **Inbox, not Spam**; the earlier message stays in Spam | `Inbox` and `Spam` chips on one thread row. |
+| R3 | self-sent reply to RT (trashed) | ok, joined | `UNREAD, TRASH, SENT` | reply: `UNREAD, SENT, INBOX`: **Inbox, not Trash**; the earlier message stays in Trash | `Inbox` and `Trash` chips on one thread row. |
+| RI | imported reply, no `labelIds`, in A1, L1, S2, T1 | ok (`threadId` dropped: `400 threadId not allowed`) | as "after" above | reply: **no labels at all** (not `INBOX`, not even `UNREAD`). Joined A1, L1, T1 through headers; in S2 (Spam) it started a **new** thread. Import doesn't stand in for delivery. | The S2 reply is its own row ("Re: S26-S2") with no chip. |
+
+The labels were stable: `s26_inspect`, 10 minutes after the spam follow-up (and 8.7 hours after the moves), showed the same labels, except that `UNREAD` had gone from threads the maintainer opened.
 
 ### Errors seen
 
@@ -106,8 +109,8 @@ Clean run, 2026-09-26 (run tag `rwc25`). Label lists are per message, in thread 
 |-------|------------------|-------|
 | `Messages.import` with `resource.threadId` (media-blob and `resource.raw` forms, with and without `labelIds`) | `GoogleJsonResponseException: API call to gmail.users.messages.import failed with error: threadId not allowed` (`details.code` 400, `reason: invalidArgument`) | Import can't be pinned to a thread; threading comes from headers and subject. |
 | `Messages.import` return value | Only `{id}` (no `threadId`, no `labelIds`) | The spike reads each message back with `Messages.get` (`format: minimal`). |
-| `Threads.trash` in `s26_reset` (1 of 12 threads) | `GoogleJsonResponseException: API call to gmail.users.threads.trash failed with error: Precondition check failed.` (`details.code` 400, `reason: failedPrecondition`) | Succeeded on retry about a minute later. The thread had been imported about 3 minutes earlier. E6 should treat this as transient. |
-| `Messages.send` (all 4, first `s26_sendReal`) | `GoogleJsonResponseException: API call to gmail.users.messages.send failed with error: Quota exceeded for quota metric 'Total Query Cost' and limit 'Units per minute per user' of service 'gmail.googleapis.com' for consumer 'project_number:<project-number>'.` (`details.code` 403, `reason: rateLimitExceeded`, `domain: usageLimits`) | A per-user, per-minute limit, shared with other spikes on the account. Succeeded after a 5-minute backoff. A 403 that isn't a scope error: E6/E7 must not map every 403 to `scope`. |
+| `Threads.trash` in `s26_reset` (1 of 12 threads) | `GoogleJsonResponseException: API call to gmail.users.threads.trash failed with error: Precondition check failed.` (`details.code` 400, `reason: failedPrecondition`) | Succeeded on retry about a minute later. The thread had been imported about 3 minutes earlier. E6 should treat this as transient, not as a `Jev/Error` condition. |
+| `Messages.send` (all 4, first `s26_sendReal`) | `GoogleJsonResponseException: API call to gmail.users.messages.send failed with error: Quota exceeded for quota metric 'Total Query Cost' and limit 'Units per minute per user' of service 'gmail.googleapis.com' for consumer 'project_number:<project-number>'.` (`details.code` 403, `reason: rateLimitExceeded`, `domain: usageLimits`) | The per-user, per-minute limit, shared with other spikes on the account (see #30 and SD §14). Succeeded after a 5-minute backoff. It's a 403 that isn't a scope error. |
 
 ### First run (discarded)
 
@@ -117,10 +120,10 @@ The first `s26_setup` imported all 12 threads with `neverMarkSpam: false` and `l
 
 | Evidence | Source | Result |
 |----------|--------|--------|
-| 1. Docs (checked 2026-09-26) | [Gmail API: Manage labels](https://developers.google.com/workspace/gmail/api/guides/labels) lists `SPAM` as a label that can be applied, and says nothing about reporting or filter training. [`users.threads.modify`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.threads/modify) says nothing about it either. [Gmail Help: Report spam in Gmail](https://support.google.com/mail/answer/1366858), under "Report emails as spam": "Important: When you report spam or move an email into Spam, Google receives a copy of the email and may analyze it to help protect users from spam and abuse." The same page: "As you report more spam, Gmail identifies similar emails as spam more efficiently." A public Google Issue Tracker request is titled "Add API to 'Report Spam' that generates a complaint" ([329687280](https://issuetracker.google.com/issues/329687280); only its title is readable without signing in). | The Help Center wording covers "move an email into Spam", with no exception for the API, and the API docs are silent. The issue-tracker title suggests the API has no explicit "report" action, but it's unverified. Neither says whether an API `SPAM` label is a report. |
-| 2. Banner | S2 (API-spammed) vs U1 (UI "Report spam") | (pending: maintainer) |
-| 3. Follow-up import | X (API-spammed From), Y (UI-reported From), Z (baseline); wait time | (pending). Expect weak evidence: the first run shows `example.test` imports with `neverMarkSpam: false` go to Spam regardless, so Z will likely be Spam too. |
-| 4. Follow-up self-send | Sent 2026-09-26T09:10Z, after RS was spammed through the API | At send time: `UNREAD, SENT, INBOX`. (Re-checked by `s26_inspect`, pending.) |
+| 1. Docs (checked 2026-09-26) | [Gmail API: Manage labels](https://developers.google.com/workspace/gmail/api/guides/labels) lists `SPAM` as a label that can be applied, and says nothing about reporting or filter training. [`users.threads.modify`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.threads/modify) says nothing about it either. [Gmail Help: Report spam in Gmail](https://support.google.com/mail/answer/1366858), under "Report emails as spam": "Important: When you report spam or move an email into Spam, Google receives a copy of the email and may analyze it to help protect users from spam and abuse." The same page: "As you report more spam, Gmail identifies similar emails as spam more efficiently." A public Google Issue Tracker request is titled "Add API to 'Report Spam' that generates a complaint" ([329687280](https://issuetracker.google.com/issues/329687280); only its title is readable without signing in). | The Help Center wording covers "move an email into Spam", with no exception for the API, and the API docs are silent. The issue-tracker title suggests the API has no separate "report" action. That fits the banner below: adding `SPAM` is itself the report. |
+| 2. Banner | S2 (API-spammed) vs U1 (UI "Report spam"), copied by the maintainer | **Identical:** "Why is this message in spam? You reported this message as spam from your inbox." Gmail attributes the API move to the user, word for word as for the button. **The strongest evidence.** |
+| 3. Follow-up import | X (API-spammed From), Y (UI-reported From), Z (baseline), imported 2026-09-26T17:40Z; checked 10 min later | All three `CATEGORY_PERSONAL, SPAM`, **including the baseline Z**. Inconclusive: `example.test` imports are spam-classified anyway (first run). |
+| 4. Follow-up self-send | Sent 09:10Z, after RS was spammed through the API; checked 8.7 hours later | `UNREAD, SENT, INBOX`. Not affected, as expected: Gmail doesn't spam the account's own mail. Proves little. |
 
 ## Raw output
 
@@ -1633,24 +1636,401 @@ Results from `node spikes/run.mjs`, reduced to the fields that matter, with `Lab
 
 </details>
 
-## Conclusion
+<details><summary>s26_spamFollowUp (2026-09-26T17:40:36.074Z, after the maintainer reported U1)</summary>
 
-(Partial: the UI observations and spam evidence 2–4 are pending.)
+```json
+{
+ "imports": {
+  "X": {
+   "from": "s26-x@example.test",
+   "labelIds": [
+    "CATEGORY_PERSONAL",
+    "SPAM"
+   ]
+  },
+  "Y": {
+   "from": "s26-y@example.test",
+   "labelIds": [
+    "CATEGORY_PERSONAL",
+    "SPAM"
+   ]
+  },
+  "Z": {
+   "from": "s26-z@example.test",
+   "labelIds": [
+    "CATEGORY_PERSONAL",
+    "SPAM"
+   ]
+  }
+ },
+ "u1Now": [
+  {
+   "labelIds": [
+    "SPAM"
+   ],
+   "role": "original (import)"
+  }
+ ]
+}
+```
+
+</details>
+
+<details><summary>s26_inspect (2026-09-26T17:51:05.335Z; 10 min after the follow-up imports, 520 min after the follow-up self-send)</summary>
+
+```json
+{
+ "A1": [
+  {
+   "labelIds": [
+    "UNREAD"
+   ],
+   "role": "original (import)"
+  },
+  {
+   "labelIds": [],
+   "role": "RI reply (import, no labelIds)"
+  }
+ ],
+ "FU-X": [
+  {
+   "labelIds": [
+    "CATEGORY_PERSONAL",
+    "SPAM"
+   ],
+   "role": "follow-up (import, no labelIds)"
+  }
+ ],
+ "FU-Y": [
+  {
+   "labelIds": [
+    "CATEGORY_PERSONAL",
+    "SPAM"
+   ],
+   "role": "follow-up (import, no labelIds)"
+  }
+ ],
+ "FU-Z": [
+  {
+   "labelIds": [
+    "CATEGORY_PERSONAL",
+    "SPAM"
+   ],
+   "role": "follow-up (import, no labelIds)"
+  }
+ ],
+ "FU-self": [
+  {
+   "labelIds": [
+    "UNREAD",
+    "SENT",
+    "INBOX"
+   ],
+   "role": "follow-up (self-send)"
+  }
+ ],
+ "L1": [
+  {
+   "labelIds": [
+    "UNREAD",
+    "S26/Moved"
+   ],
+   "role": "original (import)"
+  },
+  {
+   "labelIds": [],
+   "role": "RI reply (import, no labelIds)"
+  }
+ ],
+ "L2": [
+  {
+   "labelIds": [
+    "UNREAD",
+    "S26/Moved",
+    "S26/Tag"
+   ],
+   "role": "original (import)"
+  }
+ ],
+ "RA": [
+  {
+   "labelIds": [
+    "UNREAD",
+    "SENT"
+   ],
+   "role": "original (self-send)"
+  },
+  {
+   "labelIds": [
+    "UNREAD",
+    "SENT",
+    "INBOX"
+   ],
+   "role": "reply (self-send)"
+  }
+ ],
+ "RL": [
+  {
+   "labelIds": [
+    "UNREAD",
+    "S26/Moved",
+    "SENT"
+   ],
+   "role": "original (self-send)"
+  },
+  {
+   "labelIds": [
+    "UNREAD",
+    "SENT",
+    "INBOX"
+   ],
+   "role": "reply (self-send)"
+  }
+ ],
+ "RS": [
+  {
+   "labelIds": [
+    "UNREAD",
+    "SENT",
+    "SPAM"
+   ],
+   "role": "original (self-send)"
+  },
+  {
+   "labelIds": [
+    "UNREAD",
+    "SENT",
+    "INBOX"
+   ],
+   "role": "reply (self-send)"
+  }
+ ],
+ "RT": [
+  {
+   "labelIds": [
+    "UNREAD",
+    "TRASH",
+    "SENT"
+   ],
+   "role": "original (self-send)"
+  },
+  {
+   "labelIds": [
+    "UNREAD",
+    "SENT",
+    "INBOX"
+   ],
+   "role": "reply (self-send)"
+  }
+ ],
+ "S1": [
+  {
+   "labelIds": [
+    "UNREAD",
+    "SPAM"
+   ],
+   "role": "original (import)"
+  }
+ ],
+ "S2": [
+  {
+   "labelIds": [
+    "S26/Tag",
+    "SPAM"
+   ],
+   "role": "original (import)"
+  }
+ ],
+ "S3": [
+  {
+   "labelIds": [
+    "UNREAD",
+    "S26/Tag",
+    "SPAM"
+   ],
+   "role": "original (import)"
+  },
+  {
+   "labelIds": [
+    "S26/Tag",
+    "SENT",
+    "SPAM"
+   ],
+   "role": "sent reply (import, synthetic SENT)"
+  }
+ ],
+ "T1": [
+  {
+   "labelIds": [
+    "UNREAD",
+    "TRASH"
+   ],
+   "role": "original (import)"
+  },
+  {
+   "labelIds": [],
+   "role": "RI reply (import, no labelIds)"
+  }
+ ],
+ "T2": [
+  {
+   "labelIds": [
+    "UNREAD",
+    "TRASH"
+   ],
+   "role": "original (import)"
+  }
+ ],
+ "T3": [
+  {
+   "labelIds": [
+    "UNREAD",
+    "S26/Tag",
+    "TRASH"
+   ],
+   "role": "original (import)"
+  }
+ ],
+ "T4": [
+  {
+   "labelIds": [
+    "UNREAD",
+    "S26/Tag",
+    "TRASH"
+   ],
+   "role": "original (import)"
+  }
+ ],
+ "T5": [
+  {
+   "labelIds": [
+    "UNREAD",
+    "TRASH"
+   ],
+   "role": "original (import)"
+  },
+  {
+   "labelIds": [
+    "TRASH",
+    "SENT"
+   ],
+   "role": "sent reply (import, synthetic SENT)"
+  }
+ ],
+ "U1": [
+  {
+   "labelIds": [
+    "SPAM"
+   ],
+   "role": "original (import)"
+  }
+ ]
+}
+```
+
+</details>
+
+<details><summary>s26_cleanup</summary>
+
+```json
+{
+ "deletedPropertyKeys": 27,
+ "failed": 0,
+ "labelsDeleted": {
+  "Moved": true,
+  "Tag": true,
+  "parent": true
+ },
+ "remainingS26Labels": [],
+ "threads": {
+  "FU-X": [
+   "unspam"
+  ],
+  "FU-Y": [
+   "unspam"
+  ],
+  "FU-Z": [
+   "unspam"
+  ],
+  "RS": [
+   "unspam"
+  ],
+  "RT": [
+   "untrash"
+  ],
+  "S1": [
+   "unspam"
+  ],
+  "S2": [
+   "unspam"
+  ],
+  "S3": [
+   "unspam"
+  ],
+  "T1": [
+   "untrash"
+  ],
+  "T2": [
+   "untrash"
+  ],
+  "T3": [
+   "untrash"
+  ],
+  "T4": [
+   "untrash"
+  ],
+  "T5": [
+   "untrash"
+  ],
+  "U1": [
+   "unspam"
+  ]
+ }
+}
+```
+
+</details>
+
+## Conclusion
 
 - **One `threads.modify` for several label adds plus `INBOX` removal:** yes (L2).
 - **Does `SPAM` remove `INBOX` by itself:** yes (S1), and history records the `INBOX` removal.
-- **`TRASH` via modify:** works, same labels as `threads.trash` (T2). User labels are kept in Trash (T3) and can be added after trashing (T4). User labels are kept in Spam (S2).
-- **`SENT` messages:** get `SPAM` or `TRASH` (and user labels) like the rest of the thread, but keep `SENT` (S3, T5). Whether the UI still lists them in Sent is pending.
-- **Repeats:** safe. No error, no label change, and no history records (I1, H1).
+- **Can `TRASH` be added via modify:** yes. It gives the same labels as `threads.trash` (T2). User labels are kept in Trash (T3) and can be added after trashing (T4); they're kept in Spam too (S2).
+- **`SENT` messages:** get `SPAM` or `TRASH` (and user labels) like the rest of the thread, and keep `SENT` (S3, T5). Evidence is weaker because the `SENT` message was imported.
+- **Are repeats safe:** yes. No error, no label change, and no history records (I1, H1).
 - **History:** moves create only `labelsAdded` / `labelsRemoved` records, one per label change, and no `messagesAdded`, so E3 won't re-queue a thread the classifier moved.
-- **Later replies (R1–R3):** a self-sent reply lands in the Inbox whether the thread was archived, moved to a label, spammed, or trashed. It doesn't inherit the thread's user label, `SPAM`, or `TRASH`, and the earlier messages stay where they were. This matches PDD §10 for archive; the Spam and Trash cases go further (weaker evidence: self-sent).
-- **Import vs delivery (RI):** import doesn't stand in for delivery. With no `labelIds`, an imported reply gets no labels at all, and in a Spam thread it started a new thread.
-- **Spam reporting:** (pending evidence 2–4.)
+- **Where later replies land (R1–R3):** in the Inbox, whether the thread was archived, moved to a label, spammed, or trashed. The reply doesn't inherit the thread's user label, `SPAM`, or `TRASH`, and the earlier messages stay where they were, so the thread shows in both places. This matches PDD §10 for archive and extends it to Spam and Trash (weaker evidence: self-sent replies, not mail from outside).
+- **Can import stand in for delivery (RI):** no. With no `labelIds`, an imported reply gets no labels at all, and in a Spam thread it started a new thread.
+- **Spam reporting: reports.** Adding `SPAM` through the API is recorded by Gmail as the user reporting the message: the banner is word for word the one "Report spam" produces. Google says that reporting spam or moving mail into Spam sends Google a copy for analysis. Two caveats. What Google does with the report (training the user's filter, the sender's reputation) can't be observed here. And the follow-up test couldn't show an effect, because there's no outside sender: imports with placeholder From addresses are spam-classified anyway. The evidence is weaker than a multi-sender test would be.
+
+**Combining rule for E6 (#107):** one `threads.modify` per thread, with every firing label's ID in `addLabelIds`, plus the move:
+
+| Move | Adds | Removes |
+|------|------|---------|
+| `archive` | — | `INBOX` |
+| `label:<name>` | the label | `INBOX` |
+| `spam` | `SPAM` | `INBOX` |
+| `trash` | `TRASH` | — |
+
+`threads.trash` remains an equivalent alternative for `trash`.
 
 ## Notes for README Permissions (#151)
 
-(Draft; final after the pending evidence.) "The `spam` destination adds Gmail's Spam label through the Gmail API. Google says that when you report spam or move an email into Spam, it receives a copy of the email and may analyze it. It doesn't say whether a move made through the API is treated as a spam report or trains your spam filter, so assume it might. Use `spam` only for mail you would report yourself."
+Draft wording for the `spam` destination:
+
+> The `spam` destination moves the thread to Spam through the Gmail API. Gmail treats this the same as clicking **Report spam**: the thread shows "You reported this message as spam from your inbox", and Google says that when you report spam or move an email into Spam, it receives a copy of the email and may analyze it. Use `spam` only for mail you would report yourself. For mail you just don't want to see, use `archive`, `trash`, or `label:<name>`.
+
+Also for #151 and the README's description of moves:
+
+- A reply to a thread the classifier moved to Spam or Trash arrives in the **Inbox**, and the thread then shows both in the Inbox and in Spam or Trash. The earlier messages aren't moved back.
+- `trash` and `spam` also move the user's own sent messages in the thread to Trash or Spam.
 
 ## Design changes
 
-(Pending: SD §6.5 "Apply" bullets, the §13 E6 row, and the §14 Spam row; #107 updated or listed. No Proposed ADR: everything worked with `gmail.modify`.)
+- **SD §6.5 "Apply":** confirmed and made specific: one `threads.modify` for everything, `trash` as an added `TRASH` label, `SPAM` removing `INBOX` by itself, sent messages, repeats and history, and where later replies land.
+- **SD §13 E6 row:** "How `threads.modify` calls are combined" is replaced with "Settled by E1" and the rule.
+- **SD §14, the Spam row:** now "reports", with the evidence and a link here.
+- **No ADR:** everything worked with `gmail.modify`, so ADR-0003 stands.
+- **PDD §10** (a reply to an archived thread returns it to the Inbox) is confirmed and not edited. Its extension to Spam and Trash is flagged in the PR for the maintainer.
+- **README:** not edited. The wording above is for #151.
+- **#107:** updated with the combining rule, and with the transient `failedPrecondition` on `threads.trash`.
