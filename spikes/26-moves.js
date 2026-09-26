@@ -572,6 +572,8 @@ function s26_raw_(m) {
 /**
  * Import one raw message. resource holds labelIds and/or threadId. Tries the
  * media-upload form (resource, 'me', blob, options) first, then resource.raw.
+ * The Advanced Service's import returns only {id} (#25, 2026-09-26), so the
+ * message is read back (format: minimal) for its threadId and labelIds.
  */
 function s26_import_(raw, resource, neverMarkSpam) {
   var opts = { neverMarkSpam: !!neverMarkSpam, internalDateSource: 'dateHeader' };
@@ -582,19 +584,43 @@ function s26_import_(raw, resource, neverMarkSpam) {
     Object.keys(extra || {}).forEach(function (k) { r[k] = extra[k]; });
     return r;
   };
-  try {
-    var m = Gmail.Users.Messages.import(copy(), 'me', Utilities.newBlob(raw, 'message/rfc822'), opts);
-    return { ok: true, method: 'import (media blob)', neverMarkSpam: opts.neverMarkSpam, id: m.id, threadId: m.threadId, labelIds: m.labelIds || [] };
-  } catch (e) {
-    attempts.push({ method: 'import (media blob)', error: s26_err_(e) });
-  }
-  try {
-    var m2 = Gmail.Users.Messages.import(copy({ raw: Utilities.base64EncodeWebSafe(raw, Utilities.Charset.UTF_8) }), 'me', null, opts);
-    return { ok: true, method: 'import (resource.raw)', neverMarkSpam: opts.neverMarkSpam, id: m2.id, threadId: m2.threadId, labelIds: m2.labelIds || [], earlierAttempts: attempts };
-  } catch (e2) {
-    attempts.push({ method: 'import (resource.raw)', error: s26_err_(e2) });
+  var forms = [
+    { method: 'import (media blob)', call: function () {
+      return Gmail.Users.Messages.import(copy(), 'me', Utilities.newBlob(raw, 'message/rfc822'), opts);
+    } },
+    { method: 'import (resource.raw)', call: function () {
+      return Gmail.Users.Messages.import(copy({ raw: Utilities.base64EncodeWebSafe(raw, Utilities.Charset.UTF_8) }), 'me', null, opts);
+    } }
+  ];
+  for (var i = 0; i < forms.length; i++) {
+    var m;
+    try {
+      m = forms[i].call();
+    } catch (e) {
+      attempts.push({ method: forms[i].method, error: s26_err_(e) });
+      continue;
+    }
+    var out = { ok: true, method: forms[i].method, neverMarkSpam: opts.neverMarkSpam, id: m && m.id };
+    if (attempts.length) out.earlierAttempts = attempts;
+    var back = s26_readBack_(m && m.id);
+    if (back.ok) {
+      out.threadId = back.value.threadId;
+      out.labelIds = back.value.labelIds;
+    } else {
+      out.ok = false;
+      out.readBackError = back.error;
+    }
+    return out;
   }
   return { ok: false, attempts: attempts };
+}
+
+/** Messages.get (format: minimal) for a message's threadId and labelIds. */
+function s26_readBack_(id) {
+  return s26_try_(function () {
+    var g = Gmail.Users.Messages.get('me', id, { format: 'minimal' });
+    return { threadId: g.threadId, labelIds: g.labelIds || [] };
+  });
 }
 
 /** Self-send from the test account to its plus-address; optionally as a reply in threadId. */
@@ -610,7 +636,13 @@ function s26_send_(subject, body, threadId, inReplyTo) {
     var resource = { raw: Utilities.base64EncodeWebSafe(raw, Utilities.Charset.UTF_8) };
     if (threadId) resource.threadId = threadId;
     var m = Gmail.Users.Messages.send(resource, 'me');
-    return { id: m.id, threadId: m.threadId, labelIds: m.labelIds || [] };
+    var sent = { id: m.id, threadId: m.threadId, labelIds: m.labelIds || [], sendResponseKeys: Object.keys(m || {}) };
+    var back = s26_readBack_(m.id);
+    if (back.ok) {
+      sent.threadId = back.value.threadId;
+      sent.labelIds = back.value.labelIds;
+    }
+    return sent;
   });
   // Flatten to {ok, id, threadId, labelIds} or {ok: false, error}, like s26_import_.
   if (!r.ok) return r;
