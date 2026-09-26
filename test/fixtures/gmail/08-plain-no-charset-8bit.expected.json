@@ -1,0 +1,4 @@
+{
+  "0": "Scenario 8a: no charset parameter, UTF-8 bytes: café Grüße.\r\n",
+  "1": "Scenario 8b: no charset parameter, ISO-8859-1 bytes: café Grüße.\r\n"
+}

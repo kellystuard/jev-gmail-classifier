@@ -1,0 +1,65 @@
+{
+  "messages": [
+    {
+      "payload": {
+        "headers": [
+          {
+            "name": "Received",
+            "value": "REDACTED"
+          },
+          {
+            "name": "From",
+            "value": "\"José Müller\" <jose@example.com>"
+          },
+          {
+            "name": "To",
+            "value": "\"Grüße Empfänger\" <recipient@example.org>"
+          },
+          {
+            "value": "s29-10 Grüße aus 日本 encoded subject",
+            "name": "Subject"
+          },
+          {
+            "name": "Date",
+            "value": "Thu, 24 Sep 2026 12:00:00 +0000"
+          },
+          {
+            "name": "Message-ID",
+            "value": "REDACTED"
+          },
+          {
+            "value": "1.0",
+            "name": "MIME-Version"
+          },
+          {
+            "name": "Content-Type",
+            "value": "text/plain; charset=\"UTF-8\""
+          },
+          {
+            "value": "7bit",
+            "name": "Content-Transfer-Encoding"
+          }
+        ],
+        "body": {
+          "size": 80,
+          "data": [83,99,101,110,97,114,105,111,32,49,48,58,32,82,70,67,32,50,48,52,55,32,101,110,99,111,100,101,100,32,83,117,98,106,101,99,116,44,32,70,114,111,109,44,32,97,110,100,32,84,111,32,100,105,115,112,108,97,121,32,110,97,109,101,115,46,32,65,83,67,73,73,32,98,111,100,121,46,13,10]
+        },
+        "filename": "",
+        "mimeType": "text/plain",
+        "partId": ""
+      },
+      "snippet": "Synthetic snippet for scenario 10, message 1.",
+      "id": "msg-10-1",
+      "historyId": "1001",
+      "internalDate": "1790251200000",
+      "labelIds": [
+        "UNREAD",
+        "INBOX"
+      ],
+      "sizeEstimate": 610,
+      "threadId": "thread-10"
+    }
+  ],
+  "historyId": "1000",
+  "id": "thread-10"
+}

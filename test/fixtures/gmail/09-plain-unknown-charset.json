@@ -1,0 +1,100 @@
+{
+  "id": "thread-09",
+  "messages": [
+    {
+      "historyId": "1001",
+      "internalDate": "1790251200000",
+      "labelIds": [
+        "UNREAD",
+        "INBOX"
+      ],
+      "threadId": "thread-09",
+      "id": "msg-09-1",
+      "payload": {
+        "filename": "",
+        "headers": [
+          {
+            "value": "REDACTED",
+            "name": "Received"
+          },
+          {
+            "name": "From",
+            "value": "Synthetic Sender <sender@example.com>"
+          },
+          {
+            "value": "Recipient <recipient@example.org>",
+            "name": "To"
+          },
+          {
+            "value": "s29-09 plain unknown and alias charsets",
+            "name": "Subject"
+          },
+          {
+            "value": "Thu, 24 Sep 2026 12:00:00 +0000",
+            "name": "Date"
+          },
+          {
+            "value": "REDACTED",
+            "name": "Message-ID"
+          },
+          {
+            "name": "MIME-Version",
+            "value": "1.0"
+          },
+          {
+            "name": "Content-Type",
+            "value": "multipart/mixed; boundary=\"s29b_mixed_7\""
+          }
+        ],
+        "parts": [
+          {
+            "body": {
+              "data": [83,99,101,110,97,114,105,111,32,57,97,58,32,99,104,97,114,115,101,116,61,34,120,45,117,110,107,110,111,119,110,34,44,32,85,84,70,45,56,32,98,121,116,101,115,58,32,99,97,102,-61,-87,32,-26,-105,-91,-26,-100,-84,46,13,10],
+              "size": 62
+            },
+            "partId": "0",
+            "filename": "",
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain; charset=\"x-unknown\""
+              },
+              {
+                "value": "base64",
+                "name": "Content-Transfer-Encoding"
+              }
+            ],
+            "mimeType": "text/plain"
+          },
+          {
+            "body": {
+              "data": [83,99,101,110,97,114,105,111,32,57,98,58,32,99,104,97,114,115,101,116,61,117,116,102,56,32,40,110,111,32,100,97,115,104,41,44,32,85,84,70,45,56,32,98,121,116,101,115,58,32,99,97,102,-61,-87,32,-26,-105,-91,-26,-100,-84,46,13,10],
+              "size": 65
+            },
+            "headers": [
+              {
+                "value": "text/plain; charset=utf8",
+                "name": "Content-Type"
+              },
+              {
+                "name": "Content-Transfer-Encoding",
+                "value": "base64"
+              }
+            ],
+            "filename": "",
+            "mimeType": "text/plain",
+            "partId": "1"
+          }
+        ],
+        "partId": "",
+        "mimeType": "multipart/mixed",
+        "body": {
+          "size": 0
+        }
+      },
+      "snippet": "Synthetic snippet for scenario 09, message 1.",
+      "sizeEstimate": 815
+    }
+  ],
+  "historyId": "1000"
+}

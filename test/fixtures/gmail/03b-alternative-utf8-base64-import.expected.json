@@ -1,0 +1,4 @@
+{
+  "0": "Scenario 3: multipart/alternative, UTF-8, base64.\r\nGrüße, 日本語, emoji 🙂.\r\n",
+  "1": "<html><body><p>Scenario 3: multipart/alternative, UTF-8, base64.</p><p>Grüße, 日本語, emoji 🙂.</p></body></html>\r\n"
+}

@@ -1,0 +1,100 @@
+{
+  "messages": [
+    {
+      "payload": {
+        "body": {
+          "size": 0
+        },
+        "filename": "",
+        "partId": "",
+        "parts": [
+          {
+            "mimeType": "text/plain",
+            "partId": "0",
+            "body": {
+              "size": 48,
+              "data": [-29,-126,-73,-29,-125,-118,-29,-125,-86,-29,-126,-86,-17,-68,-105,-17,-68,-102,83,104,105,102,116,95,74,73,83,32,-29,-127,-82,-29,-125,-122,-29,-126,-83,-29,-126,-71,-29,-125,-120,-29,-128,-126,-26,-105,-91,-26,-100,-84,-24,-86,-98,-29,-127,-89,-29,-127,-103,-29,-128,-126,13,10]
+            },
+            "filename": "",
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain; charset=\"Shift_JIS\""
+              },
+              {
+                "name": "Content-Transfer-Encoding",
+                "value": "base64"
+              }
+            ]
+          },
+          {
+            "mimeType": "text/plain",
+            "headers": [
+              {
+                "value": "text/plain; charset=\"ISO-2022-JP\"",
+                "name": "Content-Type"
+              },
+              {
+                "value": "base64",
+                "name": "Content-Transfer-Encoding"
+              }
+            ],
+            "partId": "1",
+            "body": {
+              "data": [-29,-126,-73,-29,-125,-118,-29,-125,-86,-29,-126,-86,-17,-68,-105,-17,-68,-102,73,83,79,45,50,48,50,50,45,74,80,32,-29,-127,-82,-29,-125,-122,-29,-126,-83,-29,-126,-71,-29,-125,-120,-29,-128,-126,-29,-127,-109,-29,-126,-109,-29,-127,-85,-29,-127,-95,-29,-127,-81,-28,-72,-106,-25,-107,-116,-29,-128,-126,13,10],
+              "size": 66
+            },
+            "filename": ""
+          }
+        ],
+        "mimeType": "multipart/mixed",
+        "headers": [
+          {
+            "value": "REDACTED",
+            "name": "Received"
+          },
+          {
+            "name": "From",
+            "value": "Synthetic Sender <sender@example.com>"
+          },
+          {
+            "name": "To",
+            "value": "Recipient <recipient@example.org>"
+          },
+          {
+            "value": "s29-07 plain shift_jis and iso-2022-jp base64",
+            "name": "Subject"
+          },
+          {
+            "value": "Thu, 24 Sep 2026 12:00:00 +0000",
+            "name": "Date"
+          },
+          {
+            "name": "Message-ID",
+            "value": "REDACTED"
+          },
+          {
+            "name": "MIME-Version",
+            "value": "1.0"
+          },
+          {
+            "value": "multipart/mixed; boundary=\"s29b_mixed_5\"",
+            "name": "Content-Type"
+          }
+        ]
+      },
+      "labelIds": [
+        "UNREAD",
+        "INBOX"
+      ],
+      "id": "msg-07-1",
+      "sizeEstimate": 808,
+      "historyId": "1001",
+      "threadId": "thread-07",
+      "snippet": "Synthetic snippet for scenario 07, message 1.",
+      "internalDate": "1790251200000"
+    }
+  ],
+  "id": "thread-07",
+  "historyId": "1000"
+}

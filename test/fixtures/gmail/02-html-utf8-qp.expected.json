@@ -1,0 +1,3 @@
+{
+  "": "<html><head><style>p { color: #333; }</style></head><body><p>Scenario 2: HTML only, UTF-8, quoted-printable. Café, naïve, “quotes”, an equals sign a=b.</p><p>This paragraph is deliberately longer than seventy-six characters so that quoted-printable needs a soft line break.</p></body></html>\r\n"
+}

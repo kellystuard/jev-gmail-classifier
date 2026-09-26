@@ -1,0 +1,65 @@
+{
+  "messages": [
+    {
+      "threadId": "thread-01",
+      "internalDate": "1790251200000",
+      "payload": {
+        "partId": "",
+        "filename": "",
+        "body": {
+          "data": [83,99,101,110,97,114,105,111,32,49,58,32,116,101,120,116,47,112,108,97,105,110,32,111,110,108,121,44,32,85,84,70,45,56,44,32,55,98,105,116,46,13,10,83,101,99,111,110,100,32,108,105,110,101,44,32,65,83,67,73,73,32,111,110,108,121,46,13,10],
+          "size": 69
+        },
+        "mimeType": "text/plain",
+        "headers": [
+          {
+            "value": "REDACTED",
+            "name": "Received"
+          },
+          {
+            "name": "From",
+            "value": "Synthetic Sender <sender@example.com>"
+          },
+          {
+            "name": "To",
+            "value": "Recipient <recipient@example.org>"
+          },
+          {
+            "name": "Subject",
+            "value": "s29-01 plain utf8 7bit"
+          },
+          {
+            "name": "Date",
+            "value": "Thu, 24 Sep 2026 12:00:00 +0000"
+          },
+          {
+            "value": "REDACTED",
+            "name": "Message-ID"
+          },
+          {
+            "name": "MIME-Version",
+            "value": "1.0"
+          },
+          {
+            "value": "text/plain; charset=\"UTF-8\"",
+            "name": "Content-Type"
+          },
+          {
+            "value": "7bit",
+            "name": "Content-Transfer-Encoding"
+          }
+        ]
+      },
+      "snippet": "Synthetic snippet for scenario 01, message 1.",
+      "id": "msg-01-1",
+      "sizeEstimate": 492,
+      "labelIds": [
+        "UNREAD",
+        "INBOX"
+      ],
+      "historyId": "1001"
+    }
+  ],
+  "id": "thread-01",
+  "historyId": "1000"
+}

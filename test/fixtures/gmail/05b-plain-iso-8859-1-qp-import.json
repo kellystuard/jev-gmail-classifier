@@ -1,0 +1,81 @@
+{
+  "messages": [
+    {
+      "snippet": "Synthetic snippet for scenario 05b, message 1.",
+      "id": "msg-05b-1",
+      "historyId": "1001",
+      "payload": {
+        "mimeType": "text/plain",
+        "partId": "",
+        "body": {
+          "size": 95,
+          "data": [83,99,101,110,97,114,105,111,32,53,58,32,116,101,120,116,47,112,108,97,105,110,44,32,73,83,79,45,56,56,53,57,45,49,44,32,113,117,111,116,101,100,45,112,114,105,110,116,97,98,108,101,46,13,10,67,97,102,-61,-87,44,32,110,97,-61,-81,118,101,44,32,77,-61,-68,108,108,101,114,44,32,-62,-93,50,48,44,32,-61,-68,32,-61,-87,32,-61,-96,32,-61,-89,32,-61,-97,32,-62,-79,46,13,10]
+        },
+        "filename": "",
+        "headers": [
+          {
+            "value": "REDACTED",
+            "name": "Delivered-To"
+          },
+          {
+            "name": "Received",
+            "value": "REDACTED"
+          },
+          {
+            "value": "REDACTED",
+            "name": "X-Forwarded-Encrypted"
+          },
+          {
+            "value": "REDACTED",
+            "name": "X-Received"
+          },
+          {
+            "name": "Received",
+            "value": "REDACTED"
+          },
+          {
+            "name": "From",
+            "value": "Synthetic Sender <sender@example.com>"
+          },
+          {
+            "value": "Recipient <recipient@example.org>",
+            "name": "To"
+          },
+          {
+            "value": "s29-05b plain iso-8859-1 quoted-printable (import)",
+            "name": "Subject"
+          },
+          {
+            "name": "Date",
+            "value": "Thu, 24 Sep 2026 12:00:00 +0000"
+          },
+          {
+            "name": "Message-ID",
+            "value": "REDACTED"
+          },
+          {
+            "value": "1.0",
+            "name": "MIME-Version"
+          },
+          {
+            "name": "Content-Type",
+            "value": "text/plain; charset=\"ISO-8859-1\""
+          },
+          {
+            "name": "Content-Transfer-Encoding",
+            "value": "quoted-printable"
+          }
+        ]
+      },
+      "internalDate": "1790251200000",
+      "labelIds": [
+        "UNREAD",
+        "INBOX"
+      ],
+      "threadId": "thread-05b",
+      "sizeEstimate": 1030
+    }
+  ],
+  "id": "thread-05b",
+  "historyId": "1000"
+}

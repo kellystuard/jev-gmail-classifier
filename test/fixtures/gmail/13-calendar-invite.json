@@ -1,0 +1,174 @@
+{
+  "id": "thread-13",
+  "messages": [
+    {
+      "labelIds": [
+        "UNREAD",
+        "INBOX"
+      ],
+      "threadId": "thread-13",
+      "payload": {
+        "mimeType": "multipart/mixed",
+        "headers": [
+          {
+            "value": "REDACTED",
+            "name": "Delivered-To"
+          },
+          {
+            "value": "REDACTED",
+            "name": "Received"
+          },
+          {
+            "name": "X-Forwarded-Encrypted",
+            "value": "REDACTED"
+          },
+          {
+            "value": "REDACTED",
+            "name": "X-Received"
+          },
+          {
+            "value": "REDACTED",
+            "name": "Received"
+          },
+          {
+            "value": "Synthetic Sender <sender@example.com>",
+            "name": "From"
+          },
+          {
+            "name": "To",
+            "value": "Recipient <recipient@example.org>"
+          },
+          {
+            "value": "s29-13 calendar invite",
+            "name": "Subject"
+          },
+          {
+            "name": "Date",
+            "value": "Thu, 24 Sep 2026 12:00:00 +0000"
+          },
+          {
+            "name": "Message-ID",
+            "value": "REDACTED"
+          },
+          {
+            "value": "1.0",
+            "name": "MIME-Version"
+          },
+          {
+            "value": "multipart/mixed; boundary=\"s29b_mixed_9\"",
+            "name": "Content-Type"
+          }
+        ],
+        "partId": "",
+        "filename": "",
+        "parts": [
+          {
+            "filename": "",
+            "partId": "0",
+            "parts": [
+              {
+                "filename": "",
+                "body": {
+                  "size": 70,
+                  "data": [83,99,101,110,97,114,105,111,32,49,51,58,32,115,121,110,116,104,101,116,105,99,32,99,97,108,101,110,100,97,114,32,105,110,118,105,116,101,46,13,10,87,104,101,110,58,32,50,48,50,54,45,49,48,45,48,49,32,49,53,58,48,48,32,85,84,67,46,13,10]
+                },
+                "headers": [
+                  {
+                    "name": "Content-Type",
+                    "value": "text/plain; charset=\"UTF-8\""
+                  },
+                  {
+                    "name": "Content-Transfer-Encoding",
+                    "value": "quoted-printable"
+                  }
+                ],
+                "mimeType": "text/plain",
+                "partId": "0.0"
+              },
+              {
+                "filename": "",
+                "body": {
+                  "size": 108,
+                  "data": [60,104,116,109,108,62,60,98,111,100,121,62,60,112,62,83,99,101,110,97,114,105,111,32,49,51,58,32,115,121,110,116,104,101,116,105,99,32,99,97,108,101,110,100,97,114,32,105,110,118,105,116,101,46,60,47,112,62,60,112,62,87,104,101,110,58,32,50,48,50,54,45,49,48,45,48,49,32,49,53,58,48,48,32,85,84,67,46,60,47,112,62,60,47,98,111,100,121,62,60,47,104,116,109,108,62,13,10]
+                },
+                "partId": "0.1",
+                "headers": [
+                  {
+                    "name": "Content-Type",
+                    "value": "text/html; charset=\"UTF-8\""
+                  },
+                  {
+                    "value": "quoted-printable",
+                    "name": "Content-Transfer-Encoding"
+                  }
+                ],
+                "mimeType": "text/html"
+              },
+              {
+                "body": {
+                  "size": 554,
+                  "attachmentId": "att-13-1"
+                },
+                "filename": "invite.ics",
+                "mimeType": "text/calendar",
+                "partId": "0.2",
+                "headers": [
+                  {
+                    "value": "text/calendar; charset=\"UTF-8\"; method=REQUEST",
+                    "name": "Content-Type"
+                  },
+                  {
+                    "name": "Content-Transfer-Encoding",
+                    "value": "7bit"
+                  }
+                ]
+              }
+            ],
+            "mimeType": "multipart/alternative",
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "multipart/alternative; boundary=\"s29b_alternative_8\""
+              }
+            ],
+            "body": {
+              "size": 0
+            }
+          },
+          {
+            "headers": [
+              {
+                "value": "application/ics; name=\"invite.ics\"",
+                "name": "Content-Type"
+              },
+              {
+                "value": "base64",
+                "name": "Content-Transfer-Encoding"
+              },
+              {
+                "name": "Content-Disposition",
+                "value": "attachment; filename=\"invite.ics\""
+              }
+            ],
+            "filename": "invite.ics",
+            "body": {
+              "size": 554,
+              "attachmentId": "att-13-2"
+            },
+            "mimeType": "application/ics",
+            "partId": "1"
+          }
+        ],
+        "body": {
+          "size": 0
+        }
+      },
+      "sizeEstimate": 2982,
+      "historyId": "1001",
+      "internalDate": "1790251200000",
+      "snippet": "Synthetic snippet for scenario 13, message 1.",
+      "id": "msg-13-1"
+    }
+  ],
+  "historyId": "1000"
+}
