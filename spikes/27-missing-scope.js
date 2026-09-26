@@ -449,23 +449,42 @@ function s27_out_(result) {
 /**
  * Import one raw RFC 822 message. Tries the documented media-upload form
  * first (resource, 'me', blob, options), then the resource.raw form.
+ * The Advanced Service's import returns only {id} (#25, 2026-09-26), so the
+ * message is read back (format: minimal) for its threadId and labelIds. The
+ * first B0 run failed here ("Invalid argument: value" storing an undefined
+ * threadId) before this fix.
  */
 function s27_import_(raw, labelIds) {
   var opts = { neverMarkSpam: true, internalDateSource: 'dateHeader' };
   var attempts = [];
-  try {
-    var blob = Utilities.newBlob(raw, 'message/rfc822');
-    var m = Gmail.Users.Messages.import({ labelIds: labelIds }, 'me', blob, opts);
-    return { ok: true, method: 'import (media blob)', id: m.id, threadId: m.threadId, labelIds: m.labelIds || [] };
-  } catch (e) {
-    attempts.push({ method: 'import (media blob)', error: s27_err_(e) });
-  }
-  try {
-    var m2 = Gmail.Users.Messages.import(
-      { labelIds: labelIds, raw: Utilities.base64EncodeWebSafe(raw, Utilities.Charset.UTF_8) }, 'me', null, opts);
-    return { ok: true, method: 'import (resource.raw)', id: m2.id, threadId: m2.threadId, labelIds: m2.labelIds || [], earlierAttempts: attempts };
-  } catch (e2) {
-    attempts.push({ method: 'import (resource.raw)', error: s27_err_(e2) });
+  var forms = [
+    { method: 'import (media blob)', call: function () {
+      return Gmail.Users.Messages.import({ labelIds: labelIds }, 'me', Utilities.newBlob(raw, 'message/rfc822'), opts);
+    } },
+    { method: 'import (resource.raw)', call: function () {
+      return Gmail.Users.Messages.import(
+        { labelIds: labelIds, raw: Utilities.base64EncodeWebSafe(raw, Utilities.Charset.UTF_8) }, 'me', null, opts);
+    } }
+  ];
+  for (var i = 0; i < forms.length; i++) {
+    var m;
+    try {
+      m = forms[i].call();
+    } catch (e) {
+      attempts.push({ method: forms[i].method, error: s27_err_(e) });
+      continue;
+    }
+    var out = { ok: true, method: forms[i].method, id: m && m.id };
+    if (attempts.length) out.earlierAttempts = attempts;
+    var back = s27_try_(function () { return Gmail.Users.Messages.get('me', m.id, { format: 'minimal' }); });
+    if (back.ok && back.value.threadId) {
+      out.threadId = back.value.threadId;
+      out.labelIds = back.value.labelIds || [];
+    } else {
+      out.ok = false;
+      out.readBackError = back.ok ? 'no threadId' : back.error;
+    }
+    return out;
   }
   return { ok: false, attempts: attempts };
 }

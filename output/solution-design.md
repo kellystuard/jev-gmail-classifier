@@ -177,7 +177,7 @@ Each port is a narrow TypeScript interface in `ports/`, with one Apps Script ada
 | `LogPort` | `console.*` | `info/warn/error(event, fields)` |
 | `MailPort` | `MailApp.sendEmail` | `send(to, subject, body)` |
 | `TriggerPort` | `ScriptApp` | `replaceRecurringTrigger(fn, minutes)`, `deleteTriggers(fn)` |
-| `AuthPort` | `ScriptApp.getAuthorizationInfo` / granted-scope APIs | `missingScopes() → string[]` |
+| `AuthPort` | `ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL).getAuthorizedScopes()` ([E1](../spikes/27-missing-scope.md)) | `missingScopes() → string[]` (declared minus authorized; "unknown" if the call throws) |
 
 ## 6. Runtime Flows
 
@@ -510,7 +510,17 @@ repeat:
 
   `https://mail.google.com/` (permanent deletion) is **never** requested.
 - **Scope preflight.** At `install` and at the start of every run, `AuthPort.missingScopes()` compares the granted scopes with the declared ones. This matters because Google's granular consent lets a user leave some unticked. Each missing scope is logged as `scope_missing` with the features it disables, and alerted once a day where mail can still be sent. The run continues with what still works.
-- **Per-action fallback.** A `403` "insufficient authentication scopes" from any Gmail call is caught in the adapter and returned as a `scope` result. It never crashes the run.
+  - **The call** is `ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL).getAuthorizedScopes()`, which returns a plain array of granted scope URLs. Missing means declared minus authorized. If the call throws, the state is "unknown": alert and rely on the per-action fallback. (It may need `script.scriptapp` itself; that isn't verified.)
+  - **The consent screen pre-ticks nothing.** All four scopes appear as unticked checkboxes, so a partly granted install is a normal case, not an edge case.
+  - **In a scheduled run the preflight is the primary defense.** Google documents that a trigger execution using a service the user didn't authorize "fails immediately with an 'Authorization is required to perform that action.' error". So the run skips each feature whose scope is missing *before* calling it, rather than relying on catching the error.
+  - E1 settled the API in the all-granted state. The per-scope errors weren't observed, because the maintainer declined the partial-consent runs ([`spikes/27-missing-scope.md`](../spikes/27-missing-scope.md)). Observing them is a task in E7 (#125).
+- **`install` and missing scopes.** `install` runs in the editor with the user present, so it can call `ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL)`, as Google recommends for trigger setup. That shows the consent screen again until all four scopes are granted. E7 (#128) decides between this and letting a partly granted install carry on.
+- **Per-action fallback.** A missing-scope failure from any Gmail, mail, trigger, or fetch call is caught in the adapter and returned as a `scope` result. It never crashes the run, wherever the platform lets it be caught. Adapters match any of these message fragments, case-insensitively, rather than the whole text:
+  - `Authorization is required to perform that action` (documented for trigger runs);
+  - `insufficient authentication scopes` (the Gmail API's 403);
+  - `Specified permissions are not sufficient`.
+
+  None of them has been observed yet. A 403 `rateLimitExceeded` is a quota error, not a scope error ([§14](#14-technical-risks-and-items-to-verify)).
 - **The owner's address** for alerts comes from `Gmail.Users.getProfile('me').emailAddress`, which avoids the `userinfo.email` scope.
 - **Gmail API quota** (checked by E1, [`spikes/30-gmail-quota.md`](../spikes/30-gmail-quota.md)).
   - **Unit costs** ([Gmail API usage limits](https://developers.google.com/workspace/gmail/api/reference/quota)): `getProfile` and `labels.list` 1, `history.list` 2, `threads.list` and `threads.modify` 10, `threads.trash` 20, and `threads.get` **40 in any format**. A thread costs about 50 units (get plus modify).
@@ -637,7 +647,7 @@ This updates the PDD's [epic list](product-design-document.md#14-epics) with the
 | **E4 Thread → `state`** | State builder, header keys, `BodyConverter` `basic`, truncation. | The chars-per-token ratio and safety margin. The entity list. A `basic` quality check on real HTML-only mail using the probe. |
 | **E5 Jev client** | Pure request and response logic, the `fetchAll` transport, retry rounds, token accounting, daily budget. | Retry counts and delays. The per-status classification. Batch size per `fetchAll`. |
 | **E6 Outcomes** | Decide and apply, label ID cache and creation, `Jev/Error` and the 3-strike rule, the `scope` result. | Settled by E1 ([`spikes/26-moves.md`](../spikes/26-moves.md)): every label add plus the move go in one `threads.modify`, with `trash` as an added `TRASH` label ([§6.5](#65-applying-outcomes)). |
-| **E7 Scheduling and lifecycle** | Run controller, lock, `Deadline`, trigger, `install`/`uninstall`, scope preflight. | Chunk size, soft limits, reserve. The exact scope-introspection API. |
+| **E7 Scheduling and lifecycle** | Run controller, lock, `Deadline`, trigger, `install`/`uninstall`, scope preflight. | Chunk size, soft limits, reserve. Scope introspection: **API settled, error text not observed** by E1 ([`spikes/27-missing-scope.md`](../spikes/27-missing-scope.md)): `getAuthorizationInfo(FULL).getAuthorizedScopes()`. The per-scope errors are observed in a partly granted install (#125). Whether `install` calls `requireAllScopes` (#128). |
 | **E8 Manual runs** | `MANUAL_*` inputs, the job in state, spare-time continuation, `continueManualRun`/`cancelManualRun`, per-destination counts. | The search cursor design. The timespan grammar. |
 | **E9 Observability** | Log events and fields, `redact`, alert conditions and rate limits, heartbeat. | Alert email format. |
 | **E10 v1 release** | README setup and Permissions sections, smoke checklist, changelog, tag, 2-week pilot. | — |
