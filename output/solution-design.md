@@ -238,7 +238,11 @@ sequenceDiagram
 - **Threads marked `Jev/Error`.** A new message on such a thread does **not** queue it. It stays flagged until the user removes the label.
 - **Enqueue.** Each distinct thread becomes one work item, de-duplicated against items already queued. A thread is marked **first classification** when every one of its messages arrived after the classifier's position, meaning it's a brand-new conversation. That flag is fixed when the item is queued, and survives retries.
 - **Advance.** Once the items are safely saved, set the position to the `historyId` returned by the call. If the queue is at its cap, stop ingesting and don't advance. This back-pressure means nothing is lost; the same history is read again next run.
-- **Expired position.** A 404 from `history.list` means Gmail has discarded the history. This is typically after a week or more, and sometimes after hours. Fall back to searching `after:<epoch of last successful ingest − 1 h>`, reset the position from `getProfile`, and alert once.
+- **Expired position.** A 404 from `history.list` means Gmail no longer accepts the position. Google says history typically lasts at least a week, and rarely only hours. A position that is *ahead* of the mailbox (for example, from restored or hand-edited state) gets the same 404.
+  - **Detection.** The Advanced Service throws a `GoogleJsonResponseException` whose structured `e.details.code` is `404` (`errors[0].reason` `notFound`). Around the `history.list` call only, the adapter maps `e.details.code === 404` to a distinct "position not found" result. It doesn't match on message text.
+  - **Fallback.** Search `after:<epoch of last successful ingest − 1 h>`, reset the position from `getProfile`, and alert once. The alert can say "ahead of the mailbox" when the rejected position is larger than `getProfile().historyId`; the handling is the same.
+  - **Invalid position.** A non-numeric or negative position fails with a 400 (`details.code === 400`, `reason` `invalid`, `Invalid value at 'start_history_id' (TYPE_UINT64)`). That is corrupt state and an exception ([ADR-0006](adr/0006-results-and-error-boundaries.md)), not expiry.
+  - Confirmed by E1 (`spikes/21-history-expiry.md`).
 
 ### 6.4 Process: classify a chunk
 
@@ -608,7 +612,7 @@ This updates the PDD's [epic list](product-design-document.md#14-epics) with the
 
 | Item | Why it matters | Where it's handled |
 |------|----------------|--------------------|
-| The History API may miss or duplicate events, or expire sooner than expected. | Threads missed or re-sent. | E1 spike, expiry fallback, and back-pressure ([§6.3](#63-ingest-gmail-history-to-work-queue)). |
+| The History API may miss or duplicate events, or expire sooner than expected. | Threads missed or re-sent. | E1 spike, expiry fallback, and back-pressure ([§6.3](#63-ingest-gmail-history-to-work-queue)). Expiry (E1 #21, a consumer test account with about 42k mostly imported messages, lightly used otherwise): on 2026-09-26, history reached back about 28 days. The daily watch from 2026-09-26 is recorded in `spikes/21-history-expiry.md`. A busy inbox may keep less, so the fallback stays. |
 | The exclusion search could miss a matching message outside its date window. | Privacy. | The window spans the oldest to newest message of the chunk's threads, with a day of margin. E1 verifies grouping and `OR`. |
 | Adding `SPAM` via the API may or may not report the thread to Google. | A surprising side effect. | E1. Documented in the README. |
 | How well `basic` HTML conversion works for classification. | Precision on HTML-only mail. | E4 probe check. `advanced` converter reserved. |

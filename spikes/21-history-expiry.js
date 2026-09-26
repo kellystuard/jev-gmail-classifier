@@ -83,6 +83,75 @@ function s21_rawStatus(args) {
   return s21_out_({ currentHistoryId: current, at: new Date().toISOString(), results: results });
 }
 
+/**
+ * Day-0 retention estimate: bisect for the oldest startHistoryId that
+ * History.list still accepts (assumes validity is monotonic: everything
+ * above the cut-off works), then read internalDate of the messages in the
+ * first few messageAdded records after it. Returns IDs, counts, and dates
+ * only.
+ *
+ * args.samples: how many messageAdded messages to date (default 10).
+ */
+function s21_oldest(args) {
+  args = args || {};
+  var samples = args.samples || 10;
+  var current = Number(Gmail.Users.getProfile('me').historyId);
+  var probes = 0;
+  var ok = function (id) {
+    probes++;
+    try {
+      Gmail.Users.History.list('me', { startHistoryId: String(id), maxResults: 1 });
+      return true;
+    } catch (e) {
+      if (e && e.details && e.details.code === 404) return false;
+      throw e;
+    }
+  };
+  // Invariant: lo is rejected (404), hi is accepted.
+  var lo = 1;
+  var hi = current;
+  if (ok(lo)) return s21_out_({ currentHistoryId: String(current), oldestValid: '1', probes: probes });
+  while (hi - lo > 1) {
+    var mid = Math.floor((lo + hi) / 2);
+    if (ok(mid)) hi = mid; else lo = mid;
+  }
+
+  var dated = [];
+  var pageToken = null;
+  var pages = 0;
+  do {
+    var opts = { startHistoryId: String(hi), historyTypes: ['messageAdded'], maxResults: 20 };
+    if (pageToken) opts.pageToken = pageToken;
+    var resp = Gmail.Users.History.list('me', opts);
+    pages++;
+    (resp.history || []).forEach(function (h) {
+      (h.messagesAdded || []).forEach(function (a) {
+        if (dated.length >= samples) return;
+        var entry = { recordId: h.id, messageId: a.message.id };
+        try {
+          var m = Gmail.Users.Messages.get('me', a.message.id, { format: 'minimal' });
+          entry.internalDateIso = new Date(Number(m.internalDate)).toISOString();
+          entry.ageHours = Math.round((Date.now() - Number(m.internalDate)) / 36e5 * 10) / 10;
+        } catch (e) {
+          entry.error = { code: e && e.details && e.details.code, message: String(e && e.message).slice(0, 120) };
+        }
+        dated.push(entry);
+      });
+    });
+    pageToken = resp.nextPageToken;
+  } while (pageToken && dated.length < samples && pages < 10);
+
+  return s21_out_({
+    at: new Date().toISOString(),
+    currentHistoryId: String(current),
+    oldestValid: String(hi),
+    newestRejected: String(lo),
+    idsRetained: current - hi,
+    probes: probes,
+    firstMessagesAdded: dated
+  });
+}
+
 /** Append {historyId, savedAt} from getProfile to s21.positions. */
 function s21_savePosition(args) {
   var positions = s21_getJson_('s21.positions', []);
