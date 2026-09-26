@@ -190,4 +190,4 @@ Copy this for each spike's `spikes/NN-slug.md`:
 
 | Spike | Task | Result |
 |-------|------|--------|
-| [00-profile](00-profile.md) | #18, #163 | Works: `s00_profile` returned a `historyId` through `node spikes/run.mjs` (2026-09-26). The runner checks (`163-runner.js`) are recorded there too. |
+| [00-profile](00-profile.md) | #18, #163 | Works: `s00_profile` returned a `historyId` through `node spikes/run.mjs` and the `spikes.yml` workflow (2026-09-26). The runner checks (`163-runner.js`) are recorded there too. |
