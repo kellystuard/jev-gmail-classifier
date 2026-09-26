@@ -192,6 +192,7 @@ Copy this for each spike's `spikes/NN-slug.md`:
 | Spike | Task | Result |
 |-------|------|--------|
 | [00-profile](00-profile.md) | #18, #163 | Works: `s00_profile` returned a `historyId` through `node spikes/run.mjs` and the `spikes.yml` workflow (2026-09-26). The runner checks (`163-runner.js`) are recorded there too. |
+| [19-message-added](19-message-added.md) | #19 | Written; not run yet. |
 | [20-label-removed](20-label-removed.md) | #20 | Run 2026-09-26. Removing a user label (UI, API, or deleting the label) gives one `labelRemoved` record per action, with one entry per message; filter on the client and de-duplicate by thread; new messages don't inherit the label. |
 | [23-exclusion-query](23-exclusion-query.md) | #23 | Run 2026-09-26. Scheduled search works with `includeSpamTrash: true`, a window from the oldest message to at least now + 1 d, and paging; the ADR-0005 manual form leaks (ADR-0017). Indexing lag under 1 s. |
 | [29-part-encoding](29-part-encoding.md) | #29 | Run 2026-09-26. Part data is a signed byte array, CTE undone, and Gmail transcodes every text part to UTF-8, so decode as UTF-8 and ignore the declared charset. Headers arrive RFC 2047-decoded. `message/rfc822` parts are expanded into nested parts without `filename`/`attachmentId`, so the walker mustn't descend into excluded parts. Fixtures in `test/fixtures/gmail/`. |
