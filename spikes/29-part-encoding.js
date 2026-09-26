@@ -40,6 +40,7 @@ function s29_utilitiesChecks() {
     japanese: '日本語のテキスト。こんにちは世界。',
     russian: 'Привет, мир',
     chinese: '中文测试',
+    traditional: '中文測試',
     ascii: 'plain ASCII text'
   };
   // [label, charset used to encode the bytes, name passed to getDataAsString, sample key]
@@ -59,7 +60,7 @@ function s29_utilitiesChecks() {
     ['ISO-2022-JP', 'ISO-2022-JP', 'ISO-2022-JP', 'japanese'],
     ['EUC-JP', 'EUC-JP', 'EUC-JP', 'japanese'],
     ['GB2312', 'GB2312', 'GB2312', 'chinese'],
-    ['Big5', 'Big5', 'Big5', 'chinese'],
+    ['Big5', 'Big5', 'Big5', 'traditional'],
     ['KOI8-R', 'KOI8-R', 'KOI8-R', 'russian'],
     ['us-ascii', 'US-ASCII', 'us-ascii', 'ascii'],
     ['x-unknown', 'UTF-8', 'x-unknown', 'japanese'],
@@ -115,52 +116,56 @@ function s29_utilitiesChecks() {
 }
 
 /**
- * Inserts scenarios 1-11 and imports 3b and 13. Saves {scenario: {id,
- * threadId, method}} in Script Properties (s29.threads). Idempotent unless
- * force is true, so a re-run doesn't duplicate the mail.
+ * Inserts scenarios 1-11 (and 9b), imports 3b, 5b, and 13. Saves {scenario:
+ * {id, threadId, method}} in Script Properties (s29.threads). A re-run only
+ * creates scenarios that aren't stored yet (so later-added controls can be
+ * made without duplicating mail); force re-creates everything.
  *
  * Scenario 1 is inserted three ways to record which call forms the Advanced
  * Service accepts: `raw` (base64url string in the resource, options in the
  * 4th argument), `media` (a message/rfc822 blob as the 3rd argument), and
- * `raw-noopts` (raw, no options, so internalDate is the insert time). The
- * rest use the first form that worked, falling back to the others.
+ * `raw-noopts` (raw, no options). The rest use the first form that worked,
+ * falling back to the others.
  */
 function s29_createTestMessages(force) {
   var props = PropertiesService.getScriptProperties();
   var existing = props.getProperty(s29_PROP_THREADS);
-  if (existing && !force) {
-    return s29_out_({ alreadyCreated: true, scenarios: JSON.parse(existing) }, null);
-  }
+  var stored = existing && !force ? JSON.parse(existing) : {};
   var nonce = String(Date.now());
   var defs = s29_defs_();
   var created = {};
   var errors = {};
 
-  // 1. Probe the insert call forms with scenario 1.
+  // 1. Probe the insert call forms with scenario 1 (first run only).
   var forms = ['raw', 'media', 'raw-noopts'];
   var formResults = {};
   var working = [];
-  forms.forEach(function (form, i) {
-    var key = i === 0 ? '01' : '01-' + form;
-    var built = s29_build_(defs['01'], nonce, i === 0 ? '' : ' [' + form + ' probe]');
-    try {
-      var msg = s29_insertOrImport_('insert', form, built.bytes);
-      formResults[form] = { ok: true };
-      created[key] = s29_created_(msg, 'insert:' + form);
-      working.push(form);
-    } catch (e) {
-      formResults[form] = { ok: false, error: s29_err_(e) };
+  if (stored['01']) {
+    working = forms;
+    formResults = 'probed on an earlier run';
+  } else {
+    forms.forEach(function (form, i) {
+      var key = i === 0 ? '01' : '01-' + form;
+      var built = s29_build_(defs['01'], nonce, i === 0 ? '' : ' [' + form + ' probe]');
+      try {
+        var msg = s29_insertOrImport_('insert', form, built.bytes);
+        formResults[form] = { ok: true };
+        created[key] = s29_created_(msg, 'insert:' + form);
+        working.push(form);
+      } catch (e) {
+        formResults[form] = { ok: false, error: s29_err_(e) };
+      }
+    });
+    if (!working.length) {
+      return s29_out_({ error: 'no insert form worked', insertForms: formResults }, null);
     }
-  });
-  if (!working.length) {
-    return s29_out_({ error: 'no insert form worked', insertForms: formResults }, null);
   }
 
   // 2. Every other scenario: insert or import, preferring the working forms in order.
   var importName = s29_importName_();
   Object.keys(defs).sort().forEach(function (key) {
     var def = defs[key];
-    if (key === '01' || def.method === 'maintainer') return;
+    if (key === '01' || def.method === 'maintainer' || stored[key]) return;
     var built = s29_build_(def, nonce, '');
     var tried = [];
     for (var i = 0; i < working.length; i++) {
@@ -180,13 +185,15 @@ function s29_createTestMessages(force) {
     try {
       var m = Gmail.Users.Messages.get('me', created[key].id, { format: 'minimal' });
       created[key].labelIds = m.labelIds || [];
+      created[key].threadIdInResponse = !!created[key].threadId;
+      created[key].threadId = created[key].threadId || m.threadId;
       created[key].internalDate = m.internalDate;
     } catch (e) {
       created[key].labelError = s29_err_(e);
     }
   });
 
-  var store = {};
+  var store = stored;
   Object.keys(created).forEach(function (k) {
     store[k] = { id: created[k].id, threadId: created[k].threadId, method: created[k].method };
   });
@@ -196,6 +203,7 @@ function s29_createTestMessages(force) {
     insertForms: formResults,
     importMethodName: importName,
     scenarios: created,
+    alreadyStored: Object.keys(stored).filter(function (k) { return !created[k]; }),
     errors: errors,
     storedBytes: JSON.stringify(store).length
   }, null);
@@ -271,6 +279,62 @@ function s29_dumpFixture(scenario, page, pageSize) {
   return result;
 }
 
+/**
+ * Control: fetches the same thread from the Gmail REST API directly
+ * (UrlFetchApp with the script's own token) and compares each part's
+ * body.data with the Advanced Service's. Shows whether a difference (data
+ * form, charset) comes from Gmail or from the Advanced Service wrapper.
+ */
+function s29_restCompare(scenario) {
+  var ctx = s29_ctx_();
+  var target = s29_resolve_(scenario || '05');
+  if (target.error) return s29_out_(target, ctx);
+  var url = 'https://gmail.googleapis.com/gmail/v1/users/me/threads/' + encodeURIComponent(target.threadId) + '?format=full';
+  var resp = UrlFetchApp.fetch(url, {
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+  if (resp.getResponseCode() !== 200) {
+    return s29_out_({ scenario: target.key, error: 'HTTP ' + resp.getResponseCode(), body: resp.getContentText().slice(0, 300) }, ctx);
+  }
+  var rest = JSON.parse(resp.getContentText());
+  var adv = Gmail.Users.Threads.get('me', target.threadId, { format: 'full' });
+  function partsOf(thread) {
+    var map = {};
+    (thread.messages || []).forEach(function (m, mi) {
+      s29_walk_(m.payload, function (part) { map[(mi + 1) + ':' + part.partId] = part; });
+    });
+    return map;
+  }
+  var restParts = partsOf(rest);
+  var advParts = partsOf(adv);
+  var parts = Object.keys(restParts).map(function (k) {
+    var rp = restParts[k];
+    var ap = advParts[k] || {};
+    var rd = (rp.body || {}).data;
+    var ad = (ap.body || {}).data;
+    var row = {
+      part: k,
+      mimeType: rp.mimeType,
+      contentType: s29_header_(rp.headers, 'Content-Type'),
+      restSize: (rp.body || {}).size,
+      advancedSize: (ap.body || {}).size,
+      restData: s29_dataFacts_(rd),
+      advancedData: s29_dataFacts_(ad)
+    };
+    if (typeof rd === 'string') {
+      var bytes = Utilities.base64DecodeWebSafe(rd);
+      row.restDecodedByteLength = bytes.length;
+      row.sameBytesAsAdvanced = !!ad && ad.length === bytes.length && bytes.every(function (b, i) { return b === ad[i]; });
+      var cs = s29_charsetOf_(row.contentType);
+      row.restAsUtf8 = s29_try_(function () { return Utilities.newBlob(bytes).getDataAsString('UTF-8'); });
+      if (cs) row.restAsDeclared = s29_try_(function () { return Utilities.newBlob(bytes).getDataAsString(cs); });
+    }
+    return row;
+  });
+  return s29_out_({ scenario: target.key, restMessageCount: (rest.messages || []).length, parts: parts }, ctx);
+}
+
 /** Deletes this spike's Script Properties. The test mail is left in place. */
 function s29_reset() {
   var props = PropertiesService.getScriptProperties();
@@ -325,6 +389,9 @@ function s29_defs_() {
   add('05', 'plain-iso-8859-1-qp', 'insert', 's29-05 plain iso-8859-1 quoted-printable', function () {
     return s29_leaf_({ type: 'text/plain', params: '; charset="ISO-8859-1"', cte: 'quoted-printable', text: T.s05, charset: 'ISO-8859-1' });
   });
+  add('05b', 'plain-iso-8859-1-qp-import', 'import', 's29-05b plain iso-8859-1 quoted-printable (import)', function () {
+    return defs['05'].build();
+  });
   add('06', 'html-windows-1252-qp', 'insert', 's29-06 html windows-1252 quoted-printable', function () {
     return s29_leaf_({ type: 'text/html', params: '; charset="windows-1252"', cte: 'quoted-printable', text: T.s06, charset: 'windows-1252' });
   });
@@ -345,6 +412,9 @@ function s29_defs_() {
       s29_leaf_({ type: 'text/plain', params: '; charset="x-unknown"', cte: 'base64', text: T.s09unknown }),
       s29_leaf_({ type: 'text/plain', params: '; charset=utf8', cte: 'base64', text: T.s09utf8 })
     ]);
+  });
+  add('09b', 'plain-unknown-charset-latin1', 'insert', 's29-09b plain unknown charset, iso-8859-1 bytes', function () {
+    return s29_leaf_({ type: 'text/plain', params: '; charset="x-unknown"', cte: 'quoted-printable', text: T.s09latin, charset: 'ISO-8859-1' });
   });
   add('10', 'rfc2047-headers', 'insert', null, function () {
     return s29_leaf_({ type: 'text/plain', params: '; charset="UTF-8"', cte: '7bit', text: T.s10 });
@@ -407,6 +477,7 @@ function s29_texts_() {
     s08latin: 'Scenario 8b: no charset parameter, ISO-8859-1 bytes: café Grüße.\r\n',
     s09unknown: 'Scenario 9a: charset="x-unknown", UTF-8 bytes: café 日本.\r\n',
     s09utf8: 'Scenario 9b: charset=utf8 (no dash), UTF-8 bytes: café 日本.\r\n',
+    s09latin: 'Scenario 9 control: charset="x-unknown", ISO-8859-1 bytes: café Grüße £5.\r\n',
     s10: 'Scenario 10: RFC 2047 encoded Subject, From, and To display names. ASCII body.\r\n',
     s11: large.join('\r\n') + '\r\n',
     s12marker: 'Größe café 日本',
@@ -628,6 +699,10 @@ function s29_resolve_(idOrKey) {
     key = found;
   }
   var def = defs[key] || defs[key.slice(0, 2)];
+  if (stored[key] && !stored[key].threadId) {
+    // messages.import's response has no threadId (observed 2026-09-26): look it up.
+    stored[key].threadId = Gmail.Users.Messages.get('me', stored[key].id, { format: 'minimal' }).threadId;
+  }
   if (stored[key]) {
     return { key: key, slug: defs[key] ? def.slug : def.slug + '-' + key.slice(3), threadId: stored[key].threadId, def: def, method: stored[key].method };
   }
