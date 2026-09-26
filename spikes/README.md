@@ -193,3 +193,4 @@ Copy this for each spike's `spikes/NN-slug.md`:
 |-------|------|--------|
 | [00-profile](00-profile.md) | #18, #163 | Works: `s00_profile` returned a `historyId` through `node spikes/run.mjs` and the `spikes.yml` workflow (2026-09-26). The runner checks (`163-runner.js`) are recorded there too. |
 | [23-exclusion-query](23-exclusion-query.md) | #23 | Run 2026-09-26. Scheduled search works with `includeSpamTrash: true`, a window from the oldest message to at least now + 1 d, and paging; the ADR-0005 manual form leaks (ADR-0017). Indexing lag under 1 s. |
+| [30-gmail-quota](30-gmail-quota.md) | #30 | Docs checked 2026-09-25; counter and latency not run yet (waits for #163). |
