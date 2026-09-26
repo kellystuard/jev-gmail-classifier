@@ -279,36 +279,59 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * Merges this checkout's spike files into the shared project: files with the
  * same name are replaced, remote files this checkout lacks are kept (other
  * branches' spikes). `projects.updateContent` replaces the whole project, so
- * the read-merge-write window is kept short, and the result is re-read to
- * confirm this checkout's files survived a concurrent push. On a loss, retry.
+ * many branches racing here could stomp on each other (#176):
+ *
+ * - a concurrent push could land between the read used to build the merge
+ *   and the write, so that write's stale view of a foreign file (one this
+ *   checkout doesn't own) reverts or deletes it when written back;
+ * - the same write could also silently revert this checkout's own file, if
+ *   another push raced it.
+ *
+ * So the merge is built from a read taken immediately before the write (not
+ * the earlier read used only to report added/updated/kept), narrowing that
+ * window, and after writing, both this checkout's own files and every
+ * foreign file that read saw are checked: if any is missing or changed, a
+ * concurrent push landed and the whole read-merge-write is retried (a few
+ * attempts, with jitter). A window right before the final write remains and
+ * can't be closed this way (spikes/README.md, "Limits").
  */
 export async function push(s, io = { getContent, putContent, sleep, mine: localFiles() }) {
   const { mine } = io;
+  const mineByName = new Map(mine.map((f) => [f.name, f]));
   const maxAttempts = 4;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const remote = await io.getContent(s);
     const remoteByName = new Map(remote.map((f) => [f.name, f]));
-    const mineByName = new Map(mine.map((f) => [f.name, f]));
     const added = mine.filter((f) => !remoteByName.has(f.name)).map((f) => f.name);
     const updated = mine.filter((f) => remoteByName.has(f.name) && !sameFile(remoteByName.get(f.name), f)).map((f) => f.name);
     const kept = remote.filter((f) => !mineByName.has(f.name)).map((f) => f.name);
+    let lost = [];
     if (added.length || updated.length) {
-      const merged = [...remote.map((f) => mineByName.get(f.name) ?? f), ...mine.filter((f) => !remoteByName.has(f.name))];
+      // Re-read right before writing: build the merge from the freshest
+      // snapshot, so a push that lands between the first read and this one
+      // is kept instead of being silently reverted or deleted below.
+      const base = await io.getContent(s);
+      const baseByName = new Map(base.map((f) => [f.name, f]));
+      const merged = [...base.map((f) => mineByName.get(f.name) ?? f), ...mine.filter((f) => !baseByName.has(f.name))];
       await io.putContent(s, merged);
-    }
-    const after = new Map((await io.getContent(s)).map((f) => [f.name, f]));
-    const lost = mine.filter((f) => f.type !== 'JSON' && !(after.has(f.name) && sameFile(after.get(f.name), f))).map((f) => f.name);
-    if (!lost.length) {
-      const manifest = mine.find((f) => f.type === 'JSON');
-      if (!after.has('appsscript') || !sameFile(after.get('appsscript'), manifest)) {
-        note('Warning: the project manifest differs from spikes/appsscript.json (another branch may have pushed a different one).');
+      const after = new Map((await io.getContent(s)).map((f) => [f.name, f]));
+      const lostMine = mine.filter((f) => f.type !== 'JSON' && !(after.has(f.name) && sameFile(after.get(f.name), f))).map((f) => f.name);
+      const lostForeign = base.filter((f) => !mineByName.has(f.name) && !(after.has(f.name) && sameFile(after.get(f.name), f))).map((f) => f.name);
+      lost = [...lostMine, ...lostForeign];
+      if (!lost.length) {
+        const manifest = mine.find((f) => f.type === 'JSON');
+        if (!after.has('appsscript') || !sameFile(after.get('appsscript'), manifest)) {
+          note('Warning: the project manifest differs from spikes/appsscript.json (another branch may have pushed a different one).');
+        }
       }
+    }
+    if (!lost.length) {
       return { added, updated, unchanged: mine.length - added.length - updated.length, kept, attempts: attempt };
     }
     if (attempt === maxAttempts) {
       throw new Fail(`Push could not keep ${lost.join(', ')} in the project after ${maxAttempts} attempts (concurrent pushes?). Try again.`);
     }
-    note(`Concurrent push detected (${lost.join(', ')} missing); retrying.`);
+    note(`Concurrent push detected (${lost.join(', ')} missing or changed); retrying.`);
     await io.sleep(1000 + Math.random() * 3000);
   }
 }

@@ -94,9 +94,9 @@ node spikes/run.mjs run s19_start '{"tag":"a"}'
 `projects.updateContent` replaces the whole project, and many branches push to the one shared project. So `push`:
 
 1. reads the project (`projects.getContent`);
-2. replaces the files this checkout has (same name), keeps every remote file it doesn't have (other branches' spikes, and the handlers of their running triggers), and adds its new files;
-3. writes the result immediately (only if something changed), then reads the project again and checks that its own `.js` files are there, unchanged;
-4. if a concurrent push overwrote them, retries after a short random wait (up to 4 attempts), then fails with a clear message.
+2. re-reads it right before writing (only if something needs to change), and builds the merge from that: this checkout's files replace same-named ones, every remote file it doesn't have (other branches' spikes, and the handlers of their running triggers) is kept, and its new files are added; the second read narrows, but doesn't close, the window in which a concurrent push could land (#176; see "Limits");
+3. writes that merge, then reads the project again and checks that both its own `.js` files and every foreign file the pre-write read saw are still there, unchanged;
+4. if anything is missing or changed, a concurrent push landed: retries after a short random wait (up to 4 attempts), then fails with a clear message naming the affected files.
 
 Consequences to know:
 
@@ -111,6 +111,7 @@ Consequences to know:
 - **Only return values come back.** `console.log` output goes to Cloud Logging, not the API response. Parameters and return values must be plain JSON types (strings, numbers, booleans, arrays, objects).
 - **Response size.** Google documents no limit for `scripts.run`, and none was hit: `s163_echo` returned 100 MB in 4.3 s (2026-09-26, [00-profile.md](00-profile.md#automated-run)). The practical limits are elsewhere: the Actions **job summary holds at most 1 MiB** (the workflow puts larger results in the log only), and big results are hard to read. Return summaries and counts, not raw lists. The runner prints each response's size to stderr.
 - **Parallel runs are fine.** The runner keeps no temp files or locks; each process refreshes its own access token. Two concurrent `run`s were tested.
+- **Parallel `push`es are handled, but a window remains.** `push` re-reads right before writing and retries when a concurrent push is detected (#176; tested offline in `spikes/run.test.mjs`, `node --test spikes/run.test.mjs`), but a race landing in the instant between that last read and the write itself can't be closed this way — one push's write can still silently revert the other's. Run `push` right before a run whose result you record, rather than relying on an earlier push.
 - **Script errors.** A thrown JavaScript error comes back as `USER_ERROR` with the message and stack, and `run` exits 1. An *internal* Apps Script error (for example "Unexpected error while getting the method or property …") comes back as a bare **HTTP 500 INTERNAL** with no details. If a spike gets one, wrap its steps in `try`/`catch` and return the message.
 - **Triggers.** A function run through the API can create and delete time-driven triggers (`s163_trigger` checks this). Triggers then run as the test account on the project's current code. **Pitfall:** deleting the `Trigger` object returned by `create()` in the same execution fails with an internal error (HTTP 500). Delete the copy returned by `ScriptApp.getProjectTriggers()` instead, matched by `getUniqueId()` or handler name.
 
