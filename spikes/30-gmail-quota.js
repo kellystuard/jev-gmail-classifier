@@ -11,7 +11,8 @@
  *   s30_triggerTick(e)            Trigger handler: tick(5), saves its result, deletes its trigger.
  *   s30_readTriggerResult()       The saved trigger result.
  *   s30_readCounter()             The stored counter.
- *   s30_measureLatency(n)         Times n calls of each kind (default 20), first discarded.
+ *   s30_measureLatency(n, ups)    Times n calls of each kind (default 20), first discarded,
+ *                                 paced to ups quota units per second (default 25).
  *   s30_cleanup(removeLabel)      Deletes s30.* properties and s30_ triggers (and the label).
  *
  * Conventions (spikes/README.md): top-level names start with s30_, Script
@@ -117,11 +118,25 @@ function s30_readCounter() {
  * through the counter. Creates its own synthetic threads (one 1-message, one
  * 5-message) and the Spike/Quota label on first use.
  */
-function s30_measureLatency(n) {
+function s30_measureLatency(n, unitsPerSecond) {
   var count = n || 20;
+  // Paced to stay far below the per-user rate limit: the first, unpaced run
+  // (2026-09-26) hit "Units per minute per user" after about 2,900 units in 18 s.
+  var pace = unitsPerSecond || 25;
   var started = Date.now();
   var c = s30_counter_(null);
-  var out = { executionId: Utilities.getUuid(), nPerKind: count, discarded: 1, counterBefore: c.before };
+  var out = {
+    executionId: Utilities.getUuid(), nPerKind: count, discarded: 1, pacedUnitsPerSecond: pace, counterBefore: c.before
+  };
+  // Runs fn, returns its elapsed ms, then sleeps so the call's units are spread at `pace`.
+  function timed(units, fn) {
+    var t0 = Date.now();
+    var v = c.gmailCall(fn);
+    var ms = Date.now() - t0;
+    var wait = Math.ceil(units * 1000 / pace) - ms;
+    if (wait > 0) Utilities.sleep(wait);
+    return { ms: ms, value: v };
+  }
   try {
     var threads = s30_setupThreads_(c);
     var labelId = s30_labelId_(c);
@@ -129,66 +144,68 @@ function s30_measureLatency(n) {
 
     var small = threads.small;
     var multi = threads.multi;
-    var startHistoryId = c.gmailCall(function () {
+    var startHistoryId = timed(40, function () {
       return Gmail.Users.Threads.get('me', small, { format: 'minimal' });
-    }).historyId;
+    }).value.historyId;
 
+    // [call, params, units (Gmail API usage limits page), fn]
     var kinds = [
-      ['getProfile', '', function () { return Gmail.Users.getProfile('me').historyId; }],
-      ['history.list', 'startHistoryId = the small thread\'s historyId', function () {
+      ['getProfile', '', 1, function () { return Gmail.Users.getProfile('me').historyId; }],
+      ['history.list', 'startHistoryId = the small thread\'s historyId', 2, function () {
         var r = Gmail.Users.History.list('me', { startHistoryId: startHistoryId });
         return ((r && r.history) || []).length;
       }],
-      ['threads.list', 'q: in:inbox, maxResults: 100', function () {
+      ['threads.list', 'q: in:inbox, maxResults: 100', 10, function () {
         var r = Gmail.Users.Threads.list('me', { q: 'in:inbox', maxResults: 100 });
         return ((r && r.threads) || []).length;
       }],
-      ['threads.get', 'format: metadata, metadataHeaders: [Subject], 1-message thread', function () {
+      ['threads.get', 'format: metadata, metadataHeaders: [Subject], 1-message thread', 40, function () {
         return Gmail.Users.Threads.get('me', small, { format: 'metadata', metadataHeaders: ['Subject'] }).messages.length;
       }],
-      ['threads.get', 'format: full, 1-message thread', function () {
+      ['threads.get', 'format: full, 1-message thread', 40, function () {
         return Gmail.Users.Threads.get('me', small, { format: 'full' }).messages.length;
       }],
-      ['threads.get', 'format: full, 5-message thread', function () {
+      ['threads.get', 'format: full, 5-message thread', 40, function () {
         return Gmail.Users.Threads.get('me', multi, { format: 'full' }).messages.length;
       }]
     ];
-    out.results = kinds.map(function (k) {
+    out.results = [];
+    kinds.forEach(function (k) {
       var times = [];
       var sample = null;
       for (var i = 0; i < count; i++) {
-        var t0 = Date.now();
-        var v = c.gmailCall(k[2]);
-        times.push(Date.now() - t0);
-        if (i === 0) sample = v;
+        var r0 = timed(k[2], k[3]);
+        times.push(r0.ms);
+        if (i === 0) sample = r0.value;
       }
       var r = s30_stats_(times.slice(1));
       r.call = k[0];
       r.params = k[1];
+      r.units = k[2];
       r.firstCallMs = times[0];
       r.resultSize = sample;
-      return r;
+      out.results.push(r);
     });
 
     // threads.modify: add the label, then remove it; timed separately.
     var add = [];
     var remove = [];
     for (var j = 0; j < count; j++) {
-      var t1 = Date.now();
-      c.gmailCall(function () { return Gmail.Users.Threads.modify({ addLabelIds: [labelId.id] }, 'me', small); });
-      add.push(Date.now() - t1);
-      var t2 = Date.now();
-      c.gmailCall(function () { return Gmail.Users.Threads.modify({ removeLabelIds: [labelId.id] }, 'me', small); });
-      remove.push(Date.now() - t2);
+      add.push(timed(10, function () { return Gmail.Users.Threads.modify({ addLabelIds: [labelId.id] }, 'me', small); }).ms);
+      remove.push(timed(10, function () { return Gmail.Users.Threads.modify({ removeLabelIds: [labelId.id] }, 'me', small); }).ms);
     }
     [['threads.modify', 'addLabelIds: [Spike/Quota]', add], ['threads.modify', 'removeLabelIds: [Spike/Quota]', remove]]
       .forEach(function (m) {
         var r = s30_stats_(m[2].slice(1));
         r.call = m[0];
         r.params = m[1];
+        r.units = 10;
         r.firstCallMs = m[2][0];
         out.results.push(r);
       });
+  } catch (e) {
+    // Keep the partial results, and don't leak the Cloud project number.
+    out.error = String((e && e.message) || e).replace(/project_number:\d+/g, 'project_number:<project-number>').slice(0, 400);
   } finally {
     out.counterBytes = c.save();
   }

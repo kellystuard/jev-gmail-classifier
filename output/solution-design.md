@@ -363,6 +363,7 @@ All persistent state goes through `StatePort` ([ADR-0007](adr/0007-script-proper
 | `state.queue.<n>` | Work items: `{threadId, source, firstClassification, applyMoves, strikes, enqueuedAt}` | Capped. Ingest stops at the cap (back-pressure). |
 | `state.manual` | The manual job: query, flags, cursor, counts. | One job. |
 | `state.budget` | `{day, inputTokens}` | Reset when the day changes. |
+| `state.gmailCalls` | `{day, count}`: Gmail API calls made today, in the script's time zone. Read once at run start and written once at run end (in a `finally`), inside the script lock, which keeps it exact ([§9](#9-gmail-integration)). | Reset when the day changes. |
 | `state.alerts` | `{condition: lastSentDay}` | Fixed set of conditions. |
 | `state.runs` | `{lastStart, lastEnd, consecutiveFailures, lastSummary}` | Fixed size. |
 
@@ -489,7 +490,10 @@ repeat:
 - **Scope preflight.** At `install` and at the start of every run, `AuthPort.missingScopes()` compares the granted scopes with the declared ones. This matters because Google's granular consent lets a user leave some unticked. Each missing scope is logged as `scope_missing` with the features it disables, and alerted once a day where mail can still be sent. The run continues with what still works.
 - **Per-action fallback.** A `403` "insufficient authentication scopes" from any Gmail call is caught in the adapter and returned as a `scope` result. It never crashes the run.
 - **The owner's address** for alerts comes from `Gmail.Users.getProfile('me').emailAddress`, which avoids the `userinfo.email` scope.
-- **Gmail API quota.** Each call has a unit cost (`threads.get` full is the largest). The run controller keeps per-run calls proportional to the chunk size. Whether Advanced Service calls also count toward Apps Script's "Email read/write" daily quota is unconfirmed; E1 measures it.
+- **Gmail API quota** (checked by E1, [`spikes/30-gmail-quota.md`](../spikes/30-gmail-quota.md)).
+  - **Unit costs** ([Gmail API usage limits](https://developers.google.com/workspace/gmail/api/reference/quota)): `getProfile` and `labels.list` 1, `history.list` 2, `threads.list` and `threads.modify` 10, `threads.trash` 20, and `threads.get` **40 in any format**. A thread costs about 50 units (get plus modify).
+  - **Per-user rate limit: 6,000 units per minute**, shared by everything that uses the account's Gmail through the same Cloud project. It binds in practice: back-to-back calls tripped it after about 2,900 units in 18 s, with "Quota exceeded for quota metric 'Total Query Cost' and limit 'Units per minute per user'" (HTTP 403, `rateLimitExceeded`; a few minutes' backoff cleared it). Calls take about 90–300 ms, so an unpaced run exceeds 100 units/s. The run controller sizes each run's Gmail work by quota units as well as time, and treats that error as "stop Gmail work for this run", not as a thread failure or the daily stop (E7).
+  - **Daily quota.** Whether Advanced Service calls also count toward Apps Script's "Email read/write" daily quota (20,000/day for consumer accounts) is undocumented, and deliberately not tested by exhausting it. The product tracks its own daily Gmail calls in `state.gmailCalls` ([§7.3](#73-script-properties-state)) and logs `gmailCalls` and `gmailCallsToday` in `run.end`, so usage can be compared with the documented figure. There is no daily cap.
 
 ## 10. Cross-Cutting Concerns
 
@@ -624,13 +628,12 @@ This updates the PDD's [epic list](product-design-document.md#14-epics) with the
 | Search can compare `after:`/`before:` against a date the API doesn't report. | Privacy, if a window is built from message dates alone. | E1 saw it only for uploads (`insert`/`import` with `receivedTime`), not for self-sends, and couldn't test mail from outside. An upper bound of at least now + 1 d covers it. E3 tests the window builder with a message whose indexed date is later than its `internalDate`. |
 | A combined search for manual runs, `(<query>) (<excludeQuery>)`, misses threads whose matches are split across messages. | Privacy. | Confirmed by E1 (it leaks). The manual job search never includes `excludeQuery`; manual items go through the §6.4 chunk filter ([ADR-0017](adr/0017-exclusion-search-per-chunk-for-all-work.md)). |
 | `threads.get` returns Spam and Trash messages of a thread. | Mail the user trashed or that Gmail marked as spam could be sent to Jev. | Found by E1; E4 decides whether the state builder skips `SPAM`/`TRASH` messages ([§8.3](#83-state-layout)). |
-| The Gmail per-user, per-minute quota ("Total Query Cost", "Units per minute per user") is shared by everything using the account. | Runs fail mid-chunk with a quota exception. | Seen in E1 while several spikes ran at once. E7 treats it as retryable in a later run, not as a per-thread failure. |
+| The Gmail per-user, per-minute quota ("Total Query Cost", "Units per minute per user", 6,000 units/minute per user per Cloud project) is shared by everything using the account through that project, and is easy to hit: E1 hit it at about 2,900 units in 18 s of back-to-back calls ([`spikes/30-gmail-quota.md`](../spikes/30-gmail-quota.md)), and again while several spikes ran at once. | Runs fail mid-chunk with a quota exception (HTTP 403, `rateLimitExceeded`). | E7 sizes runs by quota units as well as time, and treats the error as retryable in a later run: it stops Gmail work for the run, not a per-thread failure and not the daily stop ([§9](#9-gmail-integration)). |
 | Adding `SPAM` via the API may or may not report the thread to Google. | A surprising side effect. | E1. Documented in the README. |
 | How well `basic` HTML conversion works for classification. | Precision on HTML-only mail. | E4 probe check. `advanced` converter reserved. |
 | Character-based token estimate. | A 422 from Jev because the request is too large. | E4 margin. A 422 goes to `Jev/Error`, so it is visible and never silent. |
 | Consumer trigger runtime of about 37 s per run. | Backlog. | Bounded chunks, concurrent `fetchAll`, configurable interval, back-pressure. |
-| Quota accounting for the Advanced Gmail Service is unconfirmed. | Unexpected daily quota errors. | E1 measures it. The run summary logs call counts. |
-
+| Whether the Advanced Gmail Service counts toward the 20,000/day "Email read/write" quota is undocumented, and not tested by exhausting it ([E1](../spikes/30-gmail-quota.md)). | Unexpected daily quota errors. | Daily Gmail calls are tracked in `state.gmailCalls` and logged in `run.end` (`gmailCalls`, `gmailCallsToday`). E7 keeps the tally; E9 logs it. |
 ## 15. Glossary
 
 | Term | Meaning |
