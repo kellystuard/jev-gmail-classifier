@@ -3,7 +3,7 @@
 - Task: #18 (spike and manual runbook), #163 (first run and runner checks)
 - Date run: 2026-09-26
 - Account: `<test-account>` (consumer)
-- Run by: agent via #163 (`node spikes/run.mjs`, Node 22); the workflow-dispatch run is pending (see [Automated run](#automated-run))
+- Run by: agent via #163, both through `node spikes/run.mjs` (Node 22) and the `spikes.yml` workflow dispatch (Node 24)
 
 ## Question
 
@@ -20,7 +20,7 @@ Does the shared spike Apps Script project work end to end: manifest, enabled Gma
 3. `node spikes/run.mjs push`, then `node spikes/run.mjs run s00_profile`.
 4. Account guard: `GMAIL_EMAIL=not-the-test-account@example.com node spikes/run.mjs run s00_profile` must refuse.
 5. Runner checks: `run s163_echo '{"a":[1,"b",true,null],"n":3.5}'`, `run s163_echo '{"bytes":N}'` for N up to 100,000,000, `run s163_echo '{"bytes":-1}'` (a script error), `run s163_trigger`, `run s99_missing`, and two `run`s at once.
-6. After #163 merges: `gh workflow run spikes.yml --ref main -f function=s00_profile`.
+6. `gh workflow run spikes.yml --ref main -f function=s00_profile`, then `gh run watch <run-id>` and `gh run view <run-id> --log`.
 
 ### Manual (editor)
 
@@ -49,11 +49,11 @@ The one-time setup in #163 (Cloud project, consent screen, OAuth client, `auth.m
 | 10 | Response size | `run s163_echo '{"bytes":N}'` for 1, 5, 10, 30, 60, 100 MB | All returned; 100 MB in 4.3 s. No `scripts.run` limit was hit. | Nothing to confirm (Google documents no limit) |
 | 11 | Parallel runs | Two `run s163_echo` processes at once | Both returned their own result | Yes (#30) |
 | 12 | Network error | A connection timeout happened once during testing | Runner now prints "Network error (ETIMEDOUT); try again." instead of a stack | n/a |
-| 13 | **`s00_profile` (workflow dispatch)** | `gh workflow run spikes.yml --ref main -f function=s00_profile` | Pending: the workflow can only be dispatched once it's on `main` | — |
+| 13 | **`s00_profile` (workflow dispatch)** | `gh workflow run spikes.yml --ref main -f function=s00_profile` ([run 36221901376](https://github.com/kellystuard/jev-gmail-classifier/actions/runs/36221901376), `main` at `298c1b5`) | Success. `push` changed nothing (`unchanged: 3`). `historyId` `36553770`, `messagesTotal` 41735, `threadsTotal` 40176, in 0.9 s. The log has no address, token, secret, or script ID: secrets are masked, and a scan of the log for each value found none. The job summary is built from the same result and stderr files. | Yes |
 
 ## Raw output
 
-<details><summary>Log (local, 2026-09-26)</summary>
+<details><summary>Log (local and workflow, 2026-09-26)</summary>
 
 ```
 $ node spikes/run.mjs run s00_profile
@@ -63,6 +63,14 @@ $ node spikes/run.mjs run s00_profile
   "threadsTotal": 40176
 }
 (s00_profile ran in 0.6 s; response 227 bytes)
+
+# workflow dispatch, run 36221901376 ("Run function" step)
+{
+  "threadsTotal": 40176,
+  "messagesTotal": 41735,
+  "historyId": "36553770"
+}
+(s00_profile ran in 0.9 s; response 227 bytes)
 
 $ GMAIL_EMAIL=not-the-test-account@example.com node spikes/run.mjs run s00_profile
 Refusing: the token belongs to a different Google account than GMAIL_EMAIL. Nothing was pushed or run.
@@ -118,4 +126,4 @@ The spike project works end to end. The manifest, the Gmail advanced service, an
 | Path | Date | Result |
 |------|------|--------|
 | `node spikes/run.mjs run s00_profile` (Node 22, agent) | 2026-09-26 | `historyId` returned (row 4) |
-| `spikes.yml` workflow dispatch (Node 24) | pending | Recorded after #163 merges and the workflow is on `main` |
+| `spikes.yml` workflow dispatch (Node 24, `ubuntu-latest`) | 2026-09-26 | `historyId` returned (row 13, [run 36221901376](https://github.com/kellystuard/jev-gmail-classifier/actions/runs/36221901376)) |
