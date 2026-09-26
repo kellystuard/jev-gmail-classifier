@@ -543,7 +543,7 @@ Logs are **structured JSON only**, one object per event, through `LogPort`. `con
 
 ### 10.6 Security and privacy
 
-- **Secrets.** `JEV_API_KEY` is read from Script Properties per run, and never logged. Locally, `.env` (git-ignored) is used only by the probe and by spikes.
+- **Secrets.** `JEV_API_KEY` is read from Script Properties per run, and never logged. Locally, `.env` (git-ignored) is used only by the probe and by spikes. For spikes it also holds the spike runner's credentials for the throwaway test account (`GMAIL_EMAIL`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `SPIKE_REFRESH_TOKEN`, `SPIKE_SCRIPT_ID`; see `.env.example`), which are also secrets in the `spike-account` GitHub environment ([ADR-0016](adr/0016-run-spikes-from-agents-and-a-manual-workflow.md), proposed).
 - **Data minimization.** Only the header allowlist and plain text are sent. Attachments are never sent. Exclusion is evaluated **per thread**: if any message matches, the whole thread is never read for Jev and never sent ([ADR-0005](adr/0005-positive-thread-level-exclusion.md)).
 - **Least privilege.** The explicit scopes are in [§9](#9-gmail-integration).
 - **Per-user files are git-ignored:** `config.yaml` and `.clasp.json`.
@@ -585,7 +585,7 @@ The principle is **test what is testable in the ways it can be tested, and don't
 | Question wording and `basic` conversion quality | The **local probe** (`npm run probe -- <file.eml>`) reuses the core state builder and the pure Jev client half, with Node `fetch` and `.env`. It's a developer tool, not a user feature. |
 | Build and config validation | Unit tests on the schema, plus CI building the example config. |
 
-No live Gmail or Jev calls run in CI.
+No live Gmail or Jev calls run in CI. The only exception is the manually dispatched spike workflow (`.github/workflows/spikes.yml`), which pushes and runs `spikes/` functions against the throwaway test account through the Apps Script API. It never runs on pull requests or pushes, and never against a real mailbox ([ADR-0016](adr/0016-run-spikes-from-agents-and-a-manual-workflow.md), proposed).
 
 ## 13. Epic Guidance
 

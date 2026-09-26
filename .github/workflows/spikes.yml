@@ -1,0 +1,78 @@
+# Runs one spike function against the throwaway test account (#163, ADR-0016).
+# Manual dispatch only: this is the only workflow that makes live calls, and
+# it never runs on pull_request or push. Secrets come from the spike-account
+# environment. Usage (see spikes/README.md, "Running spikes automatically"):
+#   gh workflow run spikes.yml --ref <branch> -f function=s00_profile
+#   gh run watch && gh run view --log
+name: Spikes
+
+on:
+  workflow_dispatch:
+    inputs:
+      function:
+        description: Spike function to run, for example s00_profile
+        required: true
+        type: string
+      args:
+        description: 'Optional JSON: an array of parameters, or one value, for example {"n":3}'
+        required: false
+        type: string
+        default: ''
+      push:
+        description: Push this ref's spikes/ files to the spike project first
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# No concurrency group: parallel runs are allowed (push merges, and #30 runs two at once).
+
+jobs:
+  run:
+    name: Run ${{ inputs.function }}
+    runs-on: ubuntu-latest
+    environment: spike-account
+    timeout-minutes: 15
+    env:
+      GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+      SPIKE_REFRESH_TOKEN: ${{ secrets.SPIKE_REFRESH_TOKEN }}
+      SPIKE_SCRIPT_ID: ${{ secrets.SPIKE_SCRIPT_ID }}
+      GMAIL_EMAIL: ${{ secrets.GMAIL_EMAIL }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Push spikes
+        if: ${{ inputs.push }}
+        run: node spikes/run.mjs push
+
+      - name: Run function
+        shell: bash
+        env:
+          FUNCTION: ${{ inputs.function }}
+          ARGS: ${{ inputs.args }}
+        run: |
+          set +e
+          node spikes/run.mjs run "$FUNCTION" "$ARGS" > "$RUNNER_TEMP/result.json" 2> "$RUNNER_TEMP/stderr.txt"
+          code=$?
+          cat "$RUNNER_TEMP/result.json"
+          cat "$RUNNER_TEMP/stderr.txt" >&2
+          {
+            echo "### Spike \`$FUNCTION\` (exit $code)"
+            echo
+            if [ -s "$RUNNER_TEMP/result.json" ]; then
+              echo '```json'; cat "$RUNNER_TEMP/result.json"; echo '```'
+            fi
+            if [ -s "$RUNNER_TEMP/stderr.txt" ]; then
+              echo '```text'; cat "$RUNNER_TEMP/stderr.txt"; echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $code

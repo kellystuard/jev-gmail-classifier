@@ -121,7 +121,7 @@ The model is in [Solution Design §10.1](solution-design.md#101-error-model) and
   - `spikes/` scripts confirm platform behavior once, and record what they find in the Solution Design or an ADR.
   - `docs/smoke-test.md` is the manual checklist, run in a real account before each release and after any adapter change.
 - **Coverage** is a guide, not a gate: about **90% of lines in `src/core/`**. A lower number for code that can't be tested meaningfully is fine. Don't write tests that assert nothing just to reach the number.
-- **CI makes no live calls**: no Gmail, no Jev, no secrets.
+- **CI makes no live calls**: no Gmail, no Jev, no secrets. The one exception is the spike workflow (`spikes.yml`), which is only ever dispatched by hand and runs `spikes/` functions against the throwaway test account ([ADR-0016](adr/0016-run-spikes-from-agents-and-a-manual-workflow.md), proposed). It never runs on `pull_request` or `push`, and never touches a real mailbox.
 - **The local probe** is how you check question wording and body-conversion quality against Jev by hand, using your own `.env`.
 
 ## 9. Dependencies
