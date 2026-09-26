@@ -49,13 +49,13 @@ Probes (each in its own `try/catch`, recording `ok`, `e.name`, `e.message` verba
 | P8 | `UrlFetchApp.fetch('https://www.google.com/generate_204', {muteHttpExceptions: true})` | `script.external_request` |
 | P9 | Script Properties get and set, `LockService.getScriptLock().tryLock(0)`, `Session.getScriptTimeZone()`, `Utilities.sleep(10)` | none |
 
-P7's trigger handler is `s27_noop` (not `noop`), to keep the `s27_` prefix.
+P7's trigger handler is `s27_noop` (not `noop`), to keep the `s27_` prefix. P7 deletes the trigger through its `getProjectTriggers()` copy, because deleting the object `create()` returned fails with a bare HTTP 500 in the same execution (`spikes/README.md`, Limits).
 
 Consent states: **B0** all four granted; **S1** `gmail.modify` unticked; **S2** `script.send_mail` unticked; **S3** `script.scriptapp` unticked; **S4** `script.external_request` unticked.
 
 ## Runbook
 
-> **Warning: revoke only "Jev spike 27".** Steps 3, 4 and 5 remove this project's access at <https://myaccount.google.com/connections>. On that page, remove **only** the entry named **"Jev spike 27"**. **Never** remove the shared `jev-spikes` project, or the app for the #163 runner's OAuth client (the name you gave the #163 OAuth consent screen). Removing either revokes `SPIKE_REFRESH_TOKEN`, which stops every agent's spike runs until you redo #163's `node spikes/auth.mjs` step and update `.env` and the `spike-account` secrets. If you're unsure which entry is which, stop and ask before deleting anything.
+> **Warning: revoke only "Jev spike 27".** Steps 3, 4 and 5 remove this project's access at <https://myaccount.google.com/connections>. On that page, remove **only** the entry named **"Jev spike 27"**. **Never** remove **jev-spike-runner** (the #163 runner's OAuth app): that revokes `SPIKE_REFRESH_TOKEN` and stops every agent's spike runs until you redo `node spikes/auth.mjs` and update `.env` and the `spike-account` secrets. Leave any `jev-spikes` entry alone too. If you're unsure which entry is which, stop and ask before deleting anything.
 
 Paste every returned JSON into the PR, labelled with the state (B0, S1, …) and the context (editor / trigger). The results are scrubbed of the `S27_TO` address, but check before pasting, and replace any address with `<test-account>`. For editor runs, copy the Execution log; for trigger runs, run `s27_readTriggerResults()` and copy its log.
 
