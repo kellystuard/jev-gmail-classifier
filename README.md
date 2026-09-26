@@ -160,7 +160,7 @@ rules:
 | `triggerIntervalMinutes` | No              | How often scheduled runs happen. Defaults to `10`. Accounts with more quota (such as Workspace) can run more often. |
 | `jevModel`               | No              | Jev model version. Defaults to `jev-latest`. Pin a version if you want thresholds to stay stable across model releases. |
 | `dailyTokenBudget`       | No              | Maximum Jev input tokens per day, across all runs. Defaults to `20000000`. |
-| `excludeQuery`           | No              | A Gmail search describing mail that must never be sent to Jev. If any email in a thread matches, the whole thread is skipped. Applied to every run. |
+| `excludeQuery`           | No              | A Gmail search describing mail that must never be sent to Jev. If any email in a thread matches, the whole thread is skipped, including emails in Spam or Trash. Applied to every run. Each email is checked on its own: `from:lawyer.example subject:contract` needs one email that matches both, so use `OR` to exclude either. |
 | `plainTextMethod`        | No              | How HTML-only emails are converted to text. `basic` (default) uses the email's plain-text version when it has one, otherwise a simple built-in HTML-to-text conversion. `advanced` is reserved for a future, fuller converter. |
 | `rules[].id`             | Yes             | A short, unique name for the rule, such as `bill`. Used in the request to Jev and in the logs, so it should stay the same when you reword or reorder rules. |
 | `rules[].question`       | Yes             | The yes/no question sent to Jev.                                   |

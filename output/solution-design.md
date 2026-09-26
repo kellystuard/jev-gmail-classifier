@@ -243,7 +243,17 @@ sequenceDiagram
 ### 6.4 Process: classify a chunk
 
 1. **Take a chunk** from the queue. Scheduled items come first, then manual-job items. The chunk size is a starting value owned by E7.
-2. **Exclusion filter.** Get the chunk's threads in metadata form, which gives message dates without bodies. Run **one** search, `(<excludeQuery>) after:<oldest message in the chunk − 1 d> before:<newest + 1 d>`, and drop every chunk thread it returns. Dropped threads are logged as `thread.excluded` and are finished: they are never sent, and never marked ([ADR-0005](adr/0005-positive-thread-level-exclusion.md)).
+2. **Exclusion filter.** This is the only exclusion check, and it applies to every chunk item, scheduled and manual alike ([ADR-0017](adr/0017-exclusion-search-per-chunk-for-all-work.md), superseding [ADR-0005](adr/0005-positive-thread-level-exclusion.md) when accepted).
+   - Get the chunk's threads in metadata form (`metadataHeaders: ['Date']`), which gives each message's `internalDate` and `Date` header without bodies.
+   - Run **one** `threads.list` search for the whole chunk: `q = (<excludeQuery>) after:<lo> before:<hi>`, with `includeSpamTrash: true`, paged until there is no `nextPageToken`. Here:
+     - The user's query always goes in parentheses.
+     - `lo` is the earliest `internalDate` **or** parsed `Date` header of **any** message in **any** chunk thread, in epoch seconds, minus 86400. It must span the oldest message, not just the newest: a thread whose only match is its oldest message is otherwise missed.
+     - `hi` is the latest of now and every chunk message's `internalDate` or `Date` header, plus 86400. Search can compare against a date other than the `internalDate` the API reports: an upload's receive time, which is never later than now. So an upper bound taken from message dates alone can miss. Including the message dates also covers a `Date` header set in the future.
+     - Epoch bounds are exact to the second and both inclusive.
+     - `includeSpamTrash: true` is required. Without it, a thread whose only matching message is in Spam or Trash isn't returned, yet `threads.get` still returns that message.
+   - Drop every chunk thread the search returns. Dropped threads are logged as `thread.excluded` and are finished: they are never sent, and never marked.
+   - The search matches **per message**. A thread is returned when one message satisfies the whole query.
+   - Confirmed by E1 ([`spikes/23-exclusion-query.md`](../spikes/23-exclusion-query.md)). A new message was searchable within a second of `history.list` reporting it (self-sends and uploads), so no indexing-lag delay is needed.
 3. **Build `state`** for each remaining thread ([§8.3](#83-state-layout)).
 4. **Budget check.** If the daily token budget is already spent, stop. Items stay queued, and the budget alert is sent. A run may overshoot by at most the batch in flight.
 5. **Send** all the chunk's requests with `fetchAll`, retrying in rounds ([§8.5](#85-retries-in-rounds)).
@@ -281,6 +291,7 @@ sequenceDiagram
   | `MANUAL_REPLACE` | Must be `true` to replace an unfinished job. |
 
   At least one of the query or the timespan is required. `startManualRun` validates the input, logs the exact final query, and refuses to start if a job is unfinished and `MANUAL_REPLACE` isn't set.
+- **Job search.** The job's search is `MANUAL_QUERY` and/or the timespan only; it never includes `excludeQuery`. Its threads are queued as manual items, and they reach the chunk exclusion filter in [§6.4](#64-process-classify-a-chunk) like scheduled items. The job search is never the exclusion check. E1 showed that `(<query>) (<excludeQuery>)` misses a thread when the two queries match different messages, and so does `(<query>) -(<excludeQuery>)` ([ADR-0017](adr/0017-exclusion-search-per-chunk-for-all-work.md)).
 - **Job.** `state.manual` holds the query, the flags, a search cursor, and counts. Threads with `Jev/Error` are skipped. Every matching thread is reclassified, because there's no processed label to bypass. Moves apply only with `applyMoves`.
 - **Continuation.** A manual job never gets its own trigger. It runs in scheduled runs' spare time, after scheduled work, and in `startManualRun` and `continueManualRun` executions from the editor, which use the longer manual deadline ([ADR-0009](adr/0009-manual-runs-use-spare-time.md)). The cursor design, whether a page token or a descending `before:` bound, is E8's; it must survive across executions.
 - **Reporting.** Progress is logged each execution. On completion, the job logs `manual.completed` with counts per label and per move destination.
@@ -609,7 +620,11 @@ This updates the PDD's [epic list](product-design-document.md#14-epics) with the
 | Item | Why it matters | Where it's handled |
 |------|----------------|--------------------|
 | The History API may miss or duplicate events, or expire sooner than expected. | Threads missed or re-sent. | E1 spike, expiry fallback, and back-pressure ([§6.3](#63-ingest-gmail-history-to-work-queue)). |
-| The exclusion search could miss a matching message outside its date window. | Privacy. | The window spans the oldest to newest message of the chunk's threads, with a day of margin. E1 verifies grouping and `OR`. |
+| The exclusion search could miss a matching message outside its date window. | Privacy. | Confirmed and corrected by E1 ([`spikes/23-exclusion-query.md`](../spikes/23-exclusion-query.md)). Grouping, nested parentheses, `OR`, and `{}` work, and bounds are exact and inclusive. The window starts a day before the earliest `internalDate` or `Date` header of any chunk message. It ends at least a day after **now**, because search can use an upload's receive time rather than the reported `internalDate`. The search also sets `includeSpamTrash: true` and pages to the end ([§6.4](#64-process-classify-a-chunk)). |
+| Search can compare `after:`/`before:` against a date the API doesn't report. | Privacy, if a window is built from message dates alone. | E1 saw it only for uploads (`insert`/`import` with `receivedTime`), not for self-sends, and couldn't test mail from outside. An upper bound of at least now + 1 d covers it. E3 tests the window builder with a message whose indexed date is later than its `internalDate`. |
+| A combined search for manual runs, `(<query>) (<excludeQuery>)`, misses threads whose matches are split across messages. | Privacy. | Confirmed by E1 (it leaks). The manual job search never includes `excludeQuery`; manual items go through the §6.4 chunk filter ([ADR-0017](adr/0017-exclusion-search-per-chunk-for-all-work.md)). |
+| `threads.get` returns Spam and Trash messages of a thread. | Mail the user trashed or that Gmail marked as spam could be sent to Jev. | Found by E1; E4 decides whether the state builder skips `SPAM`/`TRASH` messages ([§8.3](#83-state-layout)). |
+| The Gmail per-user, per-minute quota ("Total Query Cost", "Units per minute per user") is shared by everything using the account. | Runs fail mid-chunk with a quota exception. | Seen in E1 while several spikes ran at once. E7 treats it as retryable in a later run, not as a per-thread failure. |
 | Adding `SPAM` via the API may or may not report the thread to Google. | A surprising side effect. | E1. Documented in the README. |
 | How well `basic` HTML conversion works for classification. | Precision on HTML-only mail. | E4 probe check. `advanced` converter reserved. |
 | Character-based token estimate. | A 422 from Jev because the request is too large. | E4 margin. A 422 goes to `Jev/Error`, so it is visible and never silent. |
