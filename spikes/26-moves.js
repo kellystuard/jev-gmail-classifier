@@ -47,41 +47,62 @@ var s26_addressCache_ = null;
 // Runnable functions
 // ---------------------------------------------------------------------------
 
-/** Create S26 labels, import the test threads, save the history ID. */
-function s26_setup() {
-  var result = { fn: 's26_setup', at: new Date().toISOString() };
+/**
+ * Create S26 labels, import the test threads, save the history ID.
+ *
+ * opts.neverMarkSpam (default true): the first run (2026-09-26) imported all
+ * 12 with neverMarkSpam false, and Gmail put every one in Spam (SPAM and
+ * CATEGORY_PERSONAL added, INBOX dropped). Re-importing with the same subject
+ * then joined the Spam copy's thread, so re-imports use a new subject.
+ * Subjects carry a per-run tag, so a new run never joins an old run's threads.
+ */
+function s26_setup(opts) {
+  opts = opts || {};
+  var neverMarkSpam = opts.neverMarkSpam !== false;
+  var result = { fn: 's26_setup', at: new Date().toISOString(), neverMarkSpam: neverMarkSpam };
   result.labels = s26_ensureLabels_();
   var threads = s26_threads_();
   var spamOnImport = s26_get_('spamOnImport', []);
+  var run = 'r' + Date.now().toString(36).slice(-4);
+  s26_set_('run', run);
+  result.run = run;
   result.cases = {};
 
   Object.keys(S26_IMPORTED).forEach(function (name) {
     var spec = S26_IMPORTED[name];
-    var c = { from: spec.from, attempts: [] };
+    var subject = 'S26-' + name + ' ' + run;
+    var c = { from: spec.from, subject: subject, attempts: [] };
     var messageId = s26_newMessageId_(name);
     var raw = s26_raw_({
       from: 'S26 ' + name + ' <' + spec.from + '>',
       to: 'S26 Recipient <s26-to@example.test>',
-      subject: 'S26-' + name,
+      subject: subject,
       messageId: messageId,
       body: 'Synthetic message for spike #26, case ' + name + '.'
     });
-    var imp = s26_import_(raw, { labelIds: ['INBOX', 'UNREAD'] }, false);
+    var imp = s26_import_(raw, { labelIds: ['INBOX', 'UNREAD'] }, neverMarkSpam);
     c.attempts.push(imp);
     if (imp.ok && s26_hasSpam_(imp)) {
       spamOnImport.push(imp.threadId);
-      var retryId = s26_newMessageId_(name + 'r');
-      raw = raw.replace(messageId, retryId);
-      messageId = retryId;
+      subject = subject + ' b';
+      messageId = s26_newMessageId_(name + 'b');
+      raw = s26_raw_({
+        from: 'S26 ' + name + ' <' + spec.from + '>',
+        to: 'S26 Recipient <s26-to@example.test>',
+        subject: subject,
+        messageId: messageId,
+        body: 'Synthetic message for spike #26, case ' + name + '.'
+      });
       imp = s26_import_(raw, { labelIds: ['INBOX', 'UNREAD'] }, true);
       c.attempts.push(imp);
       c.reimportedWithNeverMarkSpam = true;
+      c.subject = subject;
     }
     if (!imp.ok) {
       result.cases[name] = c;
       return;
     }
-    var entry = { threadId: imp.threadId, created: 'import', from: spec.from, messages: [{ id: imp.id, role: 'original (import)', messageIdHeader: messageId }] };
+    var entry = { threadId: imp.threadId, created: 'import', from: spec.from, subject: subject, messages: [{ id: imp.id, role: 'original (import)', messageIdHeader: messageId }] };
 
     if (spec.withSent) {
       var me = s26_address_();
@@ -89,7 +110,7 @@ function s26_setup() {
       var sentRaw = s26_raw_({
         from: me,
         to: 'S26 ' + name + ' <' + spec.from + '>',
-        subject: 'Re: S26-' + name,
+        subject: 'Re: ' + subject,
         messageId: replyId,
         inReplyTo: messageId,
         body: 'Synthetic sent reply for spike #26, case ' + name + '.'
@@ -221,13 +242,15 @@ function s26_importReplies() {
     var raw = s26_raw_({
       from: 'S26 ' + name + ' <' + entry.from + '>',
       to: 'S26 Recipient <s26-to@example.test>',
-      subject: 'Re: S26-' + name,
+      subject: 'Re: ' + (entry.subject || 'S26-' + name),
       messageId: replyId,
       inReplyTo: original.messageIdHeader,
       body: 'Synthetic imported reply for spike #26, case RI on ' + name + '.'
     });
     var c = { before: s26_snapshot_(name, entry) };
-    c.import = s26_import_(raw, { threadId: entry.threadId }, false);
+    // neverMarkSpam true: with false, Gmail spam-classifies every example.test import (setup, first run),
+    // which would hide where threading alone puts the reply.
+    c.import = s26_import_(raw, { threadId: entry.threadId }, true);
     if (c.import.ok) {
       c.joinedThread = c.import.threadId === entry.threadId;
       entry.messages.push({ id: c.import.id, role: 'RI reply (import, no labelIds)', messageIdHeader: replyId });
@@ -277,11 +300,13 @@ function s26_spamFollowUp() {
 function s26_sendReal() {
   var result = { fn: 's26_sendReal', at: new Date().toISOString(), cases: {} };
   var threads = s26_threads_();
+  var run = s26_get_('run', 'r0');
   S26_REAL.forEach(function (name) {
-    var sent = s26_send_('S26-' + name, 'Self-sent message for spike #26, case ' + name + '.', null, null);
+    var subject = 'S26-' + name + ' ' + run;
+    var sent = s26_send_(subject, 'Self-sent message for spike #26, case ' + name + '.', null, null);
     result.cases[name] = sent;
     if (sent.ok) {
-      threads[name] = { threadId: sent.threadId, created: 'self-send', from: '<test-account>', messages: [{ id: sent.id, role: 'original (self-send)' }] };
+      threads[name] = { threadId: sent.threadId, created: 'self-send', from: '<test-account>', subject: subject, messages: [{ id: sent.id, role: 'original (self-send)' }] };
     }
   });
   s26_saveThreads_(threads);
@@ -317,7 +342,7 @@ function s26_sendReplies() {
       result.cases[name] = c;
       return;
     }
-    c.send = s26_send_('Re: S26-' + name, 'Self-sent reply for spike #26, case ' + name + '.', entry.threadId, header.value);
+    c.send = s26_send_('Re: ' + (entry.subject || 'S26-' + name), 'Self-sent reply for spike #26, case ' + name + '.', entry.threadId, header.value);
     if (c.send.ok) {
       c.joinedThread = c.send.threadId === entry.threadId;
       entry.messages.push({ id: c.send.id, role: 'reply (self-send)' });
@@ -414,6 +439,38 @@ function s26_cleanup() {
     result.deletedPropertyKeys = keys.length;
   } else {
     result.note = 'Something failed: s26.* properties kept so cleanup can be re-run.';
+  }
+  return s26_out_(result);
+}
+
+/**
+ * Start over: move every thread this spike tracks (s26.t.* and
+ * s26.spamOnImport) to Trash, delete the S26 labels, and clear s26.* state.
+ * Used after the first run left Spam copies inside the case threads.
+ */
+function s26_reset() {
+  var result = { fn: 's26_reset', at: new Date().toISOString(), trashed: 0, failed: [] };
+  var threads = s26_threads_();
+  var ids = Object.keys(threads).map(function (k) { return threads[k].threadId; })
+    .concat(s26_get_('spamOnImport', []));
+  var seen = {};
+  ids.forEach(function (tid) {
+    if (!tid || seen[tid]) return;
+    seen[tid] = true;
+    var r = s26_try_(function () { Gmail.Users.Threads.trash('me', tid); return 'ok'; });
+    if (r.ok) result.trashed++;
+    else result.failed.push({ threadId: tid, error: r.error });
+  });
+  var L = s26_get_('labels', {});
+  result.labelsDeleted = {};
+  ['Tag', 'Moved', 'parent'].forEach(function (k) {
+    if (L[k]) result.labelsDeleted[k] = s26_try_(function () { s26_removeLabel_(L[k]); return 'ok'; });
+  });
+  if (result.failed.length === 0) {
+    var props = PropertiesService.getScriptProperties();
+    var keys = Object.keys(props.getProperties()).filter(function (k) { return k.indexOf('s26.') === 0; });
+    keys.forEach(function (k) { props.deleteProperty(k); });
+    result.deletedPropertyKeys = keys.length;
   }
   return s26_out_(result);
 }
@@ -611,6 +668,18 @@ function s26_import_(raw, resource, neverMarkSpam) {
       out.readBackError = back.error;
     }
     return out;
+  }
+  // import rejects resource.threadId with "400 threadId not allowed" (first run,
+  // 2026-09-26). Retry without it: Gmail may still thread the message by its
+  // In-Reply-To/References headers and subject. Callers check joinedThread.
+  var rejected = attempts.every(function (a) { return /threadId not allowed/.test(a.error.message); });
+  if (resource.threadId && rejected) {
+    var without = {};
+    Object.keys(resource).forEach(function (k) { if (k !== 'threadId') without[k] = resource[k]; });
+    var again = s26_import_(raw, without, neverMarkSpam);
+    again.threadIdDropped = true;
+    again.threadIdError = attempts[0].error.message;
+    return again;
   }
   return { ok: false, attempts: attempts };
 }
