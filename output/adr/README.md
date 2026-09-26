@@ -19,3 +19,4 @@ Decisions that shape the [Solution Design](../solution-design.md). See [ADR-0001
 | [0013](0013-config-validation-and-per-user-files.md) | Config validated at build and runtime; per-user files git-ignored | Accepted |
 | [0014](0014-structured-logging.md) | Structured JSON logging | Accepted |
 | [0015](0015-git-workflow-and-releases.md) | Git workflow and releases | Accepted |
+| [0016](0016-run-spikes-from-agents-and-a-manual-workflow.md) | Run spikes against a test account from agents and a manual workflow | Proposed |

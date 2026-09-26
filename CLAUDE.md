@@ -98,7 +98,7 @@ A Google Apps Script project (TypeScript, bundled with esbuild, running in the u
 
   One Zod schema validates it at build time (failing the build) and again at runtime load, and the build generates a script file from it.
 - **Time zone** is `timeZone` in `appsscript.json`, default `Etc/UTC`.
-- **`.env`** (git-ignored) holds `JEV_API_KEY` for local use, by the probe and spikes. The deployed script reads the key from Script Properties.
+- **`.env`** (git-ignored; copy it from `.env.example`) holds `JEV_API_KEY` for local use, by the probe and spikes. The deployed script reads the key from Script Properties. It also holds the spike runner's credentials for the throwaway test account: `GMAIL_EMAIL`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `SPIKE_REFRESH_TOKEN`, and `SPIKE_SCRIPT_ID`. The same five are secrets in the `spike-account` GitHub environment. Run spikes with `node spikes/run.mjs push` and `node spikes/run.mjs run <function> [json]`, or dispatch `.github/workflows/spikes.yml` (manual only; the one workflow that makes live calls). See `spikes/README.md` and ADR-0016. Never print or commit these values or the test account's address (write `<test-account>`).
 - **`.clasp.json`** is git-ignored; `.clasp.json.example` is committed.
 - **Deployment** is via `clasp` 3, manually for v1. CI (GitHub Actions, Node 24 and 26) runs lint, typecheck, test, and a build against the example config.
 - **`install`** checks scopes, saves the starting position (keeping an existing one unless `RESET_POSITION=true`), and creates or replaces the trigger. **`uninstall`** removes the trigger and `state.*` keys, and leaves labels and the key.
