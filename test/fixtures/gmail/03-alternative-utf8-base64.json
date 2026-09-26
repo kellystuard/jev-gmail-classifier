@@ -1,0 +1,100 @@
+{
+  "messages": [
+    {
+      "payload": {
+        "body": {
+          "size": 0
+        },
+        "parts": [
+          {
+            "partId": "0",
+            "body": {
+              "size": 84,
+              "data": [83,99,101,110,97,114,105,111,32,51,58,32,109,117,108,116,105,112,97,114,116,47,97,108,116,101,114,110,97,116,105,118,101,44,32,85,84,70,45,56,44,32,98,97,115,101,54,52,46,13,10,71,114,-61,-68,-61,-97,101,44,32,-26,-105,-91,-26,-100,-84,-24,-86,-98,44,32,101,109,111,106,105,32,-16,-97,-103,-126,46,13,10]
+            },
+            "headers": [
+              {
+                "value": "text/plain; charset=\"UTF-8\"",
+                "name": "Content-Type"
+              },
+              {
+                "name": "Content-Transfer-Encoding",
+                "value": "base64"
+              }
+            ],
+            "mimeType": "text/plain",
+            "filename": ""
+          },
+          {
+            "headers": [
+              {
+                "value": "text/html; charset=\"UTF-8\"",
+                "name": "Content-Type"
+              },
+              {
+                "name": "Content-Transfer-Encoding",
+                "value": "base64"
+              }
+            ],
+            "filename": "",
+            "mimeType": "text/html",
+            "partId": "1",
+            "body": {
+              "data": [60,104,116,109,108,62,60,98,111,100,121,62,60,112,62,83,99,101,110,97,114,105,111,32,51,58,32,109,117,108,116,105,112,97,114,116,47,97,108,116,101,114,110,97,116,105,118,101,44,32,85,84,70,45,56,44,32,98,97,115,101,54,52,46,60,47,112,62,60,112,62,71,114,-61,-68,-61,-97,101,44,32,-26,-105,-91,-26,-100,-84,-24,-86,-98,44,32,101,109,111,106,105,32,-16,-97,-103,-126,46,60,47,112,62,60,47,98,111,100,121,62,60,47,104,116,109,108,62,13,10],
+              "size": 122
+            }
+          }
+        ],
+        "partId": "",
+        "mimeType": "multipart/alternative",
+        "filename": "",
+        "headers": [
+          {
+            "value": "REDACTED",
+            "name": "Received"
+          },
+          {
+            "name": "From",
+            "value": "Synthetic Sender <sender@example.com>"
+          },
+          {
+            "name": "To",
+            "value": "Recipient <recipient@example.org>"
+          },
+          {
+            "value": "s29-03 alternative utf8 base64",
+            "name": "Subject"
+          },
+          {
+            "value": "Thu, 24 Sep 2026 12:00:00 +0000",
+            "name": "Date"
+          },
+          {
+            "value": "REDACTED",
+            "name": "Message-ID"
+          },
+          {
+            "value": "1.0",
+            "name": "MIME-Version"
+          },
+          {
+            "value": "multipart/alternative; boundary=\"s29b_alternative_1\"",
+            "name": "Content-Type"
+          }
+        ]
+      },
+      "sizeEstimate": 940,
+      "id": "msg-03-1",
+      "labelIds": [
+        "UNREAD",
+        "INBOX"
+      ],
+      "historyId": "1001",
+      "snippet": "Synthetic snippet for scenario 03, message 1.",
+      "internalDate": "1790251200000",
+      "threadId": "thread-03"
+    }
+  ],
+  "id": "thread-03",
+  "historyId": "1000"
+}

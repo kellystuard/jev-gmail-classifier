@@ -1,0 +1,65 @@
+{
+  "id": "thread-09b",
+  "historyId": "1000",
+  "messages": [
+    {
+      "internalDate": "1790251200000",
+      "historyId": "1001",
+      "payload": {
+        "mimeType": "text/plain",
+        "filename": "",
+        "partId": "",
+        "headers": [
+          {
+            "value": "REDACTED",
+            "name": "Received"
+          },
+          {
+            "name": "From",
+            "value": "Synthetic Sender <sender@example.com>"
+          },
+          {
+            "value": "Recipient <recipient@example.org>",
+            "name": "To"
+          },
+          {
+            "value": "s29-09b plain unknown charset, iso-8859-1 bytes",
+            "name": "Subject"
+          },
+          {
+            "value": "Thu, 24 Sep 2026 12:00:00 +0000",
+            "name": "Date"
+          },
+          {
+            "name": "Message-ID",
+            "value": "REDACTED"
+          },
+          {
+            "name": "MIME-Version",
+            "value": "1.0"
+          },
+          {
+            "value": "text/plain; charset=\"x-unknown\"",
+            "name": "Content-Type"
+          },
+          {
+            "value": "quoted-printable",
+            "name": "Content-Transfer-Encoding"
+          }
+        ],
+        "body": {
+          "size": 75,
+          "data": [83,99,101,110,97,114,105,111,32,57,32,99,111,110,116,114,111,108,58,32,99,104,97,114,115,101,116,61,34,120,45,117,110,107,110,111,119,110,34,44,32,73,83,79,45,56,56,53,57,45,49,32,98,121,116,101,115,58,32,99,97,102,-61,-87,32,71,114,-61,-68,-61,-97,101,32,-62,-93,53,46,13,10]
+        }
+      },
+      "id": "msg-09b-1",
+      "labelIds": [
+        "UNREAD",
+        "INBOX"
+      ],
+      "snippet": "Synthetic snippet for scenario 09b, message 1.",
+      "sizeEstimate": 553,
+      "threadId": "thread-09b"
+    }
+  ]
+}

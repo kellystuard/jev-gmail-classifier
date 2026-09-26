@@ -11,9 +11,25 @@ For each scenario:
 - `NN-slug.json`: the scrubbed `threads.get` response, with the same keys, nesting, and `body.data` form (string or byte array) the Advanced Service returned.
 - `NN-slug.expected.json`: `{ "<partId>": "<decoded text>" }` for each text part (`text/*`). For a thread with more than one message, the key is `"<message number>:<partId>"`. The text is the spike's source text, except for the UI-composed scenarios (12 and 14), where it is the decoded text.
 
-| File | Scenario | Covers | Made by | Date |
+| File | Scenario | Covers | Made by (`insert`/`import` by the spike) | Date |
 |------|----------|--------|---------|------|
-| (added when the spike runs) | | | | |
+| [`01-plain-utf8-7bit.json`](01-plain-utf8-7bit.json) | 1 | `text/plain` only, UTF-8, 7bit. Single-part payload (`partId` `""`). | insert | 2026-09-26 |
+| [`02-html-utf8-qp.json`](02-html-utf8-qp.json) | 2 | `text/html` only, UTF-8, quoted-printable (CTE undone in `data`). | insert | 2026-09-26 |
+| [`03-alternative-utf8-base64.json`](03-alternative-utf8-base64.json) | 3 | `multipart/alternative` (plain + HTML), UTF-8, base64; emoji and CJK. | insert | 2026-09-26 |
+| [`03b-alternative-utf8-base64-import.json`](03b-alternative-utf8-base64-import.json) | 3b | Scenario 3 imported: extra trace headers (`Delivered-To`, `Received`, `X-Received`, …), otherwise identical. | import | 2026-09-26 |
+| [`04-mixed-attachments.json`](04-mixed-attachments.json) | 4 | `multipart/mixed`: alternative body + PDF + 40-byte `.txt` attachment (both with `filename` and `attachmentId`, no inline data). | insert | 2026-09-26 |
+| [`05-plain-iso-8859-1-qp.json`](05-plain-iso-8859-1-qp.json) | 5 | ISO-8859-1 declared; `data` is UTF-8 (105 bytes) while `body.size` is 95. | insert | 2026-09-26 |
+| [`05b-plain-iso-8859-1-qp-import.json`](05b-plain-iso-8859-1-qp-import.json) | 5b | Scenario 5 imported: transcoded the same way. | import | 2026-09-26 |
+| [`06-html-windows-1252-qp.json`](06-html-windows-1252-qp.json) | 6 | windows-1252 HTML (curly quotes, €, dashes); `data` is UTF-8. | insert | 2026-09-26 |
+| [`07-plain-multibyte-base64.json`](07-plain-multibyte-base64.json) | 7 | Two `text/plain` parts, Shift_JIS and ISO-2022-JP; `data` is UTF-8. | insert | 2026-09-26 |
+| [`08-plain-no-charset-8bit.json`](08-plain-no-charset-8bit.json) | 8 | Two `text/plain` parts without `charset`, 8bit: UTF-8 bytes and ISO-8859-1 bytes; both come back UTF-8. | insert | 2026-09-26 |
+| [`09-plain-unknown-charset.json`](09-plain-unknown-charset.json) | 9 | `charset="x-unknown"` and `charset=utf8`, UTF-8 bytes. The declared `x-unknown` makes `getDataAsString` throw. | insert | 2026-09-26 |
+| [`09b-plain-unknown-charset-latin1.json`](09b-plain-unknown-charset-latin1.json) | 9b | `charset="x-unknown"` with ISO-8859-1 bytes; `data` is UTF-8. | insert | 2026-09-26 |
+| [`10-rfc2047-headers.json`](10-rfc2047-headers.json) | 10 | RFC 2047 Subject (folded, B), From (ISO-8859-1 Q), To (UTF-8 Q): values arrive decoded. | insert | 2026-09-26 |
+| [`11-large-plain.json`](11-large-plain.json) | 11 | About 1 MB `text/plain` body, inline (no `attachmentId`). The fixture is 3.6 MB and the expected text 1 MB. | insert | 2026-09-26 |
+| [`13-calendar-invite.json`](13-calendar-invite.json) | 13 | Calendar invite (proxy): `text/calendar` part gets `filename` `invite.ics` and an `attachmentId`; plus `application/ics` attachment. | import | 2026-09-26 |
+| `12-gmail-composed-html.json` | 12 | pending (maintainer UI send) | Gmail web UI | |
+| `14-forward-as-attachment.json` | 14 | pending (maintainer UI send) | Gmail web UI | |
 
 ## Scrubbing rules
 

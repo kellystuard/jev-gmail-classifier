@@ -1,0 +1,4 @@
+{
+  "0": "Scenario 9a: charset=\"x-unknown\", UTF-8 bytes: café 日本.\r\n",
+  "1": "Scenario 9b: charset=utf8 (no dash), UTF-8 bytes: café 日本.\r\n"
+}

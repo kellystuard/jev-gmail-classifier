@@ -1,0 +1,100 @@
+{
+  "historyId": "1000",
+  "id": "thread-08",
+  "messages": [
+    {
+      "threadId": "thread-08",
+      "internalDate": "1790251200000",
+      "id": "msg-08-1",
+      "labelIds": [
+        "UNREAD",
+        "INBOX"
+      ],
+      "snippet": "Synthetic snippet for scenario 08, message 1.",
+      "payload": {
+        "partId": "",
+        "body": {
+          "size": 0
+        },
+        "filename": "",
+        "parts": [
+          {
+            "partId": "0",
+            "mimeType": "text/plain",
+            "body": {
+              "size": 64,
+              "data": [83,99,101,110,97,114,105,111,32,56,97,58,32,110,111,32,99,104,97,114,115,101,116,32,112,97,114,97,109,101,116,101,114,44,32,85,84,70,45,56,32,98,121,116,101,115,58,32,99,97,102,-61,-87,32,71,114,-61,-68,-61,-97,101,46,13,10]
+            },
+            "filename": "",
+            "headers": [
+              {
+                "value": "text/plain",
+                "name": "Content-Type"
+              },
+              {
+                "value": "8bit",
+                "name": "Content-Transfer-Encoding"
+              }
+            ]
+          },
+          {
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain"
+              },
+              {
+                "value": "8bit",
+                "name": "Content-Transfer-Encoding"
+              }
+            ],
+            "filename": "",
+            "body": {
+              "size": 66,
+              "data": [83,99,101,110,97,114,105,111,32,56,98,58,32,110,111,32,99,104,97,114,115,101,116,32,112,97,114,97,109,101,116,101,114,44,32,73,83,79,45,56,56,53,57,45,49,32,98,121,116,101,115,58,32,99,97,102,-61,-87,32,71,114,-61,-68,-61,-97,101,46,13,10]
+            },
+            "partId": "1",
+            "mimeType": "text/plain"
+          }
+        ],
+        "mimeType": "multipart/mixed",
+        "headers": [
+          {
+            "name": "Received",
+            "value": "REDACTED"
+          },
+          {
+            "name": "From",
+            "value": "Synthetic Sender <sender@example.com>"
+          },
+          {
+            "value": "Recipient <recipient@example.org>",
+            "name": "To"
+          },
+          {
+            "name": "Subject",
+            "value": "s29-08 plain no charset 8bit"
+          },
+          {
+            "name": "Date",
+            "value": "Thu, 24 Sep 2026 12:00:00 +0000"
+          },
+          {
+            "value": "REDACTED",
+            "name": "Message-ID"
+          },
+          {
+            "value": "1.0",
+            "name": "MIME-Version"
+          },
+          {
+            "name": "Content-Type",
+            "value": "multipart/mixed; boundary=\"s29b_mixed_6\""
+          }
+        ]
+      },
+      "sizeEstimate": 715,
+      "historyId": "1001"
+    }
+  ]
+}

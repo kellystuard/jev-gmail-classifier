@@ -1,0 +1,162 @@
+{
+  "messages": [
+    {
+      "labelIds": [
+        "UNREAD",
+        "INBOX"
+      ],
+      "sizeEstimate": 5126,
+      "id": "msg-04-1",
+      "payload": {
+        "parts": [
+          {
+            "body": {
+              "size": 0
+            },
+            "mimeType": "multipart/alternative",
+            "parts": [
+              {
+                "body": {
+                  "size": 76,
+                  "data": [83,99,101,110,97,114,105,111,32,52,58,32,98,111,100,121,32,111,102,32,97,32,109,117,108,116,105,112,97,114,116,47,109,105,120,101,100,32,109,101,115,115,97,103,101,32,119,105,116,104,32,116,119,111,32,97,116,116,97,99,104,109,101,110,116,115,46,32,67,97,102,-61,-87,46,13,10]
+                },
+                "mimeType": "text/plain",
+                "filename": "",
+                "headers": [
+                  {
+                    "name": "Content-Type",
+                    "value": "text/plain; charset=\"UTF-8\""
+                  },
+                  {
+                    "value": "quoted-printable",
+                    "name": "Content-Transfer-Encoding"
+                  }
+                ],
+                "partId": "0.0"
+              },
+              {
+                "body": {
+                  "data": [60,104,116,109,108,62,60,98,111,100,121,62,60,112,62,83,99,101,110,97,114,105,111,32,52,58,32,98,111,100,121,32,111,102,32,97,32,109,117,108,116,105,112,97,114,116,47,109,105,120,101,100,32,109,101,115,115,97,103,101,32,119,105,116,104,32,116,119,111,32,97,116,116,97,99,104,109,101,110,116,115,46,32,67,97,102,-61,-87,46,60,47,112,62,60,47,98,111,100,121,62,60,47,104,116,109,108,62,13,10],
+                  "size": 109
+                },
+                "filename": "",
+                "headers": [
+                  {
+                    "value": "text/html; charset=\"UTF-8\"",
+                    "name": "Content-Type"
+                  },
+                  {
+                    "name": "Content-Transfer-Encoding",
+                    "value": "quoted-printable"
+                  }
+                ],
+                "partId": "0.1",
+                "mimeType": "text/html"
+              }
+            ],
+            "headers": [
+              {
+                "value": "multipart/alternative; boundary=\"s29b_alternative_3\"",
+                "name": "Content-Type"
+              }
+            ],
+            "partId": "0",
+            "filename": ""
+          },
+          {
+            "filename": "s29-sample.pdf",
+            "partId": "1",
+            "body": {
+              "size": 2746,
+              "attachmentId": "att-04-1"
+            },
+            "mimeType": "application/pdf",
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "application/pdf; name=\"s29-sample.pdf\""
+              },
+              {
+                "name": "Content-Transfer-Encoding",
+                "value": "base64"
+              },
+              {
+                "value": "attachment; filename=\"s29-sample.pdf\"",
+                "name": "Content-Disposition"
+              }
+            ]
+          },
+          {
+            "filename": "notes.txt",
+            "headers": [
+              {
+                "value": "text/plain; charset=\"UTF-8\"; name=\"notes.txt\"",
+                "name": "Content-Type"
+              },
+              {
+                "value": "base64",
+                "name": "Content-Transfer-Encoding"
+              },
+              {
+                "name": "Content-Disposition",
+                "value": "attachment; filename=\"notes.txt\""
+              }
+            ],
+            "body": {
+              "size": 40,
+              "attachmentId": "att-04-2"
+            },
+            "mimeType": "text/plain",
+            "partId": "2"
+          }
+        ],
+        "body": {
+          "size": 0
+        },
+        "headers": [
+          {
+            "name": "Received",
+            "value": "REDACTED"
+          },
+          {
+            "value": "Synthetic Sender <sender@example.com>",
+            "name": "From"
+          },
+          {
+            "value": "Recipient <recipient@example.org>",
+            "name": "To"
+          },
+          {
+            "name": "Subject",
+            "value": "s29-04 mixed with attachments"
+          },
+          {
+            "value": "Thu, 24 Sep 2026 12:00:00 +0000",
+            "name": "Date"
+          },
+          {
+            "value": "REDACTED",
+            "name": "Message-ID"
+          },
+          {
+            "name": "MIME-Version",
+            "value": "1.0"
+          },
+          {
+            "name": "Content-Type",
+            "value": "multipart/mixed; boundary=\"s29b_mixed_4\""
+          }
+        ],
+        "mimeType": "multipart/mixed",
+        "partId": "",
+        "filename": ""
+      },
+      "threadId": "thread-04",
+      "internalDate": "1790251200000",
+      "historyId": "1001",
+      "snippet": "Synthetic snippet for scenario 04, message 1."
+    }
+  ],
+  "id": "thread-04",
+  "historyId": "1000"
+}

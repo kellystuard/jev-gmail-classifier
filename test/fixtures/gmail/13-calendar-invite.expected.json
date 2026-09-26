@@ -1,0 +1,5 @@
+{
+  "0.0": "Scenario 13: synthetic calendar invite.\r\nWhen: 2026-10-01 15:00 UTC.\r\n",
+  "0.1": "<html><body><p>Scenario 13: synthetic calendar invite.</p><p>When: 2026-10-01 15:00 UTC.</p></body></html>\r\n",
+  "0.2": "BEGIN:VCALENDAR\r\nPRODID:-//s29 spike//synthetic//EN\r\nVERSION:2.0\r\nCALSCALE:GREGORIAN\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nDTSTART:20261001T150000Z\r\nDTEND:20261001T153000Z\r\nDTSTAMP:20260924T120000Z\r\nORGANIZER;CN=Organizer:mailto:organizer@example.com\r\nUID:s29-13-invite@example.com\r\nATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE;CN=Attendee:mailto:attendee@example.org\r\nSUMMARY:s29-13 synthetic meeting\r\nDESCRIPTION:Synthetic invite for the s29 spike.\r\nLOCATION:Room 1\r\nSEQUENCE:0\r\nSTATUS:CONFIRMED\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+}

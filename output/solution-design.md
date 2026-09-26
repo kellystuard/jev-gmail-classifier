@@ -438,10 +438,12 @@ The local probe ([§12](#12-testing-architecture)) reuses the pure half with Nod
 ]
 ```
 
-- **Headers.** Only the allowlist: `From`, `Sender`, `Reply-To`, `To`, `Cc`, `Subject`, `Date`, `List-Id`, `List-Unsubscribe`, `Precedence`, `Auto-Submitted`. A header a message doesn't have is omitted, not sent as empty. The key names are defined in one place in `core/`.
+- **Headers.** Only the allowlist: `From`, `Sender`, `Reply-To`, `To`, `Cc`, `Subject`, `Date`, `List-Id`, `List-Unsubscribe`, `Precedence`, `Auto-Submitted`. A header a message doesn't have is omitted, not sent as empty. The key names are defined in one place in `core/`. The Gmail API returns header values already decoded (RFC 2047 encoded-words, folded lines), so E4 doesn't decode them. Confirmed by E1 ([`spikes/29-part-encoding.md`](../spikes/29-part-encoding.md)).
 - **Body.** Plain text from a `BodyConverter` chosen by `plainTextMethod` ([ADR-0011](adr/0011-plain-text-extraction.md)).
   - **`basic`** walks the MIME tree and uses the `text/plain` part if there is one. Otherwise it converts the `text/html` part with the in-house converter: drop `<head>`, `<style>`, and `<script>`; turn block tags and `<br>` into line breaks; strip the remaining tags; decode common entities; collapse whitespace.
-  - Part data may arrive as a base64url string or as a byte array, and both must be handled. The charset comes from the part's `Content-Type`.
+  - **Part data** from the Advanced Gmail Service is a **byte array** (signed bytes), with the transfer encoding already undone. Gmail has already **transcoded every text part to UTF-8**, whatever charset its `Content-Type` declares (`body.size` still counts the original bytes). So the adapter decodes with `Utilities.newBlob(data).getDataAsString('UTF-8')` and ignores the declared charset: decoding with it garbles non-UTF-8 mail, and an unknown charset name makes `getDataAsString` throw. The REST API returns the same bytes as a padded base64url string, which the Advanced Service never does. (The local probe reads raw `.eml` MIME, where the declared charset does apply, with a UTF-8 fallback for an unknown name.) Confirmed by E1 ([`spikes/29-part-encoding.md`](../spikes/29-part-encoding.md)).
+  - Gmail gives a calendar invite's `text/calendar` part a `filename` and an `attachmentId`, so it's excluded like any attachment and `basic` uses the invite's `text/plain` or `text/html` part. Attachments of any size come without inline data. A large text body (tested to 1 MB) stays inline, with no `attachmentId`, so the attachment rule below doesn't drop it.
+  - How a forwarded `message/rfc822` part appears is still to be confirmed by E1 (#29, scenario 14).
   - **`advanced`** is reserved for a future `html-to-text`-based converter, which would need an `atob` shim.
 - **Never included:** attachments (any part with a `filename` or an `attachmentId`), and any header outside the allowlist.
 
@@ -603,6 +605,7 @@ The principle is **test what is testable in the ways it can be tested, and don't
 | `core/` logic: rules, outcomes, truncation, converters, retry policy, budget, queue, queries | Vitest unit tests, table-driven where they fit. Coverage guide: 90% lines. |
 | `app/` orchestration: run controller, ingest, manual jobs, install | Vitest against **in-memory fakes** of every port, with a controllable clock. |
 | Jev response handling | **Recorded fixtures** in `test/fixtures/jev/`: real response shapes with probabilities, headers, and error bodies, never email content. |
+| Gmail message structure: state builder, MIME walker, decoder | **Synthetic fixtures** in `test/fixtures/gmail/`: scrubbed `threads.get` (`format: 'full'`) responses exactly as the Advanced Service returns them (byte-array `data`), each with its expected decoded text ([E1](../spikes/29-part-encoding.md)). |
 | Apps Script adapters | Not unit-tested. Covered by `spikes/` scripts and the manual **smoke-test checklist** (`docs/smoke-test.md`), run in a real account. |
 | Question wording and `basic` conversion quality | The **local probe** (`npm run probe -- <file.eml>`) reuses the core state builder and the pure Jev client half, with Node `fetch` and `.env`. It's a developer tool, not a user feature. |
 | Build and config validation | Unit tests on the schema, plus CI building the example config. |
