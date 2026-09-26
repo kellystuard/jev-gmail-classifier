@@ -33,6 +33,7 @@ var S19_PREFIX = 'E1-19-';
  */
 function s19_prepare(args) {
   args = args || {};
+  s19_props_().setProperty('s19.run', Date.now().toString(36));
   var ctx = s19_ctx_();
   var map = {};
 
@@ -72,7 +73,7 @@ function s19_prepare(args) {
 
   s19_props_().setProperty('s19.map', JSON.stringify(map));
   s19_props_().setProperty('s19.checkpoints', JSON.stringify([]));
-  return s19_out_({ map: map, historyIdAfter: s19_historyId_() }, ctx);
+  return s19_out_({ run: ctx.run, map: map, historyIdAfter: s19_historyId_() }, ctx);
 }
 
 /** Save the start position: getProfile's historyId and the time. */
@@ -151,7 +152,7 @@ function s19_afterList(args) {
   var map = s19_getJson_('s19.map', {});
   var s11 = map.S11;
   if (!s11) throw new Error('S11 not in s19.map; run s19_act first');
-  var trashed = Gmail.Users.Messages.trash('me', s11.messageIds[0]);
+  var trashed = s19_retry_(function () { return Gmail.Users.Messages.trash('me', s11.messageIds[0]); });
   return s19_out_({
     trashed: s11.messageIds[0],
     labelIdsReturned: trashed.labelIds || null,
@@ -322,12 +323,12 @@ function s19_scenarios_() {
     } },
     { key: 'S09', run: function (ctx) {
       var m = s19_import_(ctx, { tag: 'S09', from: 'frank@example.com', subject: S19_PREFIX + 'S09 moved to Spam' }, {});
-      var after = Gmail.Users.Messages.modify({ addLabelIds: ['SPAM'], removeLabelIds: ['INBOX'] }, 'me', m.id);
+      var after = s19_retry_(function () { return Gmail.Users.Messages.modify({ addLabelIds: ['SPAM'], removeLabelIds: ['INBOX'] }, 'me', m.id); });
       return s19_entry_([m], 'import', { labelIdsAfterModify: after.labelIds || [] });
     } },
     { key: 'S10', run: function (ctx) {
       var m = s19_import_(ctx, { tag: 'S10', from: 'grace@example.com', subject: S19_PREFIX + 'S10 trashed before listing' }, {});
-      var after = Gmail.Users.Messages.trash('me', m.id);
+      var after = s19_retry_(function () { return Gmail.Users.Messages.trash('me', m.id); });
       return s19_entry_([m], 'import', { labelIdsAfterTrash: after.labelIds || [] });
     } },
     { key: 'S11', run: function (ctx) {
@@ -372,20 +373,21 @@ function s19_drafts_(ctx) {
   var subject = S19_PREFIX + 'S07 draft lifecycle';
   var to = s19_plus_(ctx, 's07');
 
-  var d = Gmail.Users.Drafts.create({ message: { raw: s19_b64_(s19_raw_(ctx, { tag: 'S07-v1', to: to, subject: subject, body: 'Draft v1\r\n' }).raw) } }, 'me');
+  var d = s19_retry_(function () { return Gmail.Users.Drafts.create({ message: { raw: s19_b64_(s19_raw_(ctx, { tag: 'S07-v1', to: to, subject: subject, body: 'Draft v1\r\n' }).raw) } }, 'me'); });
   steps.push(s19_draftStep_('create', d));
   var draftId = d.id;
 
   for (var v = 2; v <= 3; v++) {
-    d = Gmail.Users.Drafts.update({ id: draftId, message: { raw: s19_b64_(s19_raw_(ctx, { tag: 'S07-v' + v, to: to, subject: subject, body: 'Draft v' + v + '\r\n' }).raw) } }, 'me', draftId);
+    var raw = s19_b64_(s19_raw_(ctx, { tag: 'S07-v' + v, to: to, subject: subject, body: 'Draft v' + v + '\r\n' }).raw);
+    d = s19_retry_(function () { return Gmail.Users.Drafts.update({ id: draftId, message: { raw: raw } }, 'me', draftId); });
     steps.push(s19_draftStep_('update' + (v - 1), d));
   }
 
-  var sent = Gmail.Users.Drafts.send({ id: draftId }, 'me');
+  var sent = s19_retry_(function () { return Gmail.Users.Drafts.send({ id: draftId }, 'me'); });
   steps.push({ step: 'send', messageId: sent.id, threadId: sent.threadId, labelIds: sent.labelIds || [] });
 
   // Second draft, deleted. The Advanced Service names drafts.delete `remove`.
-  var d2 = Gmail.Users.Drafts.create({ message: { raw: s19_b64_(s19_raw_(ctx, { tag: 'S07b', to: to, subject: S19_PREFIX + 'S07b draft deleted', body: 'Deleted draft\r\n' }).raw) } }, 'me');
+  var d2 = s19_retry_(function () { return Gmail.Users.Drafts.create({ message: { raw: s19_b64_(s19_raw_(ctx, { tag: 'S07b', to: to, subject: S19_PREFIX + 'S07b draft deleted', body: 'Deleted draft\r\n' }).raw) } }, 'me'); });
   steps.push(s19_draftStep_('create-b', d2));
   var removeName = typeof Gmail.Users.Drafts.remove === 'function' ? 'remove' : 'delete';
   Gmail.Users.Drafts[removeName]('me', d2.id);
@@ -532,7 +534,8 @@ function s19_tagIndex_(map) {
 function s19_ctx_() {
   var address = Gmail.Users.getProfile('me').emailAddress;
   var at = address.lastIndexOf('@');
-  return { address: address, local: address.slice(0, at), domain: address.slice(at + 1) };
+  var run = s19_props_().getProperty('s19.run');
+  return { address: address, local: address.slice(0, at), domain: address.slice(at + 1), run: run || 'norun' };
 }
 
 function s19_plus_(ctx, tag) {
@@ -551,7 +554,9 @@ function s19_raw_(ctx, o) {
   var lines = [];
   if (o.from) lines.push('From: ' + o.from);
   lines.push('To: ' + (o.to || ctx.address));
-  lines.push('Subject: ' + o.subject);
+  // The run tag keeps a rerun's messages out of an earlier run's threads:
+  // Gmail also threads imported mail with an identical subject.
+  lines.push('Subject: ' + o.subject + ' [' + ctx.run + ']');
   lines.push('Date: ' + Utilities.formatDate(date, 'Etc/UTC', 'EEE, dd MMM yyyy HH:mm:ss Z'));
   lines.push('Message-ID: ' + messageIdHeader);
   if (o.inReplyTo) lines.push('In-Reply-To: ' + o.inReplyTo);
@@ -574,20 +579,59 @@ function s19_b64_(raw) {
 function s19_import_(ctx, o, resourceExtra, optionalArgs) {
   var built = s19_raw_(ctx, o);
   var resource = { labelIds: ['INBOX', 'UNREAD'] };
-  Object.keys(resourceExtra || {}).forEach(function (k) { resource[k] = resourceExtra[k]; });
+  // Import rejects resource.threadId ("threadId not allowed", 400; found by
+  // #20's s20_probeImport). Replies join through In-Reply-To/References and
+  // the subject, so resourceExtra.threadId is only the expected thread.
+  Object.keys(resourceExtra || {}).forEach(function (k) { if (k !== 'threadId') resource[k] = resourceExtra[k]; });
   var opts = { neverMarkSpam: true };
   Object.keys(optionalArgs || {}).forEach(function (k) { opts[k] = optionalArgs[k]; });
   var blob = Utilities.newBlob(built.raw, 'message/rfc822');
-  var m = Gmail.Users.Messages['import'](resource, 'me', blob, opts);
-  return { id: m.id, threadId: m.threadId, labelIds: m.labelIds || [], messageIdHeader: built.messageIdHeader };
+  var m = s19_retry_(function () { return Gmail.Users.Messages['import'](resource, 'me', blob, opts); });
+  return s19_created_(m, built);
+}
+
+/**
+ * Normalize a created message. import and insert return only {id}; then
+ * threadId and labelIds are read back with Messages.get (a moment later, so
+ * they are the labels just after creation, not a guaranteed "on arrival").
+ */
+function s19_created_(m, built) {
+  var responseKeys = Object.keys(m).sort();
+  var readBack = false;
+  if (!m.threadId) {
+    m = s19_retry_(function () { return Gmail.Users.Messages.get('me', m.id, { format: 'minimal' }); });
+    readBack = true;
+  }
+  return {
+    id: m.id, threadId: m.threadId, labelIds: m.labelIds || [], messageIdHeader: built.messageIdHeader,
+    responseKeys: responseKeys, labelIdsReadBack: readBack
+  };
+}
+
+/**
+ * Retry fn on Gmail's shared per-user rate limit ("Quota exceeded for quota
+ * metric 'Total Query Cost' and limit 'Units per minute per user'", seen as
+ * a 403 or 429). Waits 30 s, 60 s, 90 s; other spikes use the same account.
+ */
+function s19_retry_(fn) {
+  for (var attempt = 1; ; attempt++) {
+    try {
+      return fn();
+    } catch (e) {
+      var code = e && e.details && e.details.code;
+      var rate = code === 429 || /Quota exceeded|rateLimitExceeded|User-rate limit/i.test(String(e && e.message));
+      if (!rate || attempt > 3) throw e;
+      Utilities.sleep(30000 * attempt);
+    }
+  }
 }
 
 /** Messages.insert(resource, userId, mediaData, optionalArgs): exact labels, no scanning. */
 function s19_insert_(ctx, o, resource, optionalArgs) {
   var built = s19_raw_(ctx, o);
   var blob = Utilities.newBlob(built.raw, 'message/rfc822');
-  var m = Gmail.Users.Messages.insert(resource, 'me', blob, optionalArgs || {});
-  return { id: m.id, threadId: m.threadId, labelIds: m.labelIds || [], messageIdHeader: built.messageIdHeader };
+  var m = s19_retry_(function () { return Gmail.Users.Messages.insert(resource, 'me', blob, optionalArgs || {}); });
+  return s19_created_(m, built);
 }
 
 /** Messages.send({raw, threadId?}, userId). From is filled in by Gmail. */
@@ -595,8 +639,8 @@ function s19_send_(ctx, o, threadId) {
   var built = s19_raw_(ctx, o);
   var resource = { raw: s19_b64_(built.raw) };
   if (threadId) resource.threadId = threadId;
-  var m = Gmail.Users.Messages.send(resource, 'me');
-  return { id: m.id, threadId: m.threadId, labelIds: m.labelIds || [], messageIdHeader: built.messageIdHeader };
+  var m = s19_retry_(function () { return Gmail.Users.Messages.send(resource, 'me'); });
+  return s19_created_(m, built);
 }
 
 function s19_entry_(msgs, method, extra) {
