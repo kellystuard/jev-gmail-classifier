@@ -376,22 +376,40 @@ function s25_out_(result) {
 /**
  * Import one raw RFC 822 message. Tries the media-upload form
  * (resource, 'me', blob, options) first, then the resource.raw form.
+ * The Advanced Service's import returns only {id} (observed 2026-09-26), so
+ * the message is read back (format: minimal) for its threadId and labelIds.
  */
 function s25_import_(raw, labelIds) {
   var opts = { neverMarkSpam: true, internalDateSource: 'dateHeader' };
   var attempts = [];
-  try {
-    var m = Gmail.Users.Messages.import({ labelIds: labelIds }, 'me', Utilities.newBlob(raw, 'message/rfc822'), opts);
-    return { ok: true, method: 'import (media blob)', id: m.id, threadId: m.threadId, labelIds: m.labelIds || [] };
-  } catch (e) {
-    attempts.push({ method: 'import (media blob)', error: s25_err_(e) });
-  }
-  try {
-    var m2 = Gmail.Users.Messages.import(
-      { labelIds: labelIds, raw: Utilities.base64EncodeWebSafe(raw, Utilities.Charset.UTF_8) }, 'me', null, opts);
-    return { ok: true, method: 'import (resource.raw)', id: m2.id, threadId: m2.threadId, labelIds: m2.labelIds || [], earlierAttempts: attempts };
-  } catch (e2) {
-    attempts.push({ method: 'import (resource.raw)', error: s25_err_(e2) });
+  var forms = [
+    { method: 'import (media blob)', call: function () {
+      return Gmail.Users.Messages.import({ labelIds: labelIds }, 'me', Utilities.newBlob(raw, 'message/rfc822'), opts);
+    } },
+    { method: 'import (resource.raw)', call: function () {
+      return Gmail.Users.Messages.import(
+        { labelIds: labelIds, raw: Utilities.base64EncodeWebSafe(raw, Utilities.Charset.UTF_8) }, 'me', null, opts);
+    } }
+  ];
+  for (var i = 0; i < forms.length; i++) {
+    var m;
+    try {
+      m = forms[i].call();
+    } catch (e) {
+      attempts.push({ method: forms[i].method, error: s25_err_(e) });
+      continue;
+    }
+    var out = { ok: true, method: forms[i].method, importResponseKeys: Object.keys(m || {}), id: m && m.id };
+    if (attempts.length) out.earlierAttempts = attempts;
+    var got = s25_try_(function () { return Gmail.Users.Messages.get('me', m.id, { format: 'minimal' }); });
+    if (got.ok) {
+      out.threadId = got.value.threadId;
+      out.labelIds = got.value.labelIds || [];
+    } else {
+      out.ok = false;
+      out.readBackError = got.error;
+    }
+    return out;
   }
   return { ok: false, attempts: attempts };
 }
