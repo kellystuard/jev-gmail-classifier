@@ -192,6 +192,7 @@ Copy this for each spike's `spikes/NN-slug.md`:
 | Spike | Task | Result |
 |-------|------|--------|
 | [00-profile](00-profile.md) | #18, #163 | Works: `s00_profile` returned a `historyId` through `node spikes/run.mjs` and the `spikes.yml` workflow (2026-09-26). The runner checks (`163-runner.js`) are recorded there too. |
+| [19-message-added](19-message-added.md) | #19 | Run 2026-09-26. Record `labelIds` are the labels when the message was added; each message has one `messageAdded` record; import rejects `threadId`, runs the user's filters, and sets `internalDate` from the `Date` header; first classification uses `internalDate` ≥ the position's `savedAt`. |
 | [20-label-removed](20-label-removed.md) | #20 | Run 2026-09-26. Removing a user label (UI, API, or deleting the label) gives one `labelRemoved` record per action, with one entry per message; filter on the client and de-duplicate by thread; new messages don't inherit the label. |
 | [23-exclusion-query](23-exclusion-query.md) | #23 | Run 2026-09-26. Scheduled search works with `includeSpamTrash: true`, a window from the oldest message to at least now + 1 d, and paging; the ADR-0005 manual form leaks (ADR-0017). Indexing lag under 1 s. |
 | [26-moves](26-moves.md) | #26 | Run 2026-09-26. One `threads.modify` applies every label plus the move (`SPAM` removes `INBOX` by itself; `TRASH` works via modify); sent messages move too; repeats are no-ops with no history; later replies land in the Inbox. Adding `SPAM` via the API shows as a user spam report ("You reported this message as spam"). |
