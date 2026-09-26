@@ -170,5 +170,5 @@ Work is tracked in GitHub Issues on this repository, in the **Jev v1** Project, 
   Bugs use the `bug` label and may sit under a story or stand alone.
 - **Every issue** is opened from its form in `.github/ISSUE_TEMPLATE/`, has exactly one type label, and (except epics and standalone bugs) has one parent.
 - **Dependencies** between epics are written in the epic's "Depends on" field. A task that can't start until another closes says so in its Notes.
-- **The Project** holds every issue. Its `Status` field (Todo, In progress, Done) is the one place to see what's in flight.
+- **The Project** holds every issue. Its `Status` field (Todo, In progress, Done) is the one place to see what's in flight. Its `Level` field (🟣 Epic, 🔷 Story, ✅ Task) mirrors the type label so views can color, filter, and group by level; set it when adding an issue to the Project.
 - **Changing the plan.** When an epic settles a detail that changes later work, update the affected stories and tasks in the same PR or right after it merges.

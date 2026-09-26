@@ -4,11 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Design phase: no code, build tooling, or tests exist yet. The repo is documentation only. There are no build/lint/test commands to run. When code is added (E2), the planned commands are `npm run build`, `npm run lint`, `npm run typecheck`, `npm test`, `npm run probe`, and `npm run push` (see `output/engineering-standards.md` §2); update this file once they exist.
+Design is done; implementation hasn't started. No code, build tooling, or tests exist yet, so there are no build/lint/test commands to run. When code is added (E2), the planned commands are `npm run build`, `npm run lint`, `npm run typecheck`, `npm test`, `npm run probe`, and `npm run push` (see `output/engineering-standards.md` §2); update this file once they exist.
+
+**Next step: backlog refinement.** The full v1 backlog was drafted from the design documents on 2026-09-25 and has not been refined yet. Before implementation starts, review the stories and tasks with the user: check scope, acceptance criteria, sizing, ordering, and dependencies, and update the issues. Start with E1 and E2, which have no dependencies and can run in parallel. Update this section when refinement is done.
 
 ## Work tracking
 
-Work is planned as Epics → Stories → Tasks in GitHub Issues (type labels plus sub-issues), in the **Jev v1** Project and the **v1.0** milestone. The conventions are in `output/engineering-standards.md` §13. Each PR closes one task.
+The v1 work lives in GitHub, in the **[Jev v1](https://github.com/users/kellystuard/projects/1)** Project (user project #1, linked to this repo) and the **v1.0** milestone. The conventions are in `output/engineering-standards.md` §13.
+
+- **Three levels**, each marked by one label and linked as **sub-issues** (not just mentioned in the text):
+  - **Epic** (`type: epic`): E1–E10 from the PDD §14, issues #7–#16.
+  - **Story** (`type: story`): an outcome that can be tested, with acceptance criteria, under one epic.
+  - **Task** (`type: task`): one PR's worth of work, under one story.
+
+  Stories and tasks are #17–#160.
+- **New issues** come from the forms in `.github/ISSUE_TEMPLATE/`. Each gets its type label, the `v1.0` milestone, a parent via the sub-issues API, a place on the Project, and the matching Project `Level` value (🟣 Epic, 🔷 Story, ✅ Task; field `PVTSSF_lAHOACXgPs4Bktm_zhjdVrc`, set with `gh project item-edit`).
+- **PRs:** each PR closes one task (`Closes #N`). Move items through the Project's Status field (Todo, In Progress, Done).
+- **Tooling note:** the local `gh` (2.45) has no `--parent` flag, so link a sub-issue with `gh api -X POST repos/kellystuard/jev-gmail-classifier/issues/<parent>/sub_issues -F sub_issue_id=<child's numeric id>`. The ID is the issue's `id` field, not its number. Project commands need the `project` token scope.
 
 ## Source-of-truth documents
 
