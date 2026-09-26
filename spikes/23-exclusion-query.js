@@ -9,6 +9,8 @@
  * Runnable functions (all return a JSON-serializable, address-free result):
  *   s23_setup([{indexWaitSeconds}])       build labels and threads T1..T9
  *   s23_runCases([{groups:["A","B",...]}]) cases A-E and G
+ *   s23_probe()                            C2b (date basis per upload variant), H1 (paging)
+ *   s23_c2Send()                           C2c (self-send with an old Date header)
  *   s23_lagProxy([{}])                     F1 (insert vs import indexing lag)
  *   s23_f2Arm([{force}])                   F2: save position, install poller
  *   s23_f2Send([{pollSeconds, force}])     F2: self-send one message, poll
@@ -284,6 +286,177 @@ function s23_runCases(opts) {
   });
 }
 
+// ------------------------------------------------------- C2b and H1
+
+/**
+ * C2b: in the first run, insert with internalDateSource 'receivedTime' still
+ * took internalDate from the Date header, so C2 couldn't tell the two apart.
+ * This builds one message per upload variant with a Date header 10 days old,
+ * reports each resulting internalDate, and runs the C2 windows on every
+ * variant whose internalDate differs from the header.
+ * H1: paging. The same search with maxResults 2 and 500 must return the same
+ * test threads.
+ */
+function s23_probe(opts) {
+  return s23_wrap_(function () {
+    opts = s23_opts_(opts);
+    var run = 'r' + Math.floor(Date.now() / 1000);
+    var acct = s23_account_();
+    var hdr = Math.floor(Date.now() / 1000) - 10 * S23_DAY_;
+    var variants = [
+      { v: 'insRT', method: 'insert', args: { internalDateSource: 'receivedTime' } },
+      { v: 'insNone', method: 'insert', args: null },
+      { v: 'insRawRT', method: 'insert', args: { internalDateSource: 'receivedTime' }, raw: true },
+      { v: 'impRT', method: 'import', args: { internalDateSource: 'receivedTime', neverMarkSpam: true } },
+      { v: 'impNone', method: 'import', args: { neverMarkSpam: true } }
+    ];
+    var threadIds = [];
+    variants.forEach(function (x, i) {
+      x.domain = 'c2' + x.v.toLowerCase() + '-' + run + '.example';
+      x.mid = '<s23-' + run + '-C2b-' + i + '@spike23.example>';
+      var raw = s23_mime_({ from: 'old@' + x.domain, to: acct, subject: 'Spike23 C2b ' + x.v, date: hdr, mid: x.mid });
+      try {
+        var msg;
+        if (x.raw) {
+          msg = Gmail.Users.Messages.insert({ labelIds: ['INBOX'], raw: Utilities.base64EncodeWebSafe(raw, Utilities.Charset.UTF_8) },
+            'me', null, x.args);
+        } else if (x.args) {
+          msg = Gmail.Users.Messages[x.method]({ labelIds: ['INBOX'] }, 'me', Utilities.newBlob(raw, 'message/rfc822'), x.args);
+        } else {
+          msg = Gmail.Users.Messages[x.method]({ labelIds: ['INBOX'] }, 'me', Utilities.newBlob(raw, 'message/rfc822'));
+        }
+        x.id = msg.id;
+        x.threadId = msg.threadId;
+        threadIds.push(msg.threadId);
+      } catch (e) {
+        x.error = s23_scrub_(String(e && e.message));
+      }
+    });
+    var wait = s23_waitIndexed_(variants.filter(function (x) { return x.id; }), 60000);
+    var out = variants.map(function (x) {
+      var r = { variant: x.v, method: x.method, args: x.args, form: x.raw ? 'raw' : 'blob', error: x.error };
+      if (!x.id) return r;
+      var m = Gmail.Users.Messages.get('me', x.id, { format: 'minimal' });
+      var internal = Math.floor(Number(m.internalDate) / 1000);
+      r.labelIds = m.labelIds;
+      r.internalDate = new Date(internal * 1000).toISOString();
+      r.internalMinusHeaderSec = internal - hdr;
+      if (Math.abs(internal - hdr) > S23_DAY_) {
+        var q1 = '(from:' + x.domain + ') after:' + (internal - 3600) + ' before:' + (internal + 3600);
+        var q2 = '(from:' + x.domain + ') after:' + (hdr - 3600) + ' before:' + (hdr + 3600);
+        r.windowAroundInternalDate = { q: q1, returned: !!s23_list_(q1, {}).ids[x.threadId] };
+        r.windowAroundDateHeader = { q: q2, returned: !!s23_list_(q2, {}).ids[x.threadId] };
+      }
+      return r;
+    });
+    var props = PropertiesService.getScriptProperties();
+    props.setProperty('s23.probe', JSON.stringify({ run: run, threadIds: threadIds }));
+
+    // H1: paging, over the setup threads.
+    var paging = null;
+    var setupRaw = props.getProperty('s23.setup');
+    if (setupRaw) {
+      var setup = JSON.parse(setupRaw);
+      var ctx = { dates: {} };
+      var names = Object.keys(setup.threads);
+      names.forEach(function (n) { ctx.dates[n] = s23_threadMeta_(setup.threads[n].id).dates; });
+      var q = '(from:carol-' + setup.run + '.example) ' + s23_window_(ctx, names);
+      var small = s23_list_(q, { maxResults: 2 });
+      var big = s23_list_(q, { maxResults: 500 });
+      var pick = function (r) { return names.filter(function (n) { return r.ids[setup.threads[n].id]; }); };
+      paging = {
+        q: q,
+        max2: { pages: small.pages, resultSizeEstimate: small.resultSizeEstimate, returned: pick(small) },
+        max500: { pages: big.pages, resultSizeEstimate: big.resultSizeEstimate, returned: pick(big) },
+        same: JSON.stringify(pick(small)) === JSON.stringify(pick(big))
+      };
+    }
+    return { fn: 's23_probe', run: run, dateHeader: new Date(hdr * 1000).toISOString(), index: wait,
+      variants: out, paging: paging };
+  });
+}
+
+/**
+ * C2c: a self-send (to <test-account>+s23) whose Date header is 10 days old.
+ * Gmail sets internalDate to the send time, so this is a message where the
+ * two dates really differ. The EX term is the subject token only.
+ */
+function s23_c2Send(opts) {
+  return s23_wrap_(function () {
+    opts = s23_opts_(opts);
+    var acct = s23_account_();
+    var tok = 's23c2' + Date.now().toString(36);
+    var hdr = Math.floor(Date.now() / 1000) - 10 * S23_DAY_;
+    var raw = s23_mime_({ from: acct, to: acct.replace('@', '+s23@'), subject: 'Spike23 C2c ' + tok, date: hdr });
+    var sent = Gmail.Users.Messages.send({ raw: Utilities.base64EncodeWebSafe(raw, Utilities.Charset.UTF_8) }, 'me');
+    var props = PropertiesService.getScriptProperties();
+    var prev = JSON.parse(props.getProperty('s23.c2') || '{"threadIds":[]}');
+    prev.threadIds.push(sent.threadId);
+    props.setProperty('s23.c2', JSON.stringify(prev));
+    var t0 = Date.now();
+    var found = false;
+    while (!found && Date.now() - t0 < 60000) {
+      found = !!s23_list_('subject:' + tok, {}).ids[sent.threadId];
+      if (!found) Utilities.sleep(2000);
+    }
+    var t = Gmail.Users.Threads.get('me', sent.threadId, { format: 'metadata', metadataHeaders: ['Date'] });
+    var msgs = (t.messages || []).map(function (m) {
+      var dh = ((m.payload && m.payload.headers) || []).filter(function (h) { return h.name === 'Date'; })[0];
+      var header = dh ? Math.floor(Date.parse(dh.value) / 1000) : null;
+      var internal = Math.floor(Number(m.internalDate) / 1000);
+      var r = { labelIds: m.labelIds, internalDate: new Date(internal * 1000).toISOString(),
+        dateHeader: header ? new Date(header * 1000).toISOString() : null,
+        internalMinusHeaderSec: header ? internal - header : null };
+      if (header && Math.abs(internal - header) > S23_DAY_) {
+        var q1 = '(subject:' + tok + ') after:' + (internal - 3600) + ' before:' + (internal + 3600);
+        var q2 = '(subject:' + tok + ') after:' + (header - 3600) + ' before:' + (header + 3600);
+        r.windowAroundInternalDate = { q: q1, returned: !!s23_list_(q1, {}).ids[sent.threadId] };
+        r.windowAroundDateHeader = { q: q2, returned: !!s23_list_(q2, {}).ids[sent.threadId] };
+      }
+      return r;
+    });
+    return { fn: 's23_c2Send', tok: tok, searchable: found, waitedMs: Date.now() - t0,
+      sentHeaderDate: new Date(hdr * 1000).toISOString(), messages: msgs };
+  });
+}
+
+/**
+ * Follow-up checks: re-runs F1's searches later and reports whether each F1
+ * thread is found, with and without includeSpamTrash, and its labels now.
+ * Returns only thread IDs, counts, and label IDs (never subjects or senders).
+ */
+function s23_f1Recheck() {
+  return s23_wrap_(function () {
+    var raw = PropertiesService.getScriptProperties().getProperty('s23.f1');
+    if (!raw) throw new Error('No s23.f1 property: run s23_lagProxy first');
+    var f1 = JSON.parse(raw);
+    var X = s23_senders_(f1.run);
+    return {
+      fn: 's23_f1Recheck', run: f1.run, at: new Date().toISOString(),
+      threads: f1.threadIds.map(function (id, i) {
+        var dom = (i === 0 ? X.f1ins : X.f1imp).split('@')[1];
+        var t = Gmail.Users.Threads.get('me', id, { format: 'minimal' });
+        var noWindow = s23_list_('from:' + dom, {});
+        var withSpamTrash = s23_list_('from:' + dom, { includeSpamTrash: true });
+        var byMsgId = Gmail.Users.Messages.list('me', { q: 'rfc822msgid:s23-' + f1.run + '-F1-' + i + '@spike23.example',
+          includeSpamTrash: true });
+        return {
+          method: i === 0 ? 'insert' : 'import',
+          labelIds: (t.messages || []).map(function (m) { return m.labelIds; }),
+          fromNoWindow: !!noWindow.ids[id], fromWithSpamTrash: !!withSpamTrash.ids[id],
+          rfc822msgid: !!(byMsgId.messages && byMsgId.messages.length),
+          threadMessages: (t.messages || []).length,
+          byMsgId: (byMsgId.messages || []).map(function (m) {
+            var full = Gmail.Users.Messages.get('me', m.id, { format: 'minimal' });
+            return { sameThread: m.threadId === id, labelIds: full.labelIds,
+              internalDate: new Date(Number(full.internalDate)).toISOString() };
+          })
+        };
+      })
+    };
+  });
+}
+
 // ----------------------------------------------------------------- F1
 
 function s23_lagProxy(opts) {
@@ -473,6 +646,10 @@ function s23_cleanup(opts) {
     }
     var f1 = props.getProperty('s23.f1');
     if (f1) ids = ids.concat(JSON.parse(f1).threadIds);
+    var probe = props.getProperty('s23.probe');
+    if (probe) ids = ids.concat(JSON.parse(probe).threadIds);
+    var c2 = props.getProperty('s23.c2');
+    if (c2) ids = ids.concat(JSON.parse(c2).threadIds);
     var f2 = s23_f2Load_();
     if (f2) f2.sends.forEach(function (x) { ids.push(x.threadId); ids = ids.concat(x.extraThreadIds || []); });
     var trashed = 0, failed = 0;
@@ -481,7 +658,7 @@ function s23_cleanup(opts) {
     });
     var triggersRemoved = s23_f2DeleteTriggers_();
     if (opts.clearProperties) {
-      ['s23.setup', 's23.f1', 's23.f2', 's23.labelTerm'].forEach(function (k) { props.deleteProperty(k); });
+      ['s23.setup', 's23.f1', 's23.f2', 's23.labelTerm', 's23.probe', 's23.c2'].forEach(function (k) { props.deleteProperty(k); });
     }
     return { fn: 's23_cleanup', threadsTrashed: trashed, trashFailed: failed, triggersRemoved: triggersRemoved,
       propertiesCleared: !!opts.clearProperties };
