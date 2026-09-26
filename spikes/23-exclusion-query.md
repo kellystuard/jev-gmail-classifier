@@ -98,7 +98,7 @@ All through #163 from this branch. Paste each returned JSON under **Raw output**
 6. `node spikes/run.mjs run s23_f2Arm`.
 7. `node spikes/run.mjs run s23_f2Send` three times, at least 5 minutes apart (it refuses sooner). Each call polls for up to 2 minutes and returns that send's timings.
 8. `node spikes/run.mjs run s23_f2Results` until all 3 sends have history and search times, then `node spikes/run.mjs run s23_f2Disarm`.
-9. Optional: `node spikes/run.mjs run s23_cleanup` moves every test thread to Trash and removes the trigger (`'{"clearProperties":true}'` also clears `s23.*`). Nothing is permanently deleted; the scope doesn't allow it. The test labels are left in place.
+9. Done 2026-09-26: `s23_cleanup` moved 19 test threads to Trash. Four imported messages (F1's `import` on both runs, and the two C2b `import` variants) are still in the Inbox. `import` returns only `{id}`, so their threads weren't recorded; they are synthetic and harmless. Optional: `node spikes/run.mjs run s23_cleanup` moves every test thread to Trash and removes the trigger (`'{"clearProperties":true}'` also clears `s23.*`). Nothing is permanently deleted; the scope doesn't allow it. The test labels are left in place.
 
 ## Maintainer steps
 
