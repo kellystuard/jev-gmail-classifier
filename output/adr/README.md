@@ -20,3 +20,4 @@ Decisions that shape the [Solution Design](../solution-design.md). See [ADR-0001
 | [0014](0014-structured-logging.md) | Structured JSON logging | Accepted |
 | [0015](0015-git-workflow-and-releases.md) | Git workflow and releases | Accepted |
 | [0016](0016-run-spikes-from-agents-and-a-manual-workflow.md) | Run spikes against a test account from agents and a manual workflow | Proposed |
+| [0017](0017-exclusion-search-per-chunk-for-all-work.md) | One exclusion search per chunk for all work (supersedes 0005 when accepted) | Proposed |

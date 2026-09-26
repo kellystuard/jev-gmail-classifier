@@ -444,6 +444,7 @@ function s23_f1Recheck() {
           method: i === 0 ? 'insert' : 'import',
           labelIds: (t.messages || []).map(function (m) { return m.labelIds; }),
           fromNoWindow: !!noWindow.ids[id], fromWithSpamTrash: !!withSpamTrash.ids[id],
+          fromNoWindowCurrentThread: (byMsgId.messages || []).some(function (m) { return !!noWindow.ids[m.threadId]; }),
           rfc822msgid: !!(byMsgId.messages && byMsgId.messages.length),
           threadMessages: (t.messages || []).length,
           byMsgId: (byMsgId.messages || []).map(function (m) {
@@ -452,6 +453,25 @@ function s23_f1Recheck() {
               internalDate: new Date(Number(full.internalDate)).toISOString() };
           })
         };
+      })
+    };
+  });
+}
+
+/**
+ * Ad hoc follow-up: runs each query in opts.queries (with "<run>" replaced
+ * by the setup run token) and reports which setup test threads came back,
+ * plus counts. Never returns subjects or senders of other mail.
+ */
+function s23_search(opts) {
+  return s23_wrap_(function () {
+    opts = s23_opts_(opts);
+    var setup = s23_loadSetup_();
+    var ctx = { setup: setup };
+    return {
+      fn: 's23_search',
+      results: (opts.queries || []).map(function (q, i) {
+        return s23_case_(ctx, 'Q' + (i + 1), q.replace(/<run>/g, setup.run), opts.params || {}, null, null);
       })
     };
   });
@@ -484,6 +504,7 @@ function s23_lagProxy(opts) {
       var m = Gmail.Users.Messages.get('me', it.id, { format: 'minimal' });
       it.internalDate = Number(m.internalDate);
       it.labelIds = m.labelIds;
+      if (!it.threadId) { it.threadId = m.threadId; it.threadMoved = true; } // import returns only {id}
       var s = Math.floor(it.internalDate / 1000);
       it.q = '(from:' + it.from.split('@')[1] + ') after:' + (s - S23_DAY_) + ' before:' + (s + S23_DAY_);
       it.polls = [];
@@ -499,7 +520,10 @@ function s23_lagProxy(opts) {
       items.forEach(function (it) {
         if (it.firstHitSec !== null) return;
         var r = s23_list_(it.q, {});
-        var hit = !!r.ids[it.threadId];
+        // import returns only {id} (no threadId): look the thread up.
+        var cur = Gmail.Users.Messages.get('me', it.id, { format: 'minimal' }).threadId;
+        if (cur !== it.threadId) it.threadMoved = true;
+        var hit = !!(r.ids[it.threadId] || r.ids[cur]);
         it.polls.push({ atSec: Math.round((Date.now() - t0) / 100) / 10, hit: hit });
         if (hit) it.firstHitSec = Math.round((Date.now() - t0) / 100) / 10;
       });
@@ -515,6 +539,7 @@ function s23_lagProxy(opts) {
           labelIds: it.labelIds,
           q: it.q,
           firstHitSec: it.firstHitSec,
+          threadIdChangedAfterUpload: !!it.threadMoved,
           polls: it.polls
         };
       })
