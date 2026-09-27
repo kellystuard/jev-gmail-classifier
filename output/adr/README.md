@@ -18,6 +18,7 @@ Decisions that shape the [Solution Design](../solution-design.md). See [ADR-0001
 | [0012](0012-toolchain.md) | Toolchain | Accepted |
 | [0013](0013-config-validation-and-per-user-files.md) | Config validated at build and runtime; per-user files git-ignored | Accepted |
 | [0014](0014-structured-logging.md) | Structured JSON logging | Accepted |
-| [0015](0015-git-workflow-and-releases.md) | Git workflow and releases | Accepted |
+| [0015](0015-git-workflow-and-releases.md) | Git workflow and releases | Accepted; branch protection superseded by [0018](0018-protect-main-with-automatic-gates-and-no-required-review.md) |
 | [0016](0016-run-spikes-from-agents-and-a-manual-workflow.md) | Run spikes against a test account from agents and a manual workflow | Accepted |
 | [0017](0017-exclusion-search-per-chunk-for-all-work.md) | One exclusion search per chunk for all work (supersedes 0005) | Accepted |
+| [0018](0018-protect-main-with-automatic-gates-and-no-required-review.md) | Protect `main` with `ci`, signed commits and squash-only; no required review (supersedes part of 0015) | Accepted |
