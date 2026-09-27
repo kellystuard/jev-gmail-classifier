@@ -143,22 +143,23 @@ A manual run takes a Gmail query and/or a recent time span (for example `2h`), a
 
 ## 5. Configuration Surface
 
-All behavior is set in `config.yaml`. Field names below are working names; the final schema is settled in E2.
+All behavior is set in `config.yaml`. The field names below are final (settled in E2). An unknown field fails validation, so a typo such as `treshold` is caught rather than ignored. The full constraints are in the [Solution Design §7.2](solution-design.md#72-configuration).
 
 | Setting                  | Default      | Purpose                                                           |
 | ------------------------ | ------------ | ----------------------------------------------------------------- |
-| `defaultThreshold`       | (required)   | Minimum yes-probability for rules without their own threshold.    |
+| `defaultThreshold`       | (required)   | Minimum yes-probability for rules without their own threshold. From 0 to 1. |
 | `triggerIntervalMinutes` | `10`         | Polling interval: 1, 5, 10, 15, or 30.                            |
 | `jevModel`               | `jev-latest` | Jev model version to request.                                     |
-| `dailyTokenBudget`       | `20000000`   | Maximum Jev input tokens per day, across all runs.                |
-| `excludeQuery`           | (none)       | Gmail search describing mail that is never sent to Jev; applied per thread. |
+| `dailyTokenBudget`       | `20000000`   | Maximum Jev input tokens per day, across all runs. A whole number, at least 1. |
+| `excludeQuery`           | (none)       | Gmail search describing mail that is never sent to Jev; applied per thread. Non-empty if present; omit it to exclude nothing. |
 | `plainTextMethod`        | `basic`      | How HTML-only mail becomes plain text. `advanced` is reserved.    |
-| `rules[].id`             | (required)   | Unique, stable rule name; the Jev question key and the log key.   |
+| `rules[]`                | (required)   | At least one rule.                                                |
+| `rules[].id`             | (required)   | Unique, stable rule name; the Jev question key and the log key. A lowercase letter, then `a-z`, `0-9`, `-` or `_`; at most 32 characters. |
 | `rules[].question`       | (required)   | The yes/no question.                                              |
 | `rules[].action`         | `label`      | `label` or `move`.                                                |
-| `rules[].label`          | (required for `label`) | Label to apply.                                         |
-| `rules[].destination`    | (required for `move`) | `archive`, `spam`, `trash`, or `label:<name>`.           |
-| `rules[].threshold`      | `defaultThreshold` | Per-rule override.                                          |
+| `rules[].label`          | (required for `label`) | Label to apply. Label names follow Gmail's rules; `Jev/` is reserved ([SD §7.2](solution-design.md#72-configuration)). |
+| `rules[].destination`    | (required for `move`) | `archive`, `spam`, `trash`, or `label:<name>`, where `<name>` follows the same label rules. |
+| `rules[].threshold`      | `defaultThreshold` | Per-rule override, from 0 to 1.                             |
 
 The Jev API key is not in the config. It lives in `.env` locally and in Script Properties when deployed. The script's time zone is set in `appsscript.json` (default `Etc/UTC`). The configuration is validated at build time and again when the script loads it.
 
@@ -252,7 +253,7 @@ Not committed and not ordered. See the [Vision](product-vision.md#possible-futur
 
 These are known low-level decisions, left to the epic that owns them. The [Solution Design §13](solution-design.md#13-epic-guidance) lists them per epic, with starting values.
 
-- Final `config.yaml` field names and validation messages (E2).
+- Final `config.yaml` field names and validation messages (E2). **Settled:** see [§5](#5-configuration-surface) and the [Solution Design §7.2](solution-design.md#72-configuration).
 - Queue size cap and sharding, exclusion-search batching, and the fallback window when history has expired (E3).
 - The HTML-to-text `basic` conversion rules, the characters-per-token estimate, and the truncation safety margin (E4).
 - Which responses are retryable, retry attempt count, backoff base, and jitter (E5).
