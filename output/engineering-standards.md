@@ -52,7 +52,7 @@ The layout and layering are in [Solution Design §4](solution-design.md#4-archit
   - `GmailApp` is banned everywhere ([ADR-0003](adr/0003-advanced-gmail-service-and-scopes.md)).
 - **One concept per file.** Files and folders use `kebab-case.ts`. Tests sit in `test/`, mirroring `src/`, as `*.test.ts`.
 - **Named exports only.** No default exports, no barrel files that re-export everything.
-- **`src/generated/`** is written only by the build, and is git-ignored.
+- **`src/generated/`** is written only by the build, and is git-ignored. Source code never imports it: only `src/entry/` reads the embedded config, through the `virtual:generated-config` specifier ([Solution Design §11](solution-design.md#11-build-and-deployment)).
 
 ## 4. TypeScript
 

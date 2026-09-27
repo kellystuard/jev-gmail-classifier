@@ -21,5 +21,5 @@
     "skipLibCheck": true
   },
   "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "vitest.config.ts"],
-  "exclude": ["spikes", "dist", "coverage", "node_modules"]
+  "exclude": ["spikes", "dist", "coverage", "node_modules", "src/generated"]
 }

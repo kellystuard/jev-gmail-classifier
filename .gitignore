@@ -78,6 +78,9 @@ config.yaml
 .clasp.json
 .clasprc.json
 
+# Written by `npm run build`: a copy of the embedded config, which holds your rules
+src/generated/
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache

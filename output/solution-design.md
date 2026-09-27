@@ -136,7 +136,7 @@ The target layout. E2 creates it and may refine names, but not the layer boundar
 │   ├── entry/                 # main.ts: composition root and global functions;
 │   │                          # entry-points.ts: the list of global function names
 │   │                          # the footer is generated from
-│   └── generated/             # build output from config.yaml (git-ignored)
+│   └── generated/             # readable copy of the embedded config (git-ignored; §11)
 ├── scripts/                   # build.ts, probe.ts (local Jev probe)
 ├── spikes/                    # E1 and later experiments, run by hand against a real account
 ├── test/                      # unit tests, fakes/, fixtures/
@@ -364,7 +364,7 @@ There is **no** `Jev/Processed` label. Progress is tracked in state ([ADR-0004](
 - **Source.** `config.yaml` at the repo root. It is git-ignored because it describes the user's mail. `config.example.yaml` is committed, and CI builds with it.
 - **Schema.** One Zod schema in `src/config/schema.ts` is the single source of truth. It emits `config.schema.json` for editor validation.
 - **Validated twice** ([ADR-0013](adr/0013-config-validation-and-per-user-files.md)):
-  - **At build:** `config.yaml` is parsed and validated. Any error fails the build with a message that gives the field path.
+  - **At build:** `config.yaml` (or the file given with `npm run build -- --config <path>`) is parsed and validated. Any error fails the build with a message that gives the field path ([§11](#11-build-and-deployment)).
   - **At runtime load:** the embedded config is validated again by the same schema. A failure is invalid state, so it throws, alerts, and stops the run.
 - **Fields** (final, settled in E2). **Unknown keys are rejected**, at the top level and in each rule, so a typo such as `treshold` fails instead of being ignored. The exact validation messages live in the schema and its tests (`test/config/`); each is reported with its field path, such as `rules[2].destination`.
 
@@ -641,21 +641,34 @@ Logs are **structured JSON only**, one object per event, through `LogPort`. `con
 
 ```mermaid
 flowchart LR
-  yaml[config.yaml] --> validate[validate with Zod schema]
-  validate -->|invalid| fail([build fails with field path])
-  validate --> gen[src/generated/config.ts]
-  src[src/**/*.ts] --> tsc[tsc --noEmit typecheck]
-  gen --> bundle
+  yaml["config.yaml<br/>or --config path"] --> validate[parse YAML, validate with Zod schema]
+  validate -->|invalid| fail([build fails: one path: message line per issue])
+  validate --> tsc[tsc --noEmit typecheck]
+  src[src/**/*.ts] --> tsc
+  validate -->|raw data| virtual[virtual:generated-config<br/>served from memory]
+  virtual --> bundle
   tsc --> bundle[esbuild bundle<br/>IIFE, V8-safe target]
   bundle --> footer[append global function footer]
   manifest[appsscript.json] --> dist
   footer --> dist[dist/Code.js + dist/appsscript.json]
+  virtual -.->|same text, for reading| gen[src/generated/config.ts]
   dist --> clasp[clasp push<br/>manual, maintainer machine]
 ```
 
 - **Toolchain:** Node 24 LTS, npm, TypeScript (strict), esbuild, Zod, and `yaml` for the build ([ADR-0012](adr/0012-toolchain.md)).
+- **Config step** (first, before the typecheck, so a bad config fails in well under a second with no typecheck noise; `scripts/config-source.ts`):
+  - **Which file.** `config.yaml` at the repo root, or the file given with `--config <path>`. CI runs `npm run build -- --config config.example.yaml`, so it never copies the example. An unknown argument fails the build. A missing `config.yaml` fails with a message that says to copy `config.example.yaml` (and how to build the example instead); a missing `--config` file is named.
+  - **Parsing.** The `yaml` package, with duplicate keys rejected. The file must hold exactly one non-empty YAML document. A YAML error prints `<file>:<line>:<column>: <message>`.
+  - **Validation.** The schema from `src/config/schema.ts`. Every issue is printed, not just the first, one per line as `<field path>: <message>` under `<file> is invalid:`.
+  - **On any error** the build exits 1, and neither `dist/` nor `src/generated/` is touched.
+- **The embedded config** (settles E2's decision on `src/generated/`): source code reaches the config only through the virtual module specifier `virtual:generated-config`, so `typecheck`, `lint` and `test` never need `src/generated/` or a `config.yaml`, and work on a fresh clone.
+  - `generatedConfigModule()` (`scripts/generated-config.ts`) renders `export const EMBEDDED_CONFIG: unknown = {…};`. It holds the **raw** YAML data after validation, not the schema's output: the runtime parses it again with the same schema ([§7.2](#72-configuration)), so defaults and transforms apply in one place. The `unknown` type forces every reader through the loader.
+  - `bundle()` takes the raw data as a required option, and an esbuild plugin serves the module from memory. `bundle()` never reads `src/generated/`.
+  - Only `src/entry/` imports the specifier. The committed ambient declaration `src/entry/generated-config.d.ts` lets `tsc` and ESLint resolve it with no file on disk. In tests, `vitest.config.ts` serves the same module from `test/fixtures/config/valid.yaml`, because tests import `src/entry/main.ts`. No test imports the specifier or `src/generated/` itself.
+  - The build also writes the same text to `src/generated/config.ts` (git-ignored, and excluded from `tsc`, ESLint and Prettier), so a developer can see exactly what was embedded. Both come from one function, so they can't differ.
+  - **Rejected:** a `generate` step before `typecheck` and `lint` (every fresh clone, agent worktree and CI job would need a config file just to typecheck); esbuild `define` with a global (works, but hides where the value comes from); `bundle()` reading `src/generated/config.ts` from disk (the bundle test would fail on a fresh clone, because CI runs tests before the build).
 - **Bundle.** esbuild writes one IIFE with a V8-safe target: class fields and `#private` are lowered or banned. A generated footer declares a real top-level `function` for each entry point (`function onTrigger() { return JevGmailClassifier.onTrigger(); }`, and so on), because triggers and the editor only see declarations. The settled details:
-  - **`npm run build`** (`scripts/build.ts`) typechecks (`tsc --noEmit`) before it bundles, and stops at the first failing step. `scripts/bundle.ts` does the bundling. It empties `dist/`, then writes `dist/Code.js` and a byte-for-byte copy of the repo-root `appsscript.json`.
+  - **`npm run build`** (`scripts/build.ts`) validates the config, typechecks (`tsc --noEmit`), bundles, then writes `src/generated/config.ts`, and stops at the first failing step with `Build failed: <step>: …`. `scripts/bundle.ts` does the bundling. It empties `dist/`, then writes `dist/Code.js` and a byte-for-byte copy of the repo-root `appsscript.json`.
   - **Target `es2020`.** It keeps `?.` and `??`, which Apps Script's V8 has supported since it launched, and lowers everything newer, such as class fields, `#private`, static blocks and `??=`. With `useDefineForClassFields: false`, class fields become constructor assignments. `tsconfig` `lib` is `ES2020` to match, because esbuild lowers syntax but doesn't polyfill library methods. Apps Script's V8 version isn't published, so raise the target (and `lib`, and the test's `ecmaVersion`, all tied to `ECMA_VERSION` in `scripts/bundle.ts`) only with evidence from a spike run in a real project.
   - **Platform `neutral`**, so importing a Node built-in fails the build instead of being shimmed. There's no minification (readable stack traces in the editor) and no source map. esbuild's default `legalComments` keeps dependency license notices.
   - **Global `JevGmailClassifier`.** The file starts with `"use strict";`, because the source is ES modules and so already strict, then `var JevGmailClassifier = (() => {`.

@@ -5,16 +5,18 @@
  * `JevGmailClassifier`, followed by a generated footer of top-level `function`
  * declarations, one per entry point: triggers and the editor only see
  * declarations. `outDir/appsscript.json` is a byte-for-byte copy of the
- * repo-root manifest.
+ * repo-root manifest. The caller passes the validated config, which is served
+ * to `src/entry/` as the module `virtual:generated-config`.
  *
  * `scripts/build.ts` is the CLI. The bundle test calls `bundle()` directly.
  */
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
-import { build } from 'esbuild';
+import { build, type Plugin } from 'esbuild';
 
 import { ENTRY_POINTS } from '../src/entry/entry-points.ts';
+import { GENERATED_CONFIG_SPECIFIER, generatedConfigModule } from './generated-config.ts';
 
 /**
  * The ECMAScript version the bundle targets. Apps Script's V8 version isn't
@@ -34,6 +36,14 @@ const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 export interface BundleOptions {
   /** The output directory, relative to the repo root or absolute. It is emptied first. */
   readonly outDir: string;
+  /**
+   * The raw, already validated config data. It is embedded as the module
+   * `virtual:generated-config`, served from memory: `bundle()` never reads
+   * `src/generated/`.
+   */
+  readonly embeddedConfig: unknown;
+  /** Where the config came from, for the generated module's header comment. */
+  readonly configSourceName?: string;
 }
 
 /** The global-function footer: a comment line, then one line per name, in order. */
@@ -62,7 +72,31 @@ export function resolveOutDir(outDir: string): string {
   return resolved;
 }
 
-export async function bundle({ outDir }: BundleOptions): Promise<void> {
+/** Resolves `virtual:generated-config` to the generated module, served from memory. */
+export function generatedConfigPlugin(embeddedConfig: unknown, sourceName: string): Plugin {
+  const namespace = 'generated-config';
+  // Render now, so data that can't be embedded fails before anything is bundled.
+  const contents = generatedConfigModule(embeddedConfig, sourceName);
+  const filter = new RegExp(`^${GENERATED_CONFIG_SPECIFIER}$`);
+  return {
+    name: namespace,
+    setup(pluginBuild) {
+      pluginBuild.onResolve({ filter }, (args) => ({ path: args.path, namespace }));
+      pluginBuild.onLoad({ filter: /.*/, namespace }, () => ({
+        contents,
+        loader: 'ts',
+        resolveDir: REPO_ROOT,
+      }));
+    },
+  };
+}
+
+export async function bundle({
+  outDir,
+  embeddedConfig,
+  configSourceName = 'config.yaml',
+}: BundleOptions): Promise<void> {
+  const configPlugin = generatedConfigPlugin(embeddedConfig, configSourceName);
   const dir = resolveOutDir(outDir);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
@@ -84,6 +118,7 @@ export async function bundle({ outDir }: BundleOptions): Promise<void> {
     minify: false,
     sourcemap: false,
     write: false,
+    plugins: [configPlugin],
   });
 
   const [output, ...extra] = result.outputFiles;

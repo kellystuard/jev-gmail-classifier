@@ -5,6 +5,7 @@ import { createContext, runInContext } from 'node:vm';
 
 import { parse } from 'acorn';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { parse as parseYaml } from 'yaml';
 
 import {
   bundle,
@@ -17,6 +18,9 @@ import {
 } from '../../scripts/bundle.ts';
 import { ENTRY_POINTS } from '../../src/entry/entry-points.ts';
 import * as main from '../../src/entry/main.ts';
+
+const FIXTURE_CONFIG = join(REPO_ROOT, 'test', 'fixtures', 'config', 'valid.yaml');
+const FIXTURE_RULE_IDS = ['fixture-approval', 'fixture-bill', 'fixture-newsletter'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -79,7 +83,8 @@ describe('bundle()', () => {
   beforeAll(async () => {
     outDir = mkdtempSync(join(tmpdir(), 'jev-bundle-'));
     writeFileSync(join(outDir, 'stale.js'), '// left over from an earlier build\n');
-    await bundle({ outDir });
+    const embeddedConfig: unknown = parseYaml(readFileSync(FIXTURE_CONFIG, 'utf8'));
+    await bundle({ outDir, embeddedConfig, configSourceName: 'valid.yaml' });
     code = readFileSync(join(outDir, 'Code.js'), 'utf8');
   });
 
@@ -119,6 +124,19 @@ describe('bundle()', () => {
     const exposed = evaluate(code)[GLOBAL_NAME];
     expect(isRecord(exposed)).toBe(true);
     expect(new Set(Object.keys(isRecord(exposed) ? exposed : {}))).toEqual(new Set(ENTRY_POINTS));
+  });
+
+  it('embeds the config it was given', () => {
+    for (const id of FIXTURE_RULE_IDS) {
+      expect(code).toContain(`"id": "${id}"`);
+    }
+  });
+
+  it('reaches the embedded config from the entry points', () => {
+    const scope = evaluate(code);
+    for (const name of ENTRY_POINTS) {
+      expect(callGlobal(scope, name), name).toMatchObject({ configEmbedded: true });
+    }
   });
 
   it('calls each placeholder in main.ts through the footer', () => {
