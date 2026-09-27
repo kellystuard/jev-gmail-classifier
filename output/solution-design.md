@@ -133,7 +133,9 @@ The target layout. E2 creates it and may refine names, but not the layer boundar
 │   ├── ports/                 # port interfaces
 │   ├── adapters/gas/          # Apps Script implementations of the ports
 │   ├── config/                # Zod schema (shared by build and runtime) + loader
-│   ├── entry/                 # main.ts: composition root + global functions
+│   ├── entry/                 # main.ts: composition root and global functions;
+│   │                          # entry-points.ts: the list of global function names
+│   │                          # the footer is generated from
 │   └── generated/             # build output from config.yaml (git-ignored)
 ├── scripts/                   # build.ts, probe.ts (local Jev probe)
 ├── spikes/                    # E1 and later experiments, run by hand against a real account
@@ -141,6 +143,8 @@ The target layout. E2 creates it and may refine names, but not the layer boundar
 ├── docs/                      # smoke-test checklist; docs/archive/ (historical)
 └── output/                    # vision, PDD, solution design, standards, ADRs
 ```
+
+`src/generated/` and `src/core/body/` appear later (the build and E4).
 
 ## 5. Components and Ports
 
