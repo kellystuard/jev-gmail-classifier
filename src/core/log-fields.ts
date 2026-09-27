@@ -9,8 +9,6 @@
 type LogScalar = string | number | boolean | null;
 
 export type LogValue =
-  | LogScalar
-  | readonly (string | number)[]
-  | Readonly<Record<string, LogScalar>>;
+  LogScalar | readonly (string | number)[] | Readonly<Record<string, LogScalar>>;
 
 export type LogFields = Readonly<Record<string, LogValue>>;

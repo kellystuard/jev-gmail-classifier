@@ -88,7 +88,8 @@ export function formatConfigIssue(issue: ConfigIssue): string {
   return `${issue.path === '' ? '(root)' : issue.path}: ${issue.message}`;
 }
 
-export type StateErrorReason = 'parse' | 'version' | 'schema' | 'too_large' | 'store_full' | 'bad_key';
+export type StateErrorReason =
+  'parse' | 'version' | 'schema' | 'too_large' | 'store_full' | 'bad_key';
 
 export type StateErrorDetails = {
   readonly key: string;
@@ -172,7 +173,11 @@ export class ThreadProcessingError extends JevClassifierError {
   declare readonly threadId: string;
   declare readonly failure: ThreadFailure;
 
-  constructor(message: string, details: ThreadProcessingDetails, options?: JevClassifierErrorOptions) {
+  constructor(
+    message: string,
+    details: ThreadProcessingDetails,
+    options?: JevClassifierErrorOptions,
+  ) {
     const fields: Record<string, LogValue> = {};
     for (const [key, value] of Object.entries(details.failure)) {
       if (key !== 'ok') {

@@ -12,6 +12,7 @@
  * with `ok({})`. (Not `Record<string, never>`: its index signature would make
  * `ok` itself `never`.)
  */
+// eslint-disable-next-line @typescript-eslint/no-generated-empty-object-type -- the empty object type is the point: a result with no extra fields.
 export type NoFields = Record<never, never>;
 
 /** A success carrying the fields `S`. */

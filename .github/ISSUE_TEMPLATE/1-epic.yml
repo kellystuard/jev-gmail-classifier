@@ -1,7 +1,7 @@
 name: Epic
 description: A PDD §14 epic (E1–E10). Its stories are linked as sub-issues.
-title: "E<n>: <epic name>"
-labels: ["type: epic"]
+title: 'E<n>: <epic name>'
+labels: ['type: epic']
 body:
   - type: markdown
     attributes:
@@ -26,7 +26,7 @@ body:
     attributes:
       label: Depends on
       description: Other epics, as issue links.
-      placeholder: "None"
+      placeholder: 'None'
   - type: textarea
     id: references
     attributes:
