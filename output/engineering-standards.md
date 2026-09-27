@@ -145,7 +145,9 @@ The model is in [Solution Design §10.1](solution-design.md#101-error-model) and
 - **PR titles follow [Conventional Commits](https://www.conventionalcommits.org/):** `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `build:`, `ci:`, `chore:`, optionally with a scope (`feat(jev-client): …`), and `!` for a breaking change. Breaking changes include config changes that make an existing `config.yaml` invalid.
 - **Signed commits are required.** Branch protection on `main` requires signed commits, passing CI, and a CODEOWNERS review.
 - **CI** (GitHub Actions) runs `npm ci`, `lint`, `typecheck`, `test`, and `build` against `config.example.yaml`, on Node 24 and 26. There is no deploy job in v1.
-- **Releases.** release-please maintains `CHANGELOG.md` and SemVer tags from the squashed commit titles. Deployment is manual: `npm run push` from the maintainer's machine.
+- **Releases.** release-please maintains `CHANGELOG.md`, the `package.json` version, and SemVer tags (`vX.Y.Z`) from the squashed commit titles. It keeps one release PR open and updates it on every push to `main`. Deployment is manual: `npm run push` from the maintainer's machine.
+  - **Before 1.0**, a `feat:` bumps the minor version, a `fix:` the patch version, and a breaking change (`!`) also only the minor version. `v1.0.0` is cut on purpose in E10, with a `Release-As: 1.0.0` footer in the squash commit's body.
+  - **CI on a release PR.** release-please runs with the default `GITHUB_TOKEN`, and PRs pushed with that token don't start other workflows. So before merging a release PR, run `gh workflow run ci.yml --ref release-please--branches--main`, wait for the `ci` check to pass on the PR's head commit, then squash-merge. release-please force-pushes the branch after every merge to `main`, so run CI right before merging.
 
 ## 11. Documentation
 
