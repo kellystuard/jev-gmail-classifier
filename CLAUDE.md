@@ -102,4 +102,4 @@ A Google Apps Script project (TypeScript, bundled with esbuild, running in the u
 - **`.clasp.json`** is git-ignored; `.clasp.json.example` is committed.
 - **Deployment** is via `clasp` 3, manually for v1. CI (GitHub Actions, Node 24 and 26) runs lint, typecheck, test, and a build against the example config.
 - **`install`** checks scopes, saves the starting position (keeping an existing one unless `RESET_POSITION=true`), and creates or replaces the trigger. **`uninstall`** removes the trigger and `state.*` keys, and leaves labels and the key.
-- **Git:** trunk-based, squash merge, Conventional Commit PR titles, release-please, and **signed commits required**.
+- **Git:** trunk-based, squash merge, Conventional Commit PR titles, release-please, and **signed commits required**. release-please's PRs don't start CI, so before squash-merging one, run `gh workflow run ci.yml --ref release-please--branches--main` and wait for `ci` to pass.

@@ -1,0 +1,30 @@
+# Keeps a release PR open that updates CHANGELOG.md and the package.json version
+# from the squashed Conventional Commit titles on main, and tags vX.Y.Z when it
+# merges (ES §10, ADR-0015). It runs with the default GITHUB_TOKEN, so the
+# release PR doesn't start CI by itself. Before merging a release PR, run CI on
+# it and wait for the ci check to pass:
+#   gh workflow run ci.yml --ref release-please--branches--main
+# Config: release-please-config.json and .release-please-manifest.json.
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v5
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
