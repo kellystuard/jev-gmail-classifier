@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import { assertNever } from '../../src/core/assert-never.ts';
-import { type Fail, type Ok, type Result, fail, ok } from '../../src/core/result.ts';
+import { type Fail, type NoFields, type Ok, type Result, fail, ok } from '../../src/core/result.ts';
 
 type ListResult = Result<
   { labels: readonly string[] },
@@ -31,7 +31,8 @@ describe('ok()', () => {
   });
 
   it('builds an empty success from {}', () => {
-    expect(ok({})).toEqual({ ok: true });
+    const result: Result<NoFields, Fail<'scope'>> = ok({});
+    expect(result).toEqual({ ok: true });
   });
 
   it('has the Ok type', () => {

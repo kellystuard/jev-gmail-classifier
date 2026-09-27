@@ -167,21 +167,29 @@ The PDD's components ([PDD §6.1](product-design-document.md#61-main-components)
 
 ### 5.2 Ports
 
-Each port is a narrow TypeScript interface in `ports/`, with one Apps Script adapter and one in-memory fake (`test/fakes/`). Names are working names.
+Each port is a narrow, synchronous TypeScript interface in `src/ports/<name>-port.ts`, with one Apps Script adapter and one in-memory fake (`test/fakes/`).
+
+- **Expected failures are results** (`Result`/`Fail` from `src/core/result.ts`, [§10.1](#101-error-model)). Anything an adapter doesn't recognize is thrown as `UnexpectedResponseError` and reaches the per-thread or per-run boundary.
+- **Shared data types that `core/` reads live in `core/`**, which can't import `ports/`: the Gmail resource types (`src/core/gmail-types.ts`, with byte-array `body.data` and optional history change arrays), the Script Properties limits (`src/core/state-limits.ts`), and `LogFields`.
+- **Common failure kinds:**
+  - `scope`: a scope isn't granted. Adapters match the [§9](#9-gmail-integration) message fragments. A 403 `rateLimitExceeded` is never `scope`.
+  - `rate_limited` (Gmail): the per-user rate limit. It means "stop Gmail work for this run", not a thread failure ([§9](#9-gmail-integration)).
 
 | Port | Wraps | Main operations |
 |------|-------|-----------------|
-| `GmailPort` | Advanced Gmail Service (`Gmail.Users.*`) | `getProfile`, `listHistory`, `searchThreadIds`, `getThread`, `listLabels`, `createLabel`, `modifyThread`, `trashThread` |
-| `HttpPort` | `UrlFetchApp.fetchAll` | `sendAll(requests) → responses` (status, headers, body text) |
-| `StatePort` | `PropertiesService.getScriptProperties()` | typed `get`/`set`/`delete` on namespaced keys, plus sharded values |
-| `SecretsPort` | Script Properties (`JEV_API_KEY`) | `getJevApiKey()` |
-| `LockPort` | `LockService.getScriptLock()` | `tryAcquire() → boolean`, `release()` |
-| `ClockPort` | `Date`, `Utilities.sleep`, `Session.getScriptTimeZone()` | `now()`, `sleep(ms)`, `timeZone()` |
-| `RandomPort` | `Math.random` | `next()`, used for jitter |
-| `LogPort` | `console.*` | `info/warn/error(event, fields)` |
-| `MailPort` | `MailApp.sendEmail` | `send(to, subject, body)` |
-| `TriggerPort` | `ScriptApp` | `replaceRecurringTrigger(fn, minutes)`, `deleteTriggers(fn)` |
-| `AuthPort` | `ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL).getAuthorizedScopes()` ([E1](../spikes/27-missing-scope.md)) | `missingScopes() → string[]` (declared minus authorized; "unknown" if the call throws) |
+| `GmailPort` | Advanced Gmail Service (`Gmail.Users.*`) | Every method can fail with `scope` or `rate_limited`, plus:<ul><li>`getProfile() → {emailAddress, historyId}`</li><li>`listHistory({startHistoryId, historyTypes, pageToken?})`: **one page** `{records, historyId, nextPageToken?}`. The page's `historyId` changes between pages, so the caller advances to the last page's. Can also fail with `history_expired` (404, [§6.3](#63-ingest-gmail-history-to-work-queue)).</li><li>`searchThreadIds({q, includeSpamTrash, pageToken?})`: **one page** of thread IDs. `includeSpamTrash` is required. The caller pages ([§6.4](#64-process-classify-a-chunk)).</li><li>`getThread(threadId, {format: 'full' \| 'metadata' + metadataHeaders \| 'minimal'})`, which can also fail with `not_found`.</li><li>`listLabels()`: one response, no paging.</li><li>`createLabel(name)`, which can also fail with `label_exists` (409) or `invalid_label_name` (400, reserved names). No parents are created.</li><li>`modifyThread(threadId, {addLabelIds, removeLabelIds})`, which can also fail with `not_found` or `invalid_label` (400, a name or an unknown ID).</li><li>`trashThread(threadId)`, which can also fail with `not_found`.</li></ul> |
+| `HttpPort` | `UrlFetchApp.fetchAll` | `sendAll(requests) → results`, one per request, in the same order. The result is `ok` with status, lower-case headers and body text for any HTTP status, or `transport`, or `scope`. |
+| `StatePort` | `PropertiesService.getScriptProperties()` | `get(key) → unknown` (parsed JSON), `set(key, json)`, `delete(key)`, `keys(prefix)` on `state.*` keys only. A value over 9 KB or a store over 500 KB throws `StateError` and writes nothing. `getInput(name)` and `deleteInput(name)` read and clear the plain user inputs (`MANUAL_*`, `RESET_POSITION`). There are no sharding methods yet: E3 builds sharding on these methods, and decides whether it becomes a port method. |
+| `SecretsPort` | Script Properties (`JEV_API_KEY`) | `getJevApiKey() → string \| undefined` (trimmed; blank is unset) |
+| `LockPort` | `LockService.getScriptLock()` | `tryAcquire() → boolean` (`tryLock(0)`), `release()` (safe when not held) |
+| `ClockPort` | `Date`, `Utilities.sleep`, `Session.getScriptTimeZone()` | `now()` (epoch ms), `sleep(ms)`, `timeZone()` |
+| `RandomPort` | `Math.random` | `next()` in `[0, 1)`, used for jitter |
+| `LogPort` | `console.*` | `info/warn/error(event, fields?)` |
+| `MailPort` | `MailApp.sendEmail` | `send(to, subject, body)`, which can fail with `scope` or `quota` |
+| `TriggerPort` | `ScriptApp` | `replaceRecurringTrigger(handler, minutes)` (leaves exactly one), `deleteTriggers(handler) → {deleted}`; both can fail with `scope` |
+| `AuthPort` | `ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL).getAuthorizedScopes()` ([E1](../spikes/27-missing-scope.md)) | `missingScopes() → {missing}`: `DECLARED_SCOPES` (`src/core/declared-scopes.ts`) minus the authorized scopes. It fails with `unknown` if the call throws. |
+
+E2 defined these as a first cut; the owning epic refines its port: `GmailPort` (E3, E6), `HttpPort` (E5), `LockPort`, `TriggerPort`, and `AuthPort` (E7), `LogPort` and `MailPort` (E9).
 
 ## 6. Runtime Flows
 
