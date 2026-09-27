@@ -1,6 +1,6 @@
 /**
- * `npm run build`: validate the config, typecheck, then bundle into `dist/`
- * (Solution Design §11).
+ * `npm run build`: validate the config, regenerate `config.schema.json`,
+ * typecheck, then bundle into `dist/` (Solution Design §11).
  *
  *     npm run build                                      # reads config.yaml
  *     npm run build -- --config config.example.yaml      # reads another file
@@ -16,6 +16,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { bundle, REPO_ROOT, resolveOutDir } from './bundle.ts';
+import { CONFIG_JSON_SCHEMA_FILE, configJsonSchemaText } from './config-json-schema.ts';
 import { readConfig } from './config-source.ts';
 import { GENERATED_CONFIG_FILE, generatedConfigModule } from './generated-config.ts';
 
@@ -88,6 +89,14 @@ async function bundleToDist(embeddedConfig: unknown, configSourceName: string): 
 }
 
 /**
+ * Regenerates the committed `config.schema.json` from the schema, so a stale
+ * copy shows up as a diff (CI runs `git diff --exit-code` after the build).
+ */
+function writeJsonSchema(): void {
+  writeFileSync(join(REPO_ROOT, CONFIG_JSON_SCHEMA_FILE), configJsonSchemaText());
+}
+
+/**
  * Writes the module the bundle embedded to `src/generated/config.ts`, for
  * reading only: the bundle doesn't read it. Both come from
  * `generatedConfigModule()`, so they can't differ.
@@ -110,6 +119,7 @@ function reportOutputs(): void {
 async function main(): Promise<void> {
   const source = parseArguments();
   const embeddedConfig = validateConfig(source);
+  writeJsonSchema();
   typecheck();
   await bundleToDist(embeddedConfig, source.displayName);
   writeGeneratedConfig(embeddedConfig, source.displayName);
