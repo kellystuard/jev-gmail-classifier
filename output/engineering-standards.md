@@ -23,7 +23,7 @@
 | Running TypeScript scripts | Node's built-in type stripping (`node scripts/build.ts`) | No `tsx` or `ts-node`. See [§4](#4-typescript) for the rules this implies. |
 | Bundler | **esbuild** | One IIFE plus a generated footer of global functions ([Solution Design §11](solution-design.md#11-build-and-deployment)). |
 | Tests | **Vitest** | With the V8 coverage provider. |
-| Lint / format | **ESLint** (typescript-eslint, strict and type-checked) + **Prettier** | Prettier owns formatting. ESLint owns correctness and layering. |
+| Lint / format | **ESLint** (flat config in `eslint.config.ts`: `@eslint/js` recommended + typescript-eslint `strictTypeChecked`) + **Prettier** 3 | Prettier owns formatting. ESLint owns correctness and layering, and adds no formatting rules. Prettier uses its defaults except `singleQuote` and `printWidth: 100` (`.prettierrc.json`). It checks `.ts`, `.js`/`.mjs`, `.json`, and `.yaml`/`.yml`. It never checks Markdown (`**/*.md`), so the design documents and README are never reformatted. Both tools skip `spikes/`, `test/fixtures/`, `docs/`, `dist/`, `coverage/`, `src/generated/`, and `.claude/`; Prettier also skips `output/` and `package-lock.json`. ESLint loads its `.ts` config through `jiti`, because it can't yet use Node's type stripping without an unstable flag. |
 | Validation | **Zod** | The one schema is shared by the build and the runtime. Also emits `config.schema.json`. |
 | YAML | `yaml` | Build time only. |
 | Apps Script CLI | **`@google/clasp` 3.x** | Pushes `dist/`. Deployment is manual in v1. |
@@ -34,6 +34,7 @@
 |--------|--------------|
 | `npm run build` | Validates the config, generates code, and bundles into `dist/`. |
 | `npm run lint` | ESLint and a Prettier check. |
+| `npm run format` | Prettier, rewriting files in place. |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Vitest, once. |
 | `npm run test:watch` | Vitest in watch mode. |
@@ -71,6 +72,7 @@ The layout and layering are in [Solution Design §4](solution-design.md#4-archit
 - **Relative imports end in `.ts`** (`import { ENTRY_POINTS } from './entry-points.ts'`). Node needs the extension to run `scripts/*.ts`, and `tsc` enforces it.
 - **Erasable syntax only.** No `enum`, `namespace`, or constructor parameter properties. Node can't strip them, and `tsc` rejects them. Use `as const` objects or string-literal unions instead of `enum`.
 - **Banned:** `any`, `as` casts to silence errors, and non-null `!`, unless there is a one-line justification comment. Parse unknown data with Zod or a type guard instead of casting.
+  - The justification is the `-- <why>` part of an `eslint-disable-next-line` comment: `// eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- <why>`. Lint rejects a disable comment without a justification, a blanket `eslint-disable` that names no rule, and one that suppresses nothing. `as const` is not a cast and is allowed.
 - **V8 runtime limits.** Never use:
   - `#private` fields or static class field declarations: use `private` and module constants.
   - `setTimeout`: use `ClockPort.sleep`.

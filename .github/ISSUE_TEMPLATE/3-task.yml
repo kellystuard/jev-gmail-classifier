@@ -1,7 +1,7 @@
 name: Task
 description: One PR's worth of work. Belongs to one story.
-title: "<imperative: what to do>"
-labels: ["type: task"]
+title: '<imperative: what to do>'
+labels: ['type: task']
 body:
   - type: markdown
     attributes:
@@ -19,7 +19,7 @@ body:
     attributes:
       label: Done when
       value: |
-        - [ ] 
+        - [ ]
     validations:
       required: true
   - type: textarea

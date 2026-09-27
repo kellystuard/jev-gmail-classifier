@@ -1,8 +1,4 @@
-import type {
-  GmailHistoryRecord,
-  GmailLabel,
-  GmailThread,
-} from '../core/gmail-types.ts';
+import type { GmailHistoryRecord, GmailLabel, GmailThread } from '../core/gmail-types.ts';
 import type { Fail, NoFields, Result } from '../core/result.ts';
 
 /**
@@ -16,7 +12,8 @@ import type { Fail, NoFields, Result } from '../core/result.ts';
  *   it means "stop Gmail work for this run", which E7 handles
  *   (`spikes/30-gmail-quota.md`).
  */
-export type GmailFailure = Fail<'scope', { message: string }> | Fail<'rate_limited', { message: string }>;
+export type GmailFailure =
+  Fail<'scope', { message: string }> | Fail<'rate_limited', { message: string }>;
 
 /** The history types the classifier reads, in one call (SD §6.3, spike 20). */
 export type GmailHistoryType = 'messageAdded' | 'labelRemoved';
@@ -138,7 +135,10 @@ export interface GmailPort {
   modifyThread(
     threadId: string,
     change: ThreadLabelChange,
-  ): Result<NoFields, GmailFailure | Fail<'not_found'> | Fail<'invalid_label', { message: string }>>;
+  ): Result<
+    NoFields,
+    GmailFailure | Fail<'not_found'> | Fail<'invalid_label', { message: string }>
+  >;
 
   /**
    * `Users.Threads.trash`. Gives the same labels as `modifyThread` adding

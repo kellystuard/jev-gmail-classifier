@@ -61,7 +61,8 @@ const PLAIN_TEXT_METHOD = 'must be basic';
 const PLAIN_TEXT_ADVANCED = 'advanced is reserved for a future version; use basic';
 const RULES = 'add at least one rule';
 const RULE = 'must be a rule with an id, a question, and a label or destination';
-const RULE_ID = 'must start with a lowercase letter and use only a-z, 0-9, - and _ (at most 32 characters)';
+const RULE_ID =
+  'must start with a lowercase letter and use only a-z, 0-9, - and _ (at most 32 characters)';
 const QUESTION = 'must be a yes/no question';
 const ACTION = 'must be label or move';
 const LABEL = 'must be a label name, such as Finance/Bill';
@@ -149,7 +150,13 @@ const ruleSchema = z
       if (rule.label === undefined) {
         throw new Error('invalid state: a label rule without a label passed validation');
       }
-      return { id: rule.id, question: rule.question, action: 'label', label: rule.label, ...threshold };
+      return {
+        id: rule.id,
+        question: rule.question,
+        action: 'label',
+        label: rule.label,
+        ...threshold,
+      };
     }
     if (rule.destination === undefined) {
       throw new Error('invalid state: a move rule without a destination passed validation');

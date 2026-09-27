@@ -1,0 +1,20 @@
+# Prettier also reads .gitignore (dist, coverage, config.yaml, .claude/worktrees/, ...).
+# It formats .ts, .js/.mjs, .json and .yaml/.yml everywhere else.
+
+# E1 spikes stay outside E2's tooling (spikes/README.md, "Purpose and rules").
+spikes/
+# Synthetic Gmail fixtures stay exactly as captured.
+test/fixtures/
+# Design documents and Markdown are never reformatted.
+docs/
+output/
+**/*.md
+
+# Build and tool output.
+dist/
+coverage/
+src/generated/
+package-lock.json
+
+# Agents' git worktrees: full copies of the repo inside the maintainer's checkout.
+.claude/

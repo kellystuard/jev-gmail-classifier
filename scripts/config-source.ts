@@ -47,7 +47,9 @@ export function parseConfigText(text: string, displayName: string): ConfigSource
 
   const yamlErrors = documents.flatMap((document) => document.errors);
   if (yamlErrors.length > 0) {
-    return fail('yaml', { lines: yamlErrors.map((error) => `${at(error.pos[0])}: ${error.message}`) });
+    return fail('yaml', {
+      lines: yamlErrors.map((error) => `${at(error.pos[0])}: ${error.message}`),
+    });
   }
 
   const [document, second] = documents;
@@ -84,7 +86,9 @@ export function readConfig(file: string, options: ReadConfigOptions): ConfigSour
   } catch (error) {
     if (errorCode(error) === 'ENOENT') {
       return fail('not_found', {
-        lines: [options.isDefault ? MISSING_DEFAULT_CONFIG : `Config file ${displayName} not found.`],
+        lines: [
+          options.isDefault ? MISSING_DEFAULT_CONFIG : `Config file ${displayName} not found.`,
+        ],
       });
     }
     return fail('unreadable', {

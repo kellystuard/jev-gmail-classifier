@@ -17,5 +17,8 @@ export interface AuthPort {
    * if the call throws: the caller alerts and relies on the per-action `scope`
    * results.
    */
-  missingScopes(): Result<{ missing: readonly DeclaredScope[] }, Fail<'unknown', { message: string }>>;
+  missingScopes(): Result<
+    { missing: readonly DeclaredScope[] },
+    Fail<'unknown', { message: string }>
+  >;
 }

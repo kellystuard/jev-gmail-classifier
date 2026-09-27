@@ -3,12 +3,7 @@ export type StateKey = `state.${string}`;
 
 /** A JSON value, as `JSON.stringify` writes it. */
 export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
+  string | number | boolean | null | readonly JsonValue[] | { readonly [key: string]: JsonValue };
 
 /**
  * Script Properties, `PropertiesService.getScriptProperties()` (Solution

@@ -6,6 +6,7 @@ import { JevClassifierError } from '../../src/core/errors.ts';
 describe('assertNever', () => {
   it('throws a JevClassifierError naming the unexpected value', () => {
     // A value the types say can't exist, as it might arrive from bad data at runtime.
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only a cast can forge a `never` value.
     const unexpected = 'surprise' as never;
     let thrown: unknown;
     try {

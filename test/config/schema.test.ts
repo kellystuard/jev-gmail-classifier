@@ -45,30 +45,21 @@ type Raw = Record<string, unknown>;
 
 const LABEL_RULE: Raw = { id: 'bill', question: 'Is this email a bill or invoice?', label: 'Bill' };
 
+/** `base` with fields replaced or (when `undefined`) removed. */
+function withOverrides(base: Raw, overrides: Raw): Raw {
+  return Object.fromEntries(
+    Object.entries({ ...base, ...overrides }).filter(([, value]) => value !== undefined),
+  );
+}
+
 /** A valid config, with fields replaced or (when `undefined`) removed. */
 function config(overrides: Raw = {}): Raw {
-  const out: Raw = { defaultThreshold: 0.8, rules: [LABEL_RULE] };
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) {
-      delete out[key];
-    } else {
-      out[key] = value;
-    }
-  }
-  return out;
+  return withOverrides({ defaultThreshold: 0.8, rules: [LABEL_RULE] }, overrides);
 }
 
 /** A valid config whose only rule is `LABEL_RULE` changed the same way. */
 function withRule(overrides: Raw): Raw {
-  const rule: Raw = { ...LABEL_RULE };
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) {
-      delete rule[key];
-    } else {
-      rule[key] = value;
-    }
-  }
-  return config({ rules: [rule] });
+  return config({ rules: [withOverrides(LABEL_RULE, overrides)] });
 }
 
 function moveRule(destination: unknown, id = 'move'): Raw {
@@ -95,8 +86,20 @@ describe('a valid config', () => {
       plainTextMethod: 'basic',
       rules: [
         { id: 'approval', question: 'Does this ask for approval?', label: 'Approval Required' },
-        { id: 'bill', question: 'Is this a bill?', action: 'label', label: 'Finance/Bill', threshold: 0.9 },
-        { id: 'marketing', question: 'Is this marketing?', action: 'move', destination: 'spam', threshold: 0.95 },
+        {
+          id: 'bill',
+          question: 'Is this a bill?',
+          action: 'label',
+          label: 'Finance/Bill',
+          threshold: 0.9,
+        },
+        {
+          id: 'marketing',
+          question: 'Is this marketing?',
+          action: 'move',
+          destination: 'spam',
+          threshold: 0.95,
+        },
       ],
     };
     expect(parse(input)).toEqual({
@@ -107,8 +110,19 @@ describe('a valid config', () => {
       excludeQuery: 'from:mybank.com OR label:Private',
       plainTextMethod: 'basic',
       rules: [
-        { id: 'approval', question: 'Does this ask for approval?', action: 'label', label: 'Approval Required' },
-        { id: 'bill', question: 'Is this a bill?', action: 'label', label: 'Finance/Bill', threshold: 0.9 },
+        {
+          id: 'approval',
+          question: 'Does this ask for approval?',
+          action: 'label',
+          label: 'Approval Required',
+        },
+        {
+          id: 'bill',
+          question: 'Is this a bill?',
+          action: 'label',
+          label: 'Finance/Bill',
+          threshold: 0.9,
+        },
         {
           id: 'marketing',
           question: 'Is this marketing?',
@@ -127,7 +141,14 @@ describe('a valid config', () => {
       jevModel: 'jev-latest',
       dailyTokenBudget: 20_000_000,
       plainTextMethod: 'basic',
-      rules: [{ id: 'bill', question: 'Is this email a bill or invoice?', action: 'label', label: 'Bill' }],
+      rules: [
+        {
+          id: 'bill',
+          question: 'Is this email a bill or invoice?',
+          action: 'label',
+          label: 'Bill',
+        },
+      ],
     });
   });
 
@@ -143,7 +164,7 @@ describe('a valid config', () => {
 
   it('types rules as a union discriminated on action', () => {
     expectTypeOf<Config['rules'][number]>().toEqualTypeOf<LabelRule | MoveRule>();
-    expectTypeOf<Config['rules']>().toMatchTypeOf<readonly unknown[]>();
+    expectTypeOf<Config['rules']>().toExtend<readonly unknown[]>();
   });
 });
 
@@ -221,19 +242,26 @@ describe('top-level fields', () => {
   });
 
   it('rejects an unknown top-level key such as a misspelled field', () => {
-    expect(issues(config({ treshold: 0.5 }))).toEqual([{ path: 'treshold', message: UNKNOWN_FIELD }]);
+    expect(issues(config({ treshold: 0.5 }))).toEqual([
+      { path: 'treshold', message: UNKNOWN_FIELD },
+    ]);
   });
 
-  it.each([null, 'defaultThreshold: 0.8', [config()]])('rejects a file that is not a mapping: %j', (input) => {
-    expect(issues(input)).toEqual([{ path: '', message: NOT_A_MAPPING }]);
-  });
+  it.each([null, 'defaultThreshold: 0.8', [config()]])(
+    'rejects a file that is not a mapping: %j',
+    (input) => {
+      expect(issues(input)).toEqual([{ path: '', message: NOT_A_MAPPING }]);
+    },
+  );
 
   it('gives issues that ConfigError prints as one <path>: <message> line each', () => {
     const result = configSchema.safeParse(withRule({ id: 'Bill', treshold: 0.9 }));
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(new ConfigError(configIssues(result.error)).message).toBe(
-        ['Invalid config:', `rules[0].id: ${RULE_ID}`, `rules[0].treshold: ${UNKNOWN_FIELD}`].join('\n'),
+        ['Invalid config:', `rules[0].id: ${RULE_ID}`, `rules[0].treshold: ${UNKNOWN_FIELD}`].join(
+          '\n',
+        ),
       );
     }
     const root = configSchema.safeParse(null);
@@ -265,7 +293,8 @@ describe('rule fields', () => {
     ['threshold', 0.95],
     ['threshold', 1],
   ])('accepts %s: %j', (field, value) => {
-    const rule: Readonly<Record<string, unknown>> | undefined = parse(withRule({ [field]: value })).rules[0];
+    const rule: Readonly<Record<string, unknown>> | undefined = parse(withRule({ [field]: value }))
+      .rules[0];
     expect(rule?.[field]).toBe(value);
   });
 
@@ -314,7 +343,12 @@ describe('rule fields', () => {
   });
 
   it('rejects a duplicate id at the later rule', () => {
-    const rules = [LABEL_RULE, { ...LABEL_RULE, label: 'Other' }, { ...LABEL_RULE, id: 'x' }, LABEL_RULE];
+    const rules = [
+      LABEL_RULE,
+      { ...LABEL_RULE, label: 'Other' },
+      { ...LABEL_RULE, id: 'x' },
+      LABEL_RULE,
+    ];
     expect(issues(config({ rules }))).toEqual([
       { path: 'rules[1].id', message: 'duplicate rule id "bill"; also used by rules[0]' },
       { path: 'rules[3].id', message: 'duplicate rule id "bill"; also used by rules[0]' },
@@ -336,7 +370,9 @@ describe('rule fields', () => {
 
 describe('label and destination', () => {
   it('requires label when action is label', () => {
-    expect(issues(withRule({ label: undefined }))).toEqual([{ path: 'rules[0].label', message: LABEL_REQUIRED }]);
+    expect(issues(withRule({ label: undefined }))).toEqual([
+      { path: 'rules[0].label', message: LABEL_REQUIRED },
+    ]);
   });
 
   it('rejects destination when action is label', () => {
@@ -366,7 +402,12 @@ describe('label and destination', () => {
     ['label:Approval Required', { kind: 'label', label: 'Approval Required' }],
   ])('parses destination %j into a MoveDestination', (destination, expected) => {
     const rule = parse(config({ rules: [moveRule(destination)] })).rules[0];
-    expect(rule).toEqual({ id: 'move', question: 'Should this email move?', action: 'move', destination: expected });
+    expect(rule).toEqual({
+      id: 'move',
+      question: 'Should this email move?',
+      action: 'move',
+      destination: expected,
+    });
   });
 
   it.each([
@@ -394,7 +435,10 @@ describe('label and destination', () => {
  * label rule's `label` and as a move rule's `destination: label:<name>`.
  */
 const AS_LABEL = { field: 'label', rule: (name: string): Raw => ({ ...LABEL_RULE, label: name }) };
-const AS_DESTINATION = { field: 'destination', rule: (name: string): Raw => moveRule(`label:${name}`) };
+const AS_DESTINATION = {
+  field: 'destination',
+  rule: (name: string): Raw => moveRule(`label:${name}`),
+};
 
 describe.each([
   ['as label', AS_LABEL],
@@ -404,18 +448,30 @@ describe.each([
     return issues(config({ rules: [form.rule(name)] }));
   }
 
-  it.each(['Bill', 'Finance/Bill', 'Social', 'social', 'Work/Inbox', 'Work/Spam/Old', 'Jevons', 'Projects/Jev'])(
-    'accepts %j',
+  it.each([
+    'Bill',
+    'Finance/Bill',
+    'Social',
+    'social',
+    'Work/Inbox',
+    'Work/Spam/Old',
+    'Jevons',
+    'Projects/Jev',
+  ])('accepts %j', (name) => {
+    expect(nameIssues(name)).toEqual([]);
+  });
+
+  it.each([...RESERVED_LABEL_NAMES, 'INBOX', 'inbox', 'sPaM'])(
+    'rejects the system label %j',
     (name) => {
-      expect(nameIssues(name)).toEqual([]);
+      expect(nameIssues(name)).toEqual([
+        {
+          path: `rules[0].${form.field}`,
+          message: `"${name}" is a Gmail system label; choose another name`,
+        },
+      ]);
     },
   );
-
-  it.each([...RESERVED_LABEL_NAMES, 'INBOX', 'inbox', 'sPaM'])('rejects the system label %j', (name) => {
-    expect(nameIssues(name)).toEqual([
-      { path: `rules[0].${form.field}`, message: `"${name}" is a Gmail system label; choose another name` },
-    ]);
-  });
 
   it.each([
     ['Inbox/X', 'Inbox'],
@@ -431,16 +487,27 @@ describe.each([
     ]);
   });
 
-  it.each(['A/', '/A', 'A//B', 'A / B', 'A/ B', ' A', 'A ', '/'])('rejects the empty or padded part in %j', (name) => {
-    expect(nameIssues(name)).toEqual([{ path: `rules[0].${form.field}`, message: LABEL_PART }]);
-  });
+  it.each(['A/', '/A', 'A//B', 'A / B', 'A/ B', ' A', 'A ', '/'])(
+    'rejects the empty or padded part in %j',
+    (name) => {
+      expect(nameIssues(name)).toEqual([{ path: `rules[0].${form.field}`, message: LABEL_PART }]);
+    },
+  );
 
-  it.each(['Jev', 'Jev/Error', 'jev/x', 'JEV/Other/Deep'])('rejects %j in the reserved Jev namespace', (name) => {
-    expect(nameIssues(name)).toEqual([{ path: `rules[0].${form.field}`, message: JEV_NAMESPACE }]);
-  });
+  it.each(['Jev', 'Jev/Error', 'jev/x', 'JEV/Other/Deep'])(
+    'rejects %j in the reserved Jev namespace',
+    (name) => {
+      expect(nameIssues(name)).toEqual([
+        { path: `rules[0].${form.field}`, message: JEV_NAMESPACE },
+      ]);
+    },
+  );
 
   it('rejects a name that differs only in case from an earlier rule, at the later rule', () => {
-    const rules = [{ ...LABEL_RULE, id: 'first', label: 'Finance/Bill' }, form.rule('finance/bill')];
+    const rules = [
+      { ...LABEL_RULE, id: 'first', label: 'Finance/Bill' },
+      form.rule('finance/bill'),
+    ];
     expect(issues(config({ rules }))).toEqual([
       {
         path: `rules[1].${form.field}`,

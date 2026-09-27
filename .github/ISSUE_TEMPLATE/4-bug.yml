@@ -1,6 +1,6 @@
 name: Bug
 description: Something doesn't behave as the design documents say.
-labels: ["bug"]
+labels: ['bug']
 body:
   - type: textarea
     id: what

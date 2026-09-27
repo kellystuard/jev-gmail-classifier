@@ -24,7 +24,11 @@ function fingerprint(path: string): string {
 }
 
 /** Runs `npm run build` the way npm does, with the given arguments. */
-function runBuild(args: readonly string[]): { status: number | null; stdout: string; stderr: string } {
+function runBuild(args: readonly string[]): {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+} {
   const result = spawnSync(process.execPath, ['scripts/build.ts', ...args], {
     cwd: REPO_ROOT,
     encoding: 'utf8',

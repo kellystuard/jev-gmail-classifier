@@ -5,7 +5,17 @@ import { labelKey, labelNameProblem, RESERVED_LABEL_NAMES } from '../../src/conf
 describe('RESERVED_LABEL_NAMES', () => {
   it('lists the system labels Gmail refuses to create (spikes/25-nested-labels.md)', () => {
     expect([...RESERVED_LABEL_NAMES].sort()).toEqual(
-      ['Chats', 'Drafts', 'Important', 'Inbox', 'Sent', 'Spam', 'Starred', 'Trash', 'Unread'].sort(),
+      [
+        'Chats',
+        'Drafts',
+        'Important',
+        'Inbox',
+        'Sent',
+        'Spam',
+        'Starred',
+        'Trash',
+        'Unread',
+      ].sort(),
     );
   });
 

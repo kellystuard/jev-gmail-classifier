@@ -24,7 +24,7 @@ import { GENERATED_CONFIG_SPECIFIER, generatedConfigModule } from './generated-c
  * with `lib` in `tsconfig.json`.
  */
 export const ECMA_VERSION = 2020;
-export const ESBUILD_TARGET = `es${ECMA_VERSION}` as const;
+export const ESBUILD_TARGET = `es${String(ECMA_VERSION)}`;
 export const GLOBAL_NAME = 'JevGmailClassifier';
 
 export const REPO_ROOT = resolve(import.meta.dirname, '..');

@@ -12,10 +12,7 @@ import { readFileSync } from 'node:fs';
 import { parse } from 'yaml';
 import { defineConfig, type Plugin } from 'vitest/config';
 
-import {
-  GENERATED_CONFIG_SPECIFIER,
-  generatedConfigModule,
-} from './scripts/generated-config.ts';
+import { GENERATED_CONFIG_SPECIFIER, generatedConfigModule } from './scripts/generated-config.ts';
 
 /** The fixture that stands in for the user's config wherever a test needs one. */
 const FIXTURE_CONFIG = 'test/fixtures/config/valid.yaml';

@@ -67,9 +67,7 @@ describe('readConfig', () => {
     expect(readFixture('two-documents.yaml')).toEqual({
       ok: false,
       kind: 'multiple_documents',
-      lines: [
-        'two-documents.yaml:7:1: the file holds more than one YAML document (---); keep one',
-      ],
+      lines: ['two-documents.yaml:7:1: the file holds more than one YAML document (---); keep one'],
     });
   });
 
@@ -90,7 +88,10 @@ describe('readConfig', () => {
     expect(parseConfigText('just a string\n', 'c.yaml')).toMatchObject({
       ok: false,
       kind: 'invalid',
-      lines: ['c.yaml is invalid:', expect.stringMatching(/^ {2}\(root\): must be a set of settings/)],
+      lines: [
+        'c.yaml is invalid:',
+        expect.stringMatching(/^ {2}\(root\): must be a set of settings/),
+      ],
     });
   });
 
