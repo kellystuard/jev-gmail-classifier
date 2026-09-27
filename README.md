@@ -136,7 +136,7 @@ defaultThreshold: 0.8          # used by any rule without its own threshold
 triggerIntervalMinutes: 10     # 1, 5, 10, 15, or 30 (the intervals Apps Script supports)
 jevModel: jev-latest           # or a pinned version, such as jev-1.13.0
 dailyTokenBudget: 20000000     # about $1.00/day at $0.042 per million tokens
-excludeQuery: from:mybank.com OR label:Private   # threads with any matching email are never sent to Jev
+excludeQuery: from:bank.example OR label:Private   # threads with any matching email are never sent to Jev
 plainTextMethod: basic         # how HTML-only emails become plain text
 
 rules:
@@ -145,14 +145,16 @@ rules:
     label: Approval Required
   - id: bill
     question: Is this email a bill or invoice?
-    label: Bill
+    label: Finance/Bill        # use / to nest labels
     threshold: 0.9             # overrides defaultThreshold
-  - id: marketing
-    question: Is this email unsolicited marketing?
+  - id: newsletter
+    question: Is this email a newsletter the recipient subscribed to?
     action: move               # default is label
-    destination: spam          # archive, spam, trash, or label:<name>
+    destination: label:Newsletters   # archive, spam, trash, or label:<name>
     threshold: 0.95
 ```
+
+`config.example.yaml` holds the same settings plus a rule that archives. Its first line points editors at the committed `config.schema.json`, so an editor that uses the YAML language server (for example the VS Code YAML extension) offers completion and checks the shape of the file as you type. The schema can't express every rule, such as the label-name rules and unique `id`s, so `npm run build` checks the rest.
 
 | Field                    | Required        | Description                                                        |
 | ------------------------ | --------------- | ------------------------------------------------------------------ |

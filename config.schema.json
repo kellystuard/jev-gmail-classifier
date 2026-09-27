@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "jev-gmail-classifier config.yaml",
+  "description": "Generated from src/config/schema.ts by npm run build. Do not edit. Editors check the shape; the build also checks label names, unique rule ids and the label/destination rules.",
+  "type": "object",
+  "properties": {
+    "defaultThreshold": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "triggerIntervalMinutes": {
+      "default": 10,
+      "type": "number",
+      "enum": [
+        1,
+        5,
+        10,
+        15,
+        30
+      ]
+    },
+    "jevModel": {
+      "default": "jev-latest",
+      "type": "string",
+      "pattern": "^\\S+$"
+    },
+    "dailyTokenBudget": {
+      "default": 20000000,
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "excludeQuery": {
+      "type": "string"
+    },
+    "plainTextMethod": {
+      "default": "basic",
+      "type": "string",
+      "const": "basic"
+    },
+    "rules": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,31}$"
+          },
+          "question": {
+            "type": "string"
+          },
+          "action": {
+            "default": "label",
+            "type": "string",
+            "enum": [
+              "label",
+              "move"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "threshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "id",
+          "question"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "defaultThreshold",
+    "rules"
+  ],
+  "additionalProperties": false
+}

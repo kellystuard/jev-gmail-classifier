@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=./config.schema.json
+#
+# Example configuration. Copy it to config.yaml (git-ignored) and write your own
+# rules. See README.md, "Configuration", for every field.
+
+defaultThreshold: 0.8 # used by any rule without its own threshold
+triggerIntervalMinutes: 10 # 1, 5, 10, 15, or 30 (the intervals Apps Script supports)
+jevModel: jev-latest # or a pinned version, such as jev-1.13.0
+dailyTokenBudget: 20000000 # about $1.00/day at $0.042 per million tokens
+excludeQuery: from:bank.example OR label:Private # threads with any matching email are never sent to Jev
+plainTextMethod: basic # how HTML-only emails become plain text
+
+rules:
+  - id: approval
+    question: Does this email ask the recipient to approve something?
+    label: Approval Required
+  - id: bill
+    question: Is this email a bill or invoice?
+    label: Finance/Bill # use / to nest labels
+    threshold: 0.9 # overrides defaultThreshold
+  - id: newsletter
+    question: Is this email a newsletter the recipient subscribed to?
+    action: move # default is label
+    destination: label:Newsletters # archive, spam, trash, or label:<name>
+    threshold: 0.95 # a move is harder to notice than a label, so ask for more certainty
+  - id: shipping
+    question: Is this email only a shipping or delivery notification?
+    action: move
+    destination: archive # removes the thread from the Inbox
+    threshold: 0.95
