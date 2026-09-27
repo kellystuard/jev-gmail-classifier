@@ -1,0 +1,47 @@
+# Weekly dependency updates for npm and GitHub Actions (Engineering Standards §9,
+# ADR-0015). Dev dependencies arrive as one grouped PR; runtime dependencies
+# (bundled into Apps Script) get their own PRs. PR titles are Conventional
+# Commits so release-please can read them. There is no auto-merge: Dependabot
+# PRs merge like any other PR, after CI passes.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    # Root only. spikes/ has no package.json and stays outside the tooling.
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      # fix(deps): … for runtime dependencies (shown in the changelog),
+      # build(deps-dev): … for dev dependencies (hidden from the changelog).
+      prefix: fix
+      prefix-development: build
+      include: scope
+    groups:
+      dev-dependencies:
+        dependency-type: development
+    ignore:
+      # Keep the Node types on the Node major pinned in .nvmrc. Moving to the
+      # next Node major is a deliberate change (ES §2), not a Dependabot PR.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      # TypeScript is pinned to ~6.0.x on purpose (#32): typescript-eslint 8.x
+      # supports only TypeScript >=4.8.4 <6.1.0, and 7.x is the Go-based
+      # compiler. Patch updates still arrive. Raise this pin by hand once
+      # typescript-eslint supports the newer TypeScript.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-minor', 'version-update:semver-major']
+
+  - package-ecosystem: github-actions
+    # "/" covers .github/workflows/.
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      github-actions:
+        patterns: ['*']
