@@ -132,10 +132,12 @@ describe('bundle()', () => {
     }
   });
 
-  it('reaches the embedded config from the entry points', () => {
+  it('loads and validates the embedded config with the bundled Zod, with no module system', () => {
     const scope = evaluate(code);
     for (const name of ENTRY_POINTS) {
-      expect(callGlobal(scope, name), name).toMatchObject({ configEmbedded: true });
+      expect(callGlobal(scope, name), name).toMatchObject({
+        ruleCount: FIXTURE_RULE_IDS.length,
+      });
     }
   });
 
@@ -153,6 +155,42 @@ describe('bundle()', () => {
     );
     for (const name of ENTRY_POINTS) {
       expect(callGlobal(scope, name)).toBe(`sentinel:${name}`);
+    }
+  });
+});
+
+describe('bundle() with an embedded config that fails validation', () => {
+  let outDir: string;
+
+  beforeAll(() => {
+    outDir = mkdtempSync(join(tmpdir(), 'jev-bundle-invalid-'));
+  });
+
+  afterAll(() => {
+    rmSync(outDir, { recursive: true, force: true });
+  });
+
+  it('throws ConfigError from every entry point, as a stale or hand-edited bundle would', async () => {
+    // `bundle()` doesn't validate (the build does that first), so this is what
+    // a bundle with a bad embedded config does at runtime.
+    await bundle({ outDir, embeddedConfig: { defaultThreshold: 2, rules: [] } });
+    const scope = evaluate(readFileSync(join(outDir, 'Code.js'), 'utf8'));
+    for (const name of ENTRY_POINTS) {
+      let thrown: unknown;
+      try {
+        callGlobal(scope, name);
+      } catch (error) {
+        thrown = error;
+      }
+      // The error comes from the vm context, so check its shape, not `instanceof`.
+      expect(isRecord(thrown) ? thrown['name'] : thrown, name).toBe('ConfigError');
+      expect(isRecord(thrown) ? thrown['message'] : thrown, name).toBe(
+        [
+          'Invalid config:',
+          'defaultThreshold: must be a number from 0 to 1',
+          'rules: add at least one rule',
+        ].join('\n'),
+      );
     }
   });
 });

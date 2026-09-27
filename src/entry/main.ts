@@ -6,18 +6,21 @@
  * exactly the names in `ENTRY_POINTS` and nothing else: the bundle footer is
  * generated from that list.
  */
-import { embeddedConfig } from './embedded-config.ts';
+import { loadEmbeddedConfig } from './embedded-config.ts';
 import type { EntryPointName } from './entry-points.ts';
 
 interface PlaceholderResult {
   readonly entry: EntryPointName;
   readonly status: 'placeholder';
-  /** Whether the build embedded a config. Reading it keeps it in the bundle. */
-  readonly configEmbedded: boolean;
+  /**
+   * How many rules the embedded config has. Loading it validates the config on
+   * every execution, so the bundle proves Zod runs in Apps Script's V8.
+   */
+  readonly ruleCount: number;
 }
 
 function placeholder(entry: EntryPointName): PlaceholderResult {
-  return { entry, status: 'placeholder', configEmbedded: embeddedConfig() !== undefined };
+  return { entry, status: 'placeholder', ruleCount: loadEmbeddedConfig().rules.length };
 }
 
 export function onTrigger(): PlaceholderResult {
