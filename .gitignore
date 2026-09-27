@@ -70,6 +70,9 @@ web_modules/
 .env.*
 !.env.example
 
+# Claude Code agent worktrees (full repo copies inside the checkout)
+.claude/worktrees/
+
 # Local project config and clasp settings (copy from the committed *.example files)
 config.yaml
 .clasp.json

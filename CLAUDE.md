@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Design is done; implementation hasn't started. No code, build tooling, or tests exist yet, so there are no build/lint/test commands to run. When code is added (E2), the planned commands are `npm run build`, `npm run lint`, `npm run typecheck`, `npm test`, `npm run probe`, and `npm run push` (see `output/engineering-standards.md` §2); update this file once they exist.
 
-**Next step: backlog refinement.** The full v1 backlog was drafted from the design documents on 2026-09-25 and has not been refined yet. Before implementation starts, review the stories and tasks with the user: check scope, acceptance criteria, sizing, ordering, and dependencies, and update the issues. Start with E1 and E2, which have no dependencies and can run in parallel. Update this section when refinement is done.
+**Backlog refinement.** The full v1 backlog was drafted from the design documents on 2026-09-25. E1 (the Gmail behavior spike, #7) is nearly done. E2 (#8) was refined on 2026-09-26: its epic body has the merge order, the files to read, and the decisions every task follows, and each story and task has a Read first list. Issues with open questions carry the `needs: maintainer` label; the rest are in the Project's Ready status. E3–E10 still need refinement, one epic at a time, in the same way: check scope, acceptance criteria, sizing, ordering, and dependencies, and make each issue self-contained for an independent agent.
 
 ## Work tracking
 
@@ -19,7 +19,7 @@ The v1 work lives in GitHub, in the **[Jev v1](https://github.com/users/kellystu
 
   Stories and tasks are #17–#160.
 - **New issues** come from the forms in `.github/ISSUE_TEMPLATE/`. Each gets its type label, the `v1.0` milestone, a parent via the sub-issues API, a place on the Project, and the matching Project `Level` value (🟣 Epic, 🔷 Story, ✅ Task; field `PVTSSF_lAHOACXgPs4Bktm_zhjdVrc`, set with `gh project item-edit`).
-- **PRs:** each PR closes one task (`Closes #N`). Move items through the Project's Status field (Todo, In Progress, Done).
+- **PRs:** each PR closes one task (`Closes #N`). Move items through the Project's Status field: Todo (drafted), Ready (refined, no open questions), In Progress, Done.
 - **Tooling note:** the local `gh` (2.45) has no `--parent` flag, so link a sub-issue with `gh api -X POST repos/kellystuard/jev-gmail-classifier/issues/<parent>/sub_issues -F sub_issue_id=<child's numeric id>`. The ID is the issue's `id` field, not its number. Project commands need the `project` token scope.
 
 ## Source-of-truth documents
