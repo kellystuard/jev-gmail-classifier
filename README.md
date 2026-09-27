@@ -214,7 +214,10 @@ Google may let you untick individual permissions on the consent screen. If a per
 
 1. Copy `config.example.yaml` to `config.yaml` and write your rules.
 2. Build: `npm run build` validates `config.yaml` and converts it into a script file. To try the build before writing your own config, run `npm run build -- --config config.example.yaml`.
-3. Create an Apps Script project, copy `.clasp.json.example` to `.clasp.json` with your script ID, and push the code with [clasp](https://developers.google.com/apps-script/guides/clasp), Google's command-line tool for Apps Script projects.
+3. Push the code with [clasp](https://developers.google.com/apps-script/guides/clasp), Google's command-line tool for Apps Script projects:
+   - Turn on the Apps Script API for your account at <https://script.google.com/home/usersettings>, then run `npx clasp login`.
+   - Create an Apps Script project, and copy `.clasp.json.example` to `.clasp.json` with the project's script ID (**Project Settings** in the editor).
+   - Run `npm run push`. It builds from `config.yaml` and pushes `dist/` with clasp. If clasp asks whether to overwrite the manifest, answer yes.
 4. In the Apps Script editor, go to **Project Settings → Script Properties** and add `JEV_API_KEY` with the value from `.env`.
 5. In the editor, run the `install` function once. It asks for the [permissions](#permissions) above, saves its starting position in your mail's history, and creates the time-driven trigger. Only mail that arrives after this point is classified automatically.
 

@@ -10,6 +10,7 @@
   },
   "scripts": {
     "build": "node scripts/build.ts",
+    "push": "npm run build && clasp push",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --coverage",
     "test:watch": "vitest watch",
@@ -19,6 +20,7 @@
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "^4.8.1",
     "@eslint/js": "^10.0.1",
+    "@google/clasp": "^3.4.1",
     "@types/node": "^24.19.0",
     "@vitest/coverage-v8": "^5.0.2",
     "acorn": "^8.18.0",
