@@ -1,6 +1,6 @@
 # ADR-0015: Trunk-based workflow, Conventional Commits, release-please, signed commits
 
-- **Status:** Accepted
+- **Status:** Accepted; the branch-protection bullet is superseded by [ADR-0018](0018-protect-main-with-automatic-gates-and-no-required-review.md) (2026-09-27)
 - **Date:** 2026-09-25
 - **Deciders:** Kelly Stuard, Solution Architect
 - **Related:** [Engineering Standards §9–10](../engineering-standards.md#10-git-ci-and-releases)

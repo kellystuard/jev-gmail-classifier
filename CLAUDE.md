@@ -4,9 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Design is done; implementation hasn't started. No code, build tooling, or tests exist yet, so there are no build/lint/test commands to run. When code is added (E2), the planned commands are `npm run build`, `npm run lint`, `npm run typecheck`, `npm test`, `npm run probe`, and `npm run push` (see `output/engineering-standards.md` §2); update this file once they exist.
+The tooling is in place (E2, #8). `src/` has the layers, the ports, the config schema and loader, and placeholder entry points, and `test/fakes/` has in-memory fakes of the ports. There is no product behavior yet: that starts with E3. Use Node 24 (`.nvmrc`; `fnm use` or `nvm use`), then `npm ci`. The commands (`output/engineering-standards.md` §2):
 
-**Backlog refinement.** The full v1 backlog was drafted from the design documents on 2026-09-25. E1 (the Gmail behavior spike, #7) is nearly done. E2 (#8) was refined on 2026-09-26: its epic body has the merge order, the files to read, and the decisions every task follows, and each story and task has a Read first list. Issues with open questions carry the `needs: maintainer` label; the rest are in the Project's Ready status. E3–E10 still need refinement, one epic at a time, in the same way: check scope, acceptance criteria, sizing, ordering, and dependencies, and make each issue self-contained for an independent agent.
+- `npm run build`: validates `config.yaml`, then writes `dist/Code.js` and `dist/appsscript.json` (and `src/generated/`, `config.schema.json`). Without your own `config.yaml`, run `npm run build -- --config config.example.yaml`.
+- `npm run lint`: ESLint (including the layer and V8 rules) and `prettier --check`. `npm run format` rewrites files with Prettier.
+- `npm run typecheck`: `tsc --noEmit`.
+- `npm test`: Vitest once, with coverage (reported, never enforced). `npm run test:watch` runs it in watch mode.
+- `npm run push`: `build` from `config.yaml`, then `clasp push` to the project in your `.clasp.json`. It's the only deploy, and it's manual.
+- `npm run probe` (the local Jev probe) arrives with E4 (#101, #102).
+
+CI runs `npm ci`, lint, typecheck, test, the example-config build, and `git diff --exit-code` on Node 24 and 26 for every PR and push to `main`.
+
+**Next step.** E1's last task, the history-retention watch (#21), stays open until at least 2026-10-03. E3 is next and needs refinement before its tasks start. The later epics follow the order in PDD §14 and are tracked in the Project. Refine each epic the way E2 was refined: check scope, acceptance criteria, sizing, ordering, and dependencies. Put the merge order, the files to read, and the binding decisions in the epic body, and make each story and task self-contained for an independent agent, with a Read first list. Issues with open questions carry the `needs: maintainer` label; the rest go to the Project's Ready status.
 
 ## Work tracking
 
@@ -100,6 +109,6 @@ A Google Apps Script project (TypeScript, bundled with esbuild, running in the u
 - **Time zone** is `timeZone` in `appsscript.json`, default `Etc/UTC`.
 - **`.env`** (git-ignored; copy it from `.env.example`) holds `JEV_API_KEY` for local use, by the probe and spikes. The deployed script reads the key from Script Properties. It also holds the spike runner's credentials for the throwaway test account: `GMAIL_EMAIL`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `SPIKE_REFRESH_TOKEN`, and `SPIKE_SCRIPT_ID`. The same five are secrets in the `spike-account` GitHub environment. Run spikes with `node spikes/run.mjs push` and `node spikes/run.mjs run <function> [json]`, or dispatch `.github/workflows/spikes.yml` (manual only; the one workflow that makes live calls). See `spikes/README.md` and ADR-0016. Never print or commit these values or the test account's address (write `<test-account>`).
 - **`.clasp.json`** is git-ignored; `.clasp.json.example` is committed.
-- **Deployment** is via `clasp` 3, manually for v1. CI (GitHub Actions, Node 24 and 26) runs lint, typecheck, test, and a build against the example config.
+- **Deployment** is via `clasp` 3 (`npm run push`), manually for v1. CI (`.github/workflows/ci.yml`, Node 24 and 26) runs lint, typecheck, test, and a build against the example config. Its aggregate job `ci` is the one required check. Dependabot opens weekly update PRs, with no auto-merge.
 - **`install`** checks scopes, saves the starting position (keeping an existing one unless `RESET_POSITION=true`), and creates or replaces the trigger. **`uninstall`** removes the trigger and `state.*` keys, and leaves labels and the key.
-- **Git:** trunk-based, squash merge, Conventional Commit PR titles, release-please, and **signed commits required**. release-please's PRs don't start CI, so before squash-merging one, run `gh workflow run ci.yml --ref release-please--branches--main` and wait for `ci` to pass.
+- **Git:** trunk-based, squash merge, Conventional Commit PR titles, release-please, and **signed commits required**. The "Protect main" ruleset requires a PR, the `ci` check, signed commits, and squash merges, with no approving review (ADR-0018). Never merge with the admin bypass (`gh pr merge --admin`). release-please's PRs don't start CI, so before squash-merging one, run `gh workflow run ci.yml --ref release-please--branches--main` and wait for `ci` to pass.
