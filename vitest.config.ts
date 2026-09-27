@@ -25,8 +25,11 @@ export default defineConfig({
         'src/adapters/gas/**',
         // Composition root, checked by the bundle test.
         'src/entry/**',
+        // Interfaces and types only: nothing runs, so nothing to cover.
+        'src/ports/**',
       ],
-      reporter: ['text', 'html', 'lcov'],
+      // skipFull: false lists fully covered files too, so the table shows every file.
+      reporter: [['text', { skipFull: false }], 'html', 'lcov'],
       reportsDirectory: 'coverage',
     },
   },

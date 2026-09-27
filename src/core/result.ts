@@ -7,10 +7,14 @@
  * `ok: false` with an ordinary `if` or `switch` (Engineering Standards §5).
  */
 
-/** No extra fields. */
-type NoFields = Record<never, never>;
+/**
+ * No extra fields. A success with nothing to return is `Ok<NoFields>`, built
+ * with `ok({})`. (Not `Record<string, never>`: its index signature would make
+ * `ok` itself `never`.)
+ */
+export type NoFields = Record<never, never>;
 
-/** A success carrying the fields `S`. A success with nothing to return is built with `ok({})`. */
+/** A success carrying the fields `S`. */
 export type Ok<S extends object> = { readonly ok: true } & Readonly<S>;
 
 /** An expected failure of kind `K`, carrying the fields `F`. */
