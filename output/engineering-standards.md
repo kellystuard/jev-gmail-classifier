@@ -45,14 +45,19 @@
 
 The layout and layering are in [Solution Design §4](solution-design.md#4-architecture-overview). The rules:
 
-- **Layer boundaries are enforced by ESLint** (`no-restricted-imports`, `no-restricted-globals`, or an equivalent boundary plugin):
-  - `core/` may import only `core/` and `config/`. No Apps Script or DOM globals, no `Date.now()`, no `Math.random()`.
-  - `app/` may import `core/`, `ports/`, and `config/`.
-  - Only `adapters/gas/` may use Apps Script globals, including `console`.
-  - Only `entry/` may import `adapters/`.
-  - `GmailApp` is banned everywhere ([ADR-0003](adr/0003-advanced-gmail-service-and-scopes.md)).
+- **Layer boundaries are enforced by ESLint**, with the built-in `@typescript-eslint/no-restricted-imports`, `no-restricted-globals`, `no-restricted-properties`, and `no-restricted-syntax` rules. The lists live in `scripts/lint/layers.ts`. The complete import matrix and the globals per layer are in [Solution Design §4.1, "Lint rules"](solution-design.md#lint-rules). In short:
+  - `core/` may import `core/` and `config/`. The cycle-guard modules `core/result.ts`, `core/errors.ts`, and `core/log-fields.ts` may import only `core/`.
+  - `config/` may import `config/`, plus `core/result.ts` and `core/errors.ts` only.
+  - `ports/` may import `ports/`, plus `core/` and `config/` with `import type` only.
+  - `app/` may import `core/`, `config/`, `ports/`, and `app/`.
+  - `adapters/gas/` may import `core/`, `config/`, `ports/`, and `adapters/gas/`.
+  - `entry/` may import anything in `src/`, and is the only layer that imports `adapters/` or `virtual:generated-config`.
+  - Nothing imports `src/generated/`, and `test/` can't import `virtual:generated-config`.
+  - **Packages in `src/`:** only relative paths and `zod` (plus `virtual:generated-config` in `src/entry/`). Adding a runtime dependency ([§9](#9-dependencies)) adds it to this allowlist in the same PR.
+  - Only `adapters/gas/` may use the Apps Script globals, the clock (`Date.now()`, `new Date()`, `Date()`, `performance`), or `Math.random()`. Only the log adapter, `src/adapters/gas/gas-log-adapter.ts`, may use `console`. Apps Script services that v1 doesn't use (`Logger`, `DriveApp`, `CacheService`, and others) are banned in all of `src/`.
+  - `GmailApp` is banned everywhere, including `scripts/` and `test/` ([ADR-0003](adr/0003-advanced-gmail-service-and-scopes.md)).
 - **One concept per file.** Files and folders use `kebab-case.ts`. Tests sit in `test/`, mirroring `src/`, as `*.test.ts`.
-- **Named exports only.** No default exports, no barrel files that re-export everything.
+- **Named exports only.** No default exports, no barrel files that re-export everything. Lint bans default exports in `src/`, `scripts/`, and `test/`. Only the root tool configs (`eslint.config.ts`, `vitest.config.ts`) keep the default export their tools need.
 - **`src/generated/`** is written only by the build, and is git-ignored. Source code never imports it: only `src/entry/` reads the embedded config, through the `virtual:generated-config` specifier ([Solution Design §11](solution-design.md#11-build-and-deployment)).
 
 ## 4. TypeScript
