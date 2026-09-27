@@ -1,0 +1,7 @@
+# A YAML syntax error on line 7: a second `: ` on one line.
+defaultThreshold: 0.8
+rules:
+  - id: bill
+    question: Is this email a bill?
+    action: move
+    destination: label: Bills

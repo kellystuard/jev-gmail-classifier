@@ -1,0 +1,7 @@
+# defaultThreshold appears twice (line 2 and line 7).
+defaultThreshold: 0.8
+rules:
+  - id: bill
+    question: Is this email a bill?
+    label: Bill
+defaultThreshold: 0.9

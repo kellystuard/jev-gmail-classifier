@@ -1,0 +1,12 @@
+# Valid YAML with three schema errors: a threshold out of range, a bad
+# destination, and a misspelled field.
+defaultThreshold: 1.5
+rules:
+  - id: bill
+    question: Is this email a bill?
+    label: Bill
+  - id: marketing
+    question: Is this email unsolicited marketing?
+    action: move
+    destination: delete
+    treshold: 0.95
