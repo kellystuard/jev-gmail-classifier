@@ -6,6 +6,7 @@ import {
   buildRestrictionConfig,
   NO_RESTRICTIONS,
   RESTRICTION_RULES,
+  ROOT_CONFIG_FILES,
   SRC_FILES,
   type LintTarget,
   type Restrictions,
@@ -51,6 +52,7 @@ describe('buildRestrictionConfig', () => {
       CORE.files,
       TEST.files,
     ]);
+    expect(blocks[0]?.ignores).toEqual(ROOT_CONFIG_FILES);
     expect(blocks[3]?.ignores).toEqual(TEST.ignores);
   });
 
@@ -67,7 +69,7 @@ describe('buildRestrictionConfig', () => {
     const [everywhere, fallback, core, test] = blocks.map((block) => block.rules);
     const importPaths = (rules: typeof core) => rules?.['@typescript-eslint/no-restricted-imports'];
 
-    expect(everywhere?.['no-restricted-globals']).toEqual(['error']);
+    expect(everywhere?.['no-restricted-globals']).toBe('off');
     expect(importPaths(everywhere)).toEqual(['error', { paths: EVERYWHERE.imports, patterns: [] }]);
 
     // The fallback uses the strictest target's lists.
@@ -78,7 +80,7 @@ describe('buildRestrictionConfig', () => {
 
     // Targets outside src/ don't get the runtime bans.
     expect(test?.['no-restricted-syntax']).toEqual(['error', ...TEST.restrictions.syntax]);
-    expect(test?.['no-restricted-properties']).toEqual(['error']);
+    expect(test?.['no-restricted-properties']).toBe('off');
     expect(importPaths(test)).toEqual(['error', { paths: EVERYWHERE.imports, patterns: [] }]);
   });
 
@@ -100,7 +102,7 @@ describe('buildRestrictionConfig', () => {
 
   it('falls back to the runtime and everywhere lists while no target is strictest', () => {
     const [, fallback] = buildRestrictionConfig([], RUNTIME, EVERYWHERE);
-    expect(fallback?.rules?.['no-restricted-globals']).toEqual(['error']);
+    expect(fallback?.rules?.['no-restricted-globals']).toBe('off');
     expect(fallback?.rules?.['no-restricted-properties']).toEqual(['error', ...RUNTIME.properties]);
   });
 });

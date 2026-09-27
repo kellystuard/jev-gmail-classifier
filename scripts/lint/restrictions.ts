@@ -86,8 +86,11 @@ export const NO_RESTRICTIONS: Restrictions = {
   imports: [],
 };
 
-/** Every file ESLint lints. `EVERYWHERE` applies to all of them. */
+/** Every file ESLint lints. `EVERYWHERE` applies to all of them except `ROOT_CONFIG_FILES`. */
 export const ALL_LINTED_FILES: readonly string[] = ['**/*.ts', '**/*.js', '**/*.mjs', '**/*.cjs'];
+
+/** Tool config files, which need the default export `EVERYWHERE` bans. */
+export const ROOT_CONFIG_FILES: readonly string[] = ['eslint.config.ts', 'vitest.config.ts'];
 
 /** The fallback for `src/` files that no layer target matches. */
 export const SRC_FILES: readonly string[] = ['src/**/*.ts'];
@@ -114,14 +117,25 @@ function isPath(restriction: ImportRestriction): restriction is PathImportRestri
   return 'name' in restriction;
 }
 
+/**
+ * One list rule's setting. An empty list turns the rule off rather than
+ * setting `['error']`: in flat config, a setting with a severity and no
+ * options keeps the options of an earlier matching block, so `['error']`
+ * would inherit the `src/` fallback's list.
+ */
+function listRule(list: readonly object[]): Linter.RuleEntry {
+  return list.length === 0 ? 'off' : ['error', ...list];
+}
+
 /** The rule settings for one block: all four rules, with the full lists. */
 export function restrictionRules(restrictions: Restrictions): Linter.RulesRecord {
   return {
     // The typescript-eslint version supports `allowTypeImports`.
     'no-restricted-imports': 'off',
-    'no-restricted-globals': ['error', ...restrictions.globals],
-    'no-restricted-properties': ['error', ...restrictions.properties],
-    'no-restricted-syntax': ['error', ...restrictions.syntax],
+    'no-restricted-globals': listRule(restrictions.globals),
+    'no-restricted-properties': listRule(restrictions.properties),
+    'no-restricted-syntax': listRule(restrictions.syntax),
+    // Always has an options object, so it always replaces an earlier block's.
     '@typescript-eslint/no-restricted-imports': [
       'error',
       {
@@ -150,7 +164,7 @@ function block(
 /**
  * The restriction blocks, in order:
  *
- * 1. `EVERYWHERE`, for every linted file.
+ * 1. `EVERYWHERE`, for every linted file except `ROOT_CONFIG_FILES`.
  * 2. A fallback for all of `src/`, with the strictest target's lists, so a
  *    file outside every layer folder gets the strictest rules.
  * 3. One block per target, with its own lists plus `SRC_RUNTIME_BANS` (for
@@ -166,7 +180,7 @@ export function buildRestrictionConfig(
 ): Linter.Config[] {
   const strictest = layers.find((target) => target.strictest === true);
   return [
-    block('everywhere', ALL_LINTED_FILES, undefined, everywhere),
+    block('everywhere', ALL_LINTED_FILES, ROOT_CONFIG_FILES, everywhere),
     block(
       'src-fallback',
       SRC_FILES,

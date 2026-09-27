@@ -104,16 +104,59 @@ flowchart TB
   app --> ports
   app --> config
   adapters -. implements .-> ports
+  adapters --> core
+  adapters --> config
+  entry --> core
+  entry --> config
+  ports -. types .-> core
   core --> config
 ```
 
-**Dependency rule.** An arrow means "may import". Everything else is forbidden and enforced by lint:
+**Dependency rule.** An arrow means "may import". The arrows show the main dependencies; the import matrix under [Lint rules](#lint-rules) is the complete rule. Everything it doesn't allow is forbidden and enforced by lint:
 
 - `core/` is pure: no Apps Script globals, no I/O, no clock, no randomness. Anything impure is passed in as a value or as a port.
 - `app/` orchestrates through ports only. It never touches a global.
-- `adapters/gas/` is the **only** place Apps Script globals appear (`Gmail`, `UrlFetchApp`, `PropertiesService`, `LockService`, `MailApp`, `ScriptApp`, `Utilities`, `Session`, `console`).
+- `adapters/gas/` is the **only** place Apps Script globals appear (`Gmail`, `UrlFetchApp`, `PropertiesService`, `LockService`, `MailApp`, `ScriptApp`, `Utilities`, `Session`, `console`). Within it, only the log adapter uses `console`.
 - `entry/` is the composition root. It builds real adapters, wires them into `app/`, and exposes the global functions.
 - All ports are **synchronous**, because Apps Script services are synchronous. The core and app do not use `async`/`await`.
+
+#### Lint rules
+
+ESLint enforces the dependency rule with its built-in restriction rules (`@typescript-eslint/no-restricted-imports`, `no-restricted-globals`, `no-restricted-properties`, and `no-restricted-syntax`), with no boundary plugin. The lists live in `scripts/lint/layers.ts`, and `test/lint/layer-boundaries.test.ts` proves each one. Change this section and `layers.ts` in the same PR.
+
+**Import matrix.** A row may import a column only where the cell says so; everything else fails. "Types only" means `import type`.
+
+| Importer ↓ \ imports → | `core/` | `config/` | `ports/` | `app/` | `adapters/gas/` | `entry/` | `virtual:generated-config` | `src/generated/` |
+|---|---|---|---|---|---|---|---|---|
+| `core/` | yes | yes | no | no | no | no | no | no |
+| `core/result.ts`, `core/errors.ts`, `core/log-fields.ts` | yes | **no** (cycle guard) | no | no | no | no | no | no |
+| `config/` | only `result.ts`, `errors.ts` | yes | no | no | no | no | no | no |
+| `ports/` | types only | types only | yes | no | no | no | no | no |
+| `app/` | yes | yes | yes | yes | no | no | no | no |
+| `adapters/gas/` (and the log adapter) | yes | yes | yes | no | yes | no | no | no |
+| `entry/` | yes | yes | yes | yes | yes | yes | yes | no |
+| `scripts/` | yes | yes | yes | yes | yes | yes | no | no |
+| `test/` | yes | yes | yes | yes | yes | yes | **no** | **no** |
+
+- **Cycle guard.** `config/` imports `core/result.ts` and `core/errors.ts` (for `ConfigError`), and `errors.ts` uses `core/log-fields.ts`. These three modules may import only `core/`, so `core/` → `config/` → `core/` can't form a cycle. A new module that `result.ts` or `errors.ts` imports joins the cycle guard.
+- **Packages in `src/`.** Every `src/` file may import only relative paths and `zod`; `src/entry/` may also import `virtual:generated-config`. Node built-ins (`fs`, `node:fs`) and build-time packages (`yaml`, `esbuild`) fail. `tsconfig.json` has `types: ["node"]` for every file, so this rule is the only guard. `scripts/` may import any package.
+- **The embedded config.** Only `src/entry/` imports `virtual:generated-config` ([§11](#11-build-and-deployment)). Nothing imports `src/generated/`: it's a debug copy the build writes, and lint ignores it. Tests build a `Config` from fixtures.
+- A `src/` file outside every layer folder gets the `core/` rules, the strictest.
+
+**Globals per layer.**
+
+| Layer | Apps Script globals (list A) | Other Apps Script services | `GmailApp` | Clock and randomness | `console` |
+|---|---|---|---|---|---|
+| `core/`, `config/`, `ports/`, `app/`, `entry/` | no | no | no | no | no |
+| `adapters/gas/` (except the log adapter) | yes | no | no | yes | no |
+| The log adapter, `src/adapters/gas/gas-log-adapter.ts` | yes | no | no | yes | yes |
+| `scripts/`, `test/` | not restricted | not restricted | no | yes | yes |
+
+- **List A:** `Gmail`, `UrlFetchApp`, `PropertiesService`, `LockService`, `MailApp`, `ScriptApp`, `Utilities`, `Session`.
+- **Other Apps Script services**, which v1 doesn't use (most need a scope the manifest doesn't declare): `Logger`, `CacheService`, `DriveApp`, `SpreadsheetApp`, `DocumentApp`, `SlidesApp`, `FormApp`, `CalendarApp`, `ContactsApp`, `GroupsApp`, `HtmlService`, `ContentService`, `XmlService`, `CardService`, `Browser`. Using one later updates this list, and needs an ADR if it adds a scope.
+- **Clock and randomness:** `Date.now()`, `new Date()` with no arguments, `Date()` called as a function (with any arguments), `performance`, and `Math.random()`. `new Date(value)` and `Date.UTC(...)` are allowed everywhere. Elsewhere, use `ClockPort` and `RandomPort`.
+- **The log adapter** is the only `src/` file that may use `console`. No log adapter exists yet; the epic that writes it (E9) uses this path, or changes `layers.ts` and this section in the same PR.
+- **Default exports** fail in `src/`, `scripts/`, and `test/` ([ES §3](engineering-standards.md#3-repository-layout-and-module-rules)). The root tool configs (`eslint.config.ts`, `vitest.config.ts`) keep theirs.
 
 ### 4.2 Repository layout
 
@@ -703,7 +746,7 @@ This updates the PDD's [epic list](product-design-document.md#14-epics) with the
 | Epic | Architectural scope | Details it settles |
 |------|---------------------|--------------------|
 | **E1 Gmail behavior spike** | Scripts in `spikes/`. | History API behavior: `messageAdded` for sent mail, drafts, and category labels; `labelRemoved` for `Jev/Error`; expiry. Gmail's handling of grouped and `OR` exclusion queries with `after:`/`before:` epochs. What adding `SPAM` via `threads.modify` does (whether it's reported to Google). Nested label creation. Whether Advanced Service calls count toward Apps Script's daily Gmail quota. How body data is encoded. The exact error text for a missing scope. |
-| **E2 Project foundation** | Layout, tooling, lint boundaries, config schema and generation, bundle and footer, manifest, fakes harness, CI, `.gitignore` entries, example files. | Final config field names and messages: **settled** ([§7.2](#72-configuration)). The esbuild target. The lint rules that enforce the layering. |
+| **E2 Project foundation** | Layout, tooling, lint boundaries, config schema and generation, bundle and footer, manifest, fakes harness, CI, `.gitignore` entries, example files. | Final config field names and messages: **settled** ([§7.2](#72-configuration)). The esbuild target. The lint rules that enforce the layering: **settled** ([§4.1](#lint-rules)). |
 | **E3 History sync** (was *Thread discovery*) | Ingest, position, work queue, first-classification flag, exclusion filter, expiry fallback. | Queue cap and sharding. How exclusion is batched. The fallback window. |
 | **E4 Thread → `state`** | State builder, header keys, `BodyConverter` `basic`, truncation. | The chars-per-token ratio and safety margin. The entity list. A `basic` quality check on real HTML-only mail using the probe. |
 | **E5 Jev client** | Pure request and response logic, the `fetchAll` transport, retry rounds, token accounting, daily budget. | Retry counts and delays. The per-status classification. Batch size per `fetchAll`. |
