@@ -550,7 +550,16 @@ Exceptions are for **invalid input or invalid state**. An expected failure is a 
   - `JevResult = {ok: true, answers, usage, requestId} | {ok: false, kind: 'retryable' | 'invalid' | 'auth' | 'scope', …}`
 
   An `ok:false` from Jev is a successful call that failed. The code handling it also "fails successfully": it records a strike or a `Jev/Error`, and does not throw.
-- **Exceptions.** Throw on invalid input or state: a bad config at load, a malformed 200 response, a missing answer, a bug. Typed exceptions (`ConfigError`, `UnexpectedResponseError`, `ThreadProcessingError`, `RunAbortError`) may be thrown **on purpose** to bubble up to a shared handler. For example, a `NotOk`-style exception can carry a failed result to the same per-thread handler that deals with an unexpected 500.
+
+  Results are flat, with no `value` wrapper, and are built with the `ok()` and `fail(kind, fields)` helpers in `src/core/result.ts`.
+- **Exceptions.** Throw on invalid input or state: a bad config at load, a malformed 200 response, a missing answer, a bug. The typed exceptions are in `src/core/errors.ts`. All extend `JevClassifierError`, and each carries flat, JSON-safe log fields (`toLogFields()`):
+  - `ConfigError`: the config fails validation, at build time or at load.
+  - `StateError`: a stored `state.*` value is invalid, or a write goes over the Script Properties limits (§11).
+  - `UnexpectedResponseError`: a response that no rule expects.
+  - `ThreadProcessingError`: carries a failed result on purpose to the per-thread handler, the same handler that deals with an unexpected 500.
+  - `RunAbortError`: the run stops without marking anything (a 401, a missing key, or an invalid config).
+
+  These exceptions may be thrown **on purpose** to bubble up to a shared handler.
 - **Three boundaries:**
 
   | Boundary | Catches | Then |
