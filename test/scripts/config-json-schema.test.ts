@@ -21,7 +21,7 @@ describe('config.schema.json', () => {
     const schema: unknown = JSON.parse(configJsonSchemaText());
     expect(schema).toMatchObject({
       $schema: 'http://json-schema.org/draft-07/schema#',
-      title: expect.any(String),
+      title: 'jev-gmail-classifier config.yaml',
       type: 'object',
       required: ['defaultThreshold', 'rules'],
       additionalProperties: false,
