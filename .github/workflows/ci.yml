@@ -1,0 +1,68 @@
+# CI for every PR and every push to main (ES §10, SD §11): lint, typecheck,
+# test, and build against config.example.yaml on Node 24 and 26. No secrets and
+# no live calls (ES §8). The aggregate `ci` job is the one required check, so
+# the Node matrix can change without touching branch protection.
+# workflow_dispatch runs CI on a release-please PR, whose own events start no
+# workflows (ES §10):
+#   gh workflow run ci.yml --ref release-please--branches--main
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: check (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [24, 26]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - name: npm run build (config.example.yaml)
+        run: npm run build -- --config config.example.yaml
+
+      - name: Check that committed generated files are up to date
+        run: git diff --exit-code
+
+  ci:
+    name: ci
+    needs: check
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every check leg to pass
+        env:
+          RESULT: ${{ needs.check.result }}
+        run: |
+          echo "check result: $RESULT"
+          test "$RESULT" = success
