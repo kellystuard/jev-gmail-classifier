@@ -73,13 +73,18 @@ The layout and layering are in [Solution Design §4](solution-design.md#4-archit
 - **Erasable syntax only.** No `enum`, `namespace`, or constructor parameter properties. Node can't strip them, and `tsc` rejects them. Use `as const` objects or string-literal unions instead of `enum`.
 - **Banned:** `any`, `as` casts to silence errors, and non-null `!`, unless there is a one-line justification comment. Parse unknown data with Zod or a type guard instead of casting.
   - The justification is the `-- <why>` part of an `eslint-disable-next-line` comment: `// eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- <why>`. Lint rejects a disable comment without a justification, a blanket `eslint-disable` that names no rule, and one that suppresses nothing. `as const` is not a cast and is allowed.
-- **V8 runtime limits.** Never use:
-  - `#private` fields or static class field declarations: use `private` and module constants.
-  - `setTimeout`: use `ClockPort.sleep`.
-  - `fetch`, `atob`, `TextDecoder`, or `crypto`.
-  - ES module syntax in the output.
+- **V8 runtime limits.** Lint bans these in all of `src/`, `src/adapters/gas/` included. The list lives in `SRC_RUNTIME_BANS` in `scripts/lint/v8-bans.ts`, and `test/lint/v8-bans.test.ts` proves each ban. `tsconfig.json` has `types: ["node"]` for every file, so `tsc` accepts Node globals in `src/`, and these bans are the only guard. `scripts/` and `test/` run in Node and aren't affected. Never use:
+  - **Class syntax Apps Script's V8 lacks:** `#private` fields and methods (use `private`), static class fields and `static {}` blocks (use module constants). Instance fields are fine: esbuild lowers them.
+  - **Anything asynchronous:** `async` functions and arrows, `await`, `for await`, and `Promise` (see "Synchronous by design" below).
+  - **Module features:** dynamic `import()` and `import.meta`. The bundle is one IIFE with no module system.
+  - **Timers:** `setTimeout`, `setInterval`, `setImmediate`, `clearTimeout`, `clearInterval`, `clearImmediate`, `queueMicrotask`. Use `ClockPort.sleep`.
+  - **Missing web APIs:** `fetch` (use `HttpPort`); `atob`, `btoa`, `TextDecoder`, `TextEncoder`, and `crypto` (use `Utilities`, through an adapter).
+  - **Node globals:** `process`, `Buffer`, `global`, `require`, `module`, `__dirname`, `__filename`.
+  - **DOM globals:** `window`, `self`, `document`, `navigator`.
+  - **`globalThis`:** it would bypass every global ban. The bundle footer reaches the code through its global name.
+  - **`URL` and `URLSearchParams`:** a precaution, not a verified platform fact. They're widely reported as missing in Apps Script. A spike that shows they work can lift the ban.
 
-  The esbuild target lowers syntax, but lint also bans these so the source stays honest.
+  The global bans cover value references only; a type such as `Promise<T>` erases from the bundle. Elsewhere: ES module syntax in the output is checked by the bundle test (`test/build/bundle.test.ts`), imports of Node built-ins by the `src/` package allowlist ([§3](#3-repository-layout-and-module-rules)), and `enum`, `namespace`, and parameter properties by `tsc`.
 - **Synchronous by design.** All ports and the core are synchronous. No `async`/`await` or Promises in `src/`. The local probe in `scripts/` may use them.
 - **Prefer data and pure functions** to classes with state. Classes are fine for adapters and port implementations.
 - **Discriminated unions** for results and state variants. Use exhaustive `switch` statements with a `never` check.
