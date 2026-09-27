@@ -19,9 +19,9 @@ describe('configIssues', () => {
     ]);
   });
 
-  it('names a problem with the whole file (config)', () => {
+  it('gives a problem with the whole file the empty (root) path', () => {
     const error = new z.ZodError([{ code: 'custom', path: [], message: 'm', input: undefined }]);
-    expect(configIssues(error)).toEqual([{ path: '(config)', message: 'm' }]);
+    expect(configIssues(error)).toEqual([{ path: '', message: 'm' }]);
   });
 
   it('reports each unknown key at its own path', () => {

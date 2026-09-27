@@ -14,7 +14,6 @@ import { labelKey, labelNameProblem } from './labels.ts';
 
 export { labelKey, RESERVED_LABEL_NAMES } from './labels.ts';
 export { configIssues } from './issues.ts';
-export type { ConfigIssue } from './issues.ts';
 export type { DeepReadonly } from './deep-readonly.ts';
 
 /** Where a move rule sends the thread. The schema parses `destination` into this. */

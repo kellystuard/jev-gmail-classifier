@@ -8,11 +8,11 @@ import {
   RESERVED_LABEL_NAMES,
   type Config,
   type ConfigInput,
-  type ConfigIssue,
   type LabelRule,
   type MoveDestination,
   type MoveRule,
 } from '../../src/config/schema.ts';
+import { ConfigError, type ConfigIssue } from '../../src/core/errors.ts';
 
 // The messages, as the user sees them after the field path.
 const THRESHOLD = 'must be a number from 0 to 1';
@@ -225,7 +225,24 @@ describe('top-level fields', () => {
   });
 
   it.each([null, 'defaultThreshold: 0.8', [config()]])('rejects a file that is not a mapping: %j', (input) => {
-    expect(issues(input)).toEqual([{ path: '(config)', message: NOT_A_MAPPING }]);
+    expect(issues(input)).toEqual([{ path: '', message: NOT_A_MAPPING }]);
+  });
+
+  it('gives issues that ConfigError prints as one <path>: <message> line each', () => {
+    const result = configSchema.safeParse(withRule({ id: 'Bill', treshold: 0.9 }));
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(new ConfigError(configIssues(result.error)).message).toBe(
+        ['Invalid config:', `rules[0].id: ${RULE_ID}`, `rules[0].treshold: ${UNKNOWN_FIELD}`].join('\n'),
+      );
+    }
+    const root = configSchema.safeParse(null);
+    expect(root.success).toBe(false);
+    if (!root.success) {
+      expect(new ConfigError(configIssues(root.error)).message).toBe(
+        `Invalid config:\n(root): ${NOT_A_MAPPING}`,
+      );
+    }
   });
 
   it('reports every problem in one pass', () => {

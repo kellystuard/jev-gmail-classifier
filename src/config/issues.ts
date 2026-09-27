@@ -1,15 +1,8 @@
 import type { z } from 'zod';
 
-/** One config problem, ready to print as `<path>: <message>`. */
-export interface ConfigIssue {
-  readonly path: string;
-  readonly message: string;
-}
+import type { ConfigIssue } from '../core/errors.ts';
 
-/** The path shown for a problem with the file as a whole. */
-const ROOT_PATH = '(config)';
-
-/** Formats a Zod issue path as `rules[2].destination`. */
+/** Formats a Zod issue path as `rules[2].destination`. The root is `''`. */
 function formatPath(path: readonly PropertyKey[]): string {
   let out = '';
   for (const key of path) {
@@ -20,13 +13,15 @@ function formatPath(path: readonly PropertyKey[]): string {
       out += out === '' ? name : `.${name}`;
     }
   }
-  return out === '' ? ROOT_PATH : out;
+  return out;
 }
 
 /**
- * Turns a failed parse of the config into one entry per problem, in the order
- * Zod found them. An unknown-key issue becomes one entry per key, at the key's
- * own path, so a typo such as `treshold` is reported where it is.
+ * Turns a failed parse of the config into one `ConfigIssue` per problem, in
+ * the order Zod found them, for `ConfigError` and the build's output. An
+ * unknown-key issue becomes one entry per key, at the key's own path, so a
+ * typo such as `treshold` is reported where it is. A problem with the whole
+ * file has the empty path, which `formatConfigIssue` shows as `(root)`.
  */
 export function configIssues(error: z.ZodError): ConfigIssue[] {
   const out: ConfigIssue[] = [];
