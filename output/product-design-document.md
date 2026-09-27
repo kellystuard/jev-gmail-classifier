@@ -221,7 +221,7 @@ The [Solution Design](solution-design.md) is the authority for how the product i
 ## 10. Known Limitations (v1)
 
 - A label the user removes by hand can be re-added when a reply arrives and the thread is reclassified.
-- Moves are not reapplied on reclassification. For example, a reply to an archived thread returns it to the Inbox, as Gmail normally does. Replies to threads that started before installation get labels only.
+- Moves are not reapplied on reclassification. For example, a reply to an archived thread returns it to the Inbox, as Gmail normally does. The same holds for a thread the classifier moved to Spam, Trash, or a label: the reply lands in the Inbox and gets labels only, while the earlier messages stay where they were (confirmed by E1). Replies to threads that started before installation get labels only.
 - Threads in Spam or Trash are never reclassified.
 - Each reply to a thread costs a new classification of the whole thread.
 - Latency is bounded by the polling interval.
@@ -303,7 +303,7 @@ Decisions made on 2026-09-25 during the Solution Design (details in the [ADRs](a
 | Track progress with a Gmail History API position and a work queue; drop the `Jev/Processed` label ([ADR-0004](adr/0004-history-api-position.md)). | Only classification labels are added; removes the untested per-message `-label:` assumption; enables time-span manual runs. |
 | "First classification" now means a brand-new thread (every message newer than the saved position); manual `reprocess` becomes `applyMoves`. | Follows from dropping `Jev/Processed`; slightly stricter, in keeping with precision-first. |
 | Keep `Jev/Error` as the only system label; removing it retries the thread; a new reply doesn't ([ADR-0006](adr/0006-results-and-error-boundaries.md)). | Errors "shouldn't happen", so they deserve an actionable, visible label. |
-| `excludeQuery` is a positive query of mail to exclude, applied per thread (**fix**) ([ADR-0005](adr/0005-positive-thread-level-exclusion.md)). | The previous form could send a whole thread, including an excluded message, to Jev. |
+| `excludeQuery` is a positive query of mail to exclude, applied per thread (**fix**) ([ADR-0005](adr/0005-positive-thread-level-exclusion.md), refined by [ADR-0017](adr/0017-exclusion-search-per-chunk-for-all-work.md) after E1). | The previous form could send a whole thread, including an excluded message, to Jev. |
 | Advanced Gmail Service with `gmail.modify` only; missing permissions are logged, alerted, and handled per action ([ADR-0003](adr/0003-advanced-gmail-service-and-scopes.md)). | The platform then makes permanent deletion impossible; granular consent can leave scopes ungranted. |
 | Each rule has a required, unique `id` ([ADR-0010](adr/0010-jev-request-shape-and-retries.md)). | Stable Jev question keys and comparable probability logs across edits. |
 | `plainTextMethod: basic` (default), `advanced` reserved ([ADR-0011](adr/0011-plain-text-extraction.md)). | `getPlainBody()` needs the full-mail scope and has known failures; a better converter can come later. |
