@@ -506,9 +506,12 @@ repeat:
   - `GmailApp` requires the full `https://mail.google.com/` scope, which allows permanent deletion.
   - The Advanced Service runs on `gmail.modify`, which covers everything v1 does, including Trash, and cannot delete permanently.
 - **Manifest** (`appsscript.json`):
+  - The template is the repo-root `appsscript.json`; `src/core/declared-scopes.ts` mirrors its `oauthScopes`, and `test/manifest.test.ts` keeps the two equal and fails if the `https://mail.google.com/` scope appears in the manifest or `src/`.
   - `runtimeVersion: "V8"`
   - `timeZone: "Etc/UTC"`
+  - `exceptionLogging: "STACKDRIVER"`
   - The Gmail advanced service (v1) enabled.
+  - No `executionApi`. The product is never run through the Apps Script API; only the spike manifest has it ([ADR-0016](adr/0016-run-spikes-from-agents-and-a-manual-workflow.md)).
   - Explicit `oauthScopes`:
 
   | Scope | Needed for | Without it |
