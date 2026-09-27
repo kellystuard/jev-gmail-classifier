@@ -20,6 +20,7 @@
 | Node.js | **24 LTS**, pinned in `.nvmrc` and `engines` | CI also runs Node 26. Switch the default to 26 after it becomes LTS on 2026-10-28. |
 | Package manager | **npm**, with `package-lock.json` committed | Use `npm ci` in CI. |
 | Language | **TypeScript**, strict | See [§4](#4-typescript). |
+| Running TypeScript scripts | Node's built-in type stripping (`node scripts/build.ts`) | No `tsx` or `ts-node`. See [§4](#4-typescript) for the rules this implies. |
 | Bundler | **esbuild** | One IIFE plus a generated footer of global functions ([Solution Design §11](solution-design.md#11-build-and-deployment)). |
 | Tests | **Vitest** | With the V8 coverage provider. |
 | Lint / format | **ESLint** (typescript-eslint, strict and type-checked) + **Prettier** | Prettier owns formatting. ESLint owns correctness and layering. |
@@ -62,6 +63,13 @@ The layout and layering are in [Solution Design §4](solution-design.md#4-archit
   - `noImplicitOverride: true`
   - `noFallthroughCasesInSwitch: true`
   - `useDefineForClassFields: false`
+  - For Node's type stripping: `module: nodenext`, `moduleResolution: nodenext`, `allowImportingTsExtensions: true`, `verbatimModuleSyntax: true`, `erasableSyntaxOnly: true`, and `noEmit: true`
+  - `target: ES2020` and `lib: ["ES2020"]`, with no `DOM`. This matches the esbuild target. esbuild lowers syntax but doesn't polyfill library methods, so `lib` keeps the source off methods Apps Script's V8 may lack.
+  - `types: ["node"]` and `skipLibCheck: true`. Because `types` is explicit, any other `@types/*` package must be added to it.
+
+  One `tsconfig.json` covers `src/`, `scripts/`, and `test/`. It excludes `spikes/`.
+- **Relative imports end in `.ts`** (`import { ENTRY_POINTS } from './entry-points.ts'`). Node needs the extension to run `scripts/*.ts`, and `tsc` enforces it.
+- **Erasable syntax only.** No `enum`, `namespace`, or constructor parameter properties. Node can't strip them, and `tsc` rejects them. Use `as const` objects or string-literal unions instead of `enum`.
 - **Banned:** `any`, `as` casts to silence errors, and non-null `!`, unless there is a one-line justification comment. Parse unknown data with Zod or a type guard instead of casting.
 - **V8 runtime limits.** Never use:
   - `#private` fields or static class field declarations: use `private` and module constants.
