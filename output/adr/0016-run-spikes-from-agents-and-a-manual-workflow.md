@@ -1,6 +1,6 @@
 # ADR-0016: Run Gmail spikes against a test account from agents and a manual GitHub Actions workflow
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-09-27)
 - **Date:** 2026-09-25
 - **Deciders:** Kelly Stuard, E1 developer agent
 - **Related:** [Engineering Standards §8](../engineering-standards.md#8-testing), [Solution Design §10.6](../solution-design.md#106-security-and-privacy) and [§12](../solution-design.md#12-testing-architecture), [ADR-0003](0003-advanced-gmail-service-and-scopes.md), [`spikes/README.md`](../../spikes/README.md#running-spikes-automatically), issues #7 and #163

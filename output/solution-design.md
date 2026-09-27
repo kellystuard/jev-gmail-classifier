@@ -259,7 +259,7 @@ sequenceDiagram
 ### 6.4 Process: classify a chunk
 
 1. **Take a chunk** from the queue. Scheduled items come first, then manual-job items. The chunk size is a starting value owned by E7.
-2. **Exclusion filter.** This is the only exclusion check, and it applies to every chunk item, scheduled and manual alike ([ADR-0017](adr/0017-exclusion-search-per-chunk-for-all-work.md), superseding [ADR-0005](adr/0005-positive-thread-level-exclusion.md) when accepted).
+2. **Exclusion filter.** This is the only exclusion check, and it applies to every chunk item, scheduled and manual alike ([ADR-0017](adr/0017-exclusion-search-per-chunk-for-all-work.md), which supersedes [ADR-0005](adr/0005-positive-thread-level-exclusion.md)).
    - Get the chunk's threads in metadata form (`metadataHeaders: ['Date']`), which gives each message's `internalDate` and `Date` header without bodies.
    - Run **one** `threads.list` search for the whole chunk: `q = (<excludeQuery>) after:<lo> before:<hi>`, with `includeSpamTrash: true`, paged until there is no `nextPageToken`. Here:
      - The user's query always goes in parentheses.
@@ -597,7 +597,7 @@ Logs are **structured JSON only**, one object per event, through `LogPort`. `con
 ### 10.6 Security and privacy
 
 - **Secrets.** `JEV_API_KEY` is read from Script Properties per run, and never logged. Locally, `.env` (git-ignored) is used only by the probe and by spikes. For spikes it also holds the spike runner's credentials for the throwaway test account (`GMAIL_EMAIL`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `SPIKE_REFRESH_TOKEN`, `SPIKE_SCRIPT_ID`; see `.env.example`), which are also secrets in the `spike-account` GitHub environment ([ADR-0016](adr/0016-run-spikes-from-agents-and-a-manual-workflow.md), proposed).
-- **Data minimization.** Only the header allowlist and plain text are sent. Attachments are never sent. Exclusion is evaluated **per thread**: if any message matches, the whole thread is never read for Jev and never sent ([ADR-0005](adr/0005-positive-thread-level-exclusion.md)).
+- **Data minimization.** Only the header allowlist and plain text are sent. Attachments are never sent. Exclusion is evaluated **per thread**: if any message matches, the whole thread is never read for Jev and never sent ([ADR-0017](adr/0017-exclusion-search-per-chunk-for-all-work.md)).
 - **Least privilege.** The explicit scopes are in [§9](#9-gmail-integration).
 - **Per-user files are git-ignored:** `config.yaml` and `.clasp.json`.
 - **Outbound calls.** The only network destination is `https://api.typesafe.ai`. The Jev base URL is a constant, not user config.

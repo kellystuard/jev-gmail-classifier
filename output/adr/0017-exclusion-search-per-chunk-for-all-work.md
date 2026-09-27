@@ -1,9 +1,9 @@
 # ADR-0017: Run the exclusion search per chunk for all work, scheduled and manual
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-09-27)
 - **Date:** 2026-09-26
 - **Deciders:** Kelly Stuard, E1 developer agent
-- **Supersedes:** [ADR-0005](0005-positive-thread-level-exclusion.md) (when accepted)
+- **Supersedes:** [ADR-0005](0005-positive-thread-level-exclusion.md)
 - **Related:** [Solution Design §6.4](../solution-design.md#64-process-classify-a-chunk) and [§6.6](../solution-design.md#66-manual-runs), [PDD §4.3](../product-design-document.md#43-finding-work), [`spikes/23-exclusion-query.md`](../../spikes/23-exclusion-query.md), issues #22 and #23
 
 ## Context

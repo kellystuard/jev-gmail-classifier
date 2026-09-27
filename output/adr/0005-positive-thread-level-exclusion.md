@@ -1,6 +1,6 @@
 # ADR-0005: Make `excludeQuery` a positive query applied per thread
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0017](0017-exclusion-search-per-chunk-for-all-work.md) (2026-09-27)
 - **Date:** 2026-09-25
 - **Deciders:** Kelly Stuard, Solution Architect
 - **Related:** [Solution Design §6.4](../solution-design.md#64-process-classify-a-chunk), [PDD §4.3](../product-design-document.md#43-finding-work)
