@@ -156,18 +156,28 @@ rules:
 
 | Field                    | Required        | Description                                                        |
 | ------------------------ | --------------- | ------------------------------------------------------------------ |
-| `defaultThreshold`       | Yes             | Minimum probability for any rule without its own `threshold`.      |
+| `defaultThreshold`       | Yes             | Minimum probability, from 0 to 1, for any rule without its own `threshold`. |
 | `triggerIntervalMinutes` | No              | How often scheduled runs happen. Defaults to `10`. Accounts with more quota (such as Workspace) can run more often. |
 | `jevModel`               | No              | Jev model version. Defaults to `jev-latest`. Pin a version if you want thresholds to stay stable across model releases. |
-| `dailyTokenBudget`       | No              | Maximum Jev input tokens per day, across all runs. Defaults to `20000000`. |
-| `excludeQuery`           | No              | A Gmail search describing mail that must never be sent to Jev. If any email in a thread matches, the whole thread is skipped, including emails in Spam or Trash. Applied to every run. Each email is checked on its own: `from:lawyer.example subject:contract` needs one email that matches both, so use `OR` to exclude either. |
+| `dailyTokenBudget`       | No              | Maximum Jev input tokens per day, across all runs: a whole number, at least 1. Defaults to `20000000`. |
+| `excludeQuery`           | No              | A Gmail search describing mail that must never be sent to Jev. If any email in a thread matches, the whole thread is skipped, including emails in Spam or Trash. Applied to every run. Each email is checked on its own: `from:lawyer.example subject:contract` needs one email that matches both, so use `OR` to exclude either. To exclude nothing, delete the line: an empty `excludeQuery:` fails the build. |
 | `plainTextMethod`        | No              | How HTML-only emails are converted to text. `basic` (default) uses the email's plain-text version when it has one, otherwise a simple built-in HTML-to-text conversion. `advanced` is reserved for a future, fuller converter. |
-| `rules[].id`             | Yes             | A short, unique name for the rule, such as `bill`. Used in the request to Jev and in the logs, so it should stay the same when you reword or reorder rules. |
+| `rules`                  | Yes             | The list of rules. At least one.                                   |
+| `rules[].id`             | Yes             | A short, unique name for the rule, such as `bill`. Used in the request to Jev and in the logs, so it should stay the same when you reword or reorder rules. It starts with a lowercase letter and uses only `a-z`, `0-9`, `-` and `_`, up to 32 characters. |
 | `rules[].question`       | Yes             | The yes/no question sent to Jev.                                   |
 | `rules[].action`         | No              | `label` (default) or `move`.                                       |
-| `rules[].label`          | For `label`     | The label to add.                                                  |
-| `rules[].destination`    | For `move`      | `archive`, `spam`, `trash`, or `label:<name>`.                     |
-| `rules[].threshold`      | No              | Per-rule override of `defaultThreshold`. Consider a high value for move rules. |
+| `rules[].label`          | For `label`     | The label to add. Use `/` to nest, as in `Finance/Bill`. See **Label names** below. |
+| `rules[].destination`    | For `move`      | `archive`, `spam`, `trash`, or `label:<name>`, with no space after the colon. The name follows the same **Label names** rules. |
+| `rules[].threshold`      | No              | Per-rule override of `defaultThreshold`, from 0 to 1. Consider a high value for move rules. |
+
+Unknown fields fail the build, so a typo such as `treshold` is caught instead of being silently ignored. Each error names the field it's about, such as `rules[2].destination`.
+
+**Label names.** Gmail stores a label name exactly as typed but compares names loosely, so the build rejects names that would surprise you:
+
+- Gmail's system labels can't be used: `Inbox`, `Spam`, `Trash`, `Sent`, `Drafts`, `Starred`, `Important`, `Unread` and `Chats`, in any case. They can't be the first part of a nested name either: Gmail would show `Inbox/Receipts` as a separate label, not under the Inbox. `Work/Inbox` is fine.
+- `Jev` and every name under `Jev/` are reserved for the classifier's own `Jev/Error` label.
+- Each part between `/` must be non-empty, with no spaces around the `/`: write `Finance/Bill`, not `Finance / Bill` or `Finance//Bill`.
+- Several rules can add the same label, but they must spell it the same way. Gmail treats `Finance/Bill` and `finance/bill` as one label, so the build rejects the pair.
 
 Apps Script cannot read YAML files, so a build step validates `config.yaml` and converts it into a script file before [deployment](#setup-planned). An invalid config fails the build. The script checks the configuration again each time it runs, and stops with an alert if the configuration is invalid.
 

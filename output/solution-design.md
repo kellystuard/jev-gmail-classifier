@@ -358,21 +358,32 @@ There is **no** `Jev/Processed` label. Progress is tracked in state ([ADR-0004](
 - **Validated twice** ([ADR-0013](adr/0013-config-validation-and-per-user-files.md)):
   - **At build:** `config.yaml` is parsed and validated. Any error fails the build with a message that gives the field path.
   - **At runtime load:** the embedded config is validated again by the same schema. A failure is invalid state, so it throws, alerts, and stops the run.
-- **Fields** (final names in E2):
+- **Fields** (final, settled in E2). **Unknown keys are rejected**, at the top level and in each rule, so a typo such as `treshold` fails instead of being ignored. The exact validation messages live in the schema and its tests (`test/config/`); each is reported with its field path, such as `rules[2].destination`.
 
-  | Field | Notes |
-  |-------|-------|
-  | `defaultThreshold` | Required, from 0 to 1. |
-  | `triggerIntervalMinutes` | One of 1, 5, 10, 15, or 30. Default `10`. |
-  | `jevModel` | Default `jev-latest`. |
-  | `dailyTokenBudget` | Default `20000000`. |
-  | `excludeQuery` | A **positive** Gmail query of mail that must never be sent, for example `from:mybank.com OR label:Private`. |
-  | `plainTextMethod` | `basic` (default). `advanced` is reserved and rejected in v1. |
-  | `rules[].id` | Required. Unique. A short slug used as the Jev question key and in logs. |
-  | `rules[].question` | Required. |
-  | `rules[].action` | `label` (default) or `move`. |
-  | `rules[].label` / `rules[].destination` | `destination` is `archive`, `spam`, `trash`, or `label:<name>`. |
-  | `rules[].threshold` | Optional, from 0 to 1. |
+  | Field | Constraint | Default |
+  |-------|-----------|---------|
+  | `defaultThreshold` | A number from 0 to 1. | Required. |
+  | `triggerIntervalMinutes` | One of 1, 5, 10, 15, or 30. | `10` |
+  | `jevModel` | A non-empty model name with no spaces, such as `jev-1.13.0`. | `jev-latest` |
+  | `dailyTokenBudget` | A whole number of tokens, at least 1. | `20000000` |
+  | `excludeQuery` | A **positive** Gmail query of mail that must never be sent, for example `from:mybank.com OR label:Private`. If present, it isn't empty; a bare `excludeQuery:` line (YAML `null`) is rejected. Its Gmail syntax isn't checked. | Absent: nothing is excluded. |
+  | `plainTextMethod` | Only `basic`. `advanced` is reserved and rejected in v1, with its own message. | `basic` |
+  | `rules` | At least one rule. No upper limit here (request size is E4's). | Required. |
+  | `rules[].id` | Matches `^[a-z][a-z0-9_-]{0,31}$`: a lowercase letter, then `a-z`, `0-9`, `-` or `_`, 1 to 32 characters. Unique across rules. Used as the Jev question key and the log key. | Required. |
+  | `rules[].question` | Not empty or only spaces. | Required. |
+  | `rules[].action` | `label` or `move`. | `label` |
+  | `rules[].label` | Required when `action` is `label`, and not allowed when it's `move`. A valid label name (below). | — |
+  | `rules[].destination` | Required when `action` is `move`, and not allowed when it's `label`. Exactly `archive`, `spam`, `trash`, or `label:<name>`, where `<name>` is everything after the colon and is a valid label name. Parsed into a `MoveDestination` (`{ kind: 'archive' }`, …, `{ kind: 'label', label }`). | — |
+  | `rules[].threshold` | A number from 0 to 1. | Absent: `defaultThreshold` applies when deciding ([§6.5](#65-applying-outcomes)). The default isn't copied in. |
+
+- **Label names** (from E1, [`spikes/25-nested-labels.md`](../spikes/25-nested-labels.md)). They apply to `rules[].label` and to `<name>` in `label:<name>`. Names are compared case-insensitively. The schema doesn't normalize names; it rejects the forms Gmail would store or show in a surprising way:
+  - No empty part and no space at either end of a part: `A/`, `/A`, `A//B`, `A / B` and ` A` are rejected.
+  - Not a Gmail system label: `Inbox`, `Spam`, `Trash`, `Sent`, `Drafts`, `Starred`, `Important`, `Unread` or `Chats`, in any case. `Social` is allowed.
+  - The first part isn't a system label either (`Inbox/Receipts`), because Gmail would show a separate label, not one under the Inbox. Deeper parts are fine (`Work/Inbox`).
+  - The first part isn't `Jev`: the `Jev/` namespace is reserved for the classifier's own `Jev/Error` ([§7.1](#71-gmail-labels)).
+  - No two names across the config that differ only in case (`Finance/Bill` and `finance/bill`), because Gmail treats them as one label. The same name written identically in several rules is fine.
+
+  `labelKey(name)` in the schema module gives the comparison key Gmail uses (lower case, spaces around `/` dropped), for E6's label cache.
 
 - **Time zone.** Not in `config.yaml`. It is `timeZone` in `appsscript.json`, which ships as `Etc/UTC`, and the user edits it. It defines "a day" for the budget and alert limits.
 
@@ -664,7 +675,7 @@ This updates the PDD's [epic list](product-design-document.md#14-epics) with the
 | Epic | Architectural scope | Details it settles |
 |------|---------------------|--------------------|
 | **E1 Gmail behavior spike** | Scripts in `spikes/`. | History API behavior: `messageAdded` for sent mail, drafts, and category labels; `labelRemoved` for `Jev/Error`; expiry. Gmail's handling of grouped and `OR` exclusion queries with `after:`/`before:` epochs. What adding `SPAM` via `threads.modify` does (whether it's reported to Google). Nested label creation. Whether Advanced Service calls count toward Apps Script's daily Gmail quota. How body data is encoded. The exact error text for a missing scope. |
-| **E2 Project foundation** | Layout, tooling, lint boundaries, config schema and generation, bundle and footer, manifest, fakes harness, CI, `.gitignore` entries, example files. | Final config field names and messages. The esbuild target. The lint rules that enforce the layering. |
+| **E2 Project foundation** | Layout, tooling, lint boundaries, config schema and generation, bundle and footer, manifest, fakes harness, CI, `.gitignore` entries, example files. | Final config field names and messages: **settled** ([§7.2](#72-configuration)). The esbuild target. The lint rules that enforce the layering. |
 | **E3 History sync** (was *Thread discovery*) | Ingest, position, work queue, first-classification flag, exclusion filter, expiry fallback. | Queue cap and sharding. How exclusion is batched. The fallback window. |
 | **E4 Thread → `state`** | State builder, header keys, `BodyConverter` `basic`, truncation. | The chars-per-token ratio and safety margin. The entity list. A `basic` quality check on real HTML-only mail using the probe. |
 | **E5 Jev client** | Pure request and response logic, the `fetchAll` transport, retry rounds, token accounting, daily budget. | Retry counts and delays. The per-status classification. Batch size per `fetchAll`. |
