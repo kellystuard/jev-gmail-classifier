@@ -2,9 +2,9 @@
 # test, and build against config.example.yaml on Node 24 and 26. No secrets and
 # no live calls (ES §8). The aggregate `ci` job is the one required check, so
 # the Node matrix can change without touching branch protection.
-# workflow_dispatch runs CI on a release-please PR, whose own events start no
-# workflows (ES §10):
-#   gh workflow run ci.yml --ref release-please--branches--main--components--jev-gmail-classifier
+# workflow_dispatch allows a manual run on any branch. It doesn't satisfy the
+# required check on a PR; a release-please PR's run needs approving instead
+# (ES §10).
 name: CI
 
 on:

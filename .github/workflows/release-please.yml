@@ -1,9 +1,10 @@
 # Keeps a release PR open that updates CHANGELOG.md and the package.json version
 # from the squashed Conventional Commit titles on main, and tags vX.Y.Z when it
 # merges (ES §10, ADR-0015). It runs with the default GITHUB_TOKEN, so the
-# release PR doesn't start CI by itself. Before merging a release PR, run CI on
-# it and wait for the ci check to pass:
-#   gh workflow run ci.yml --ref release-please--branches--main--components--jev-gmail-classifier
+# release PR's CI run waits for approval (status action_required). Before
+# merging a release PR, approve that run and wait for the ci check to pass:
+#   gh run list --workflow=ci.yml --branch release-please--branches--main--components--jev-gmail-classifier --status action_required
+#   gh api -X POST repos/kellystuard/jev-gmail-classifier/actions/runs/<run-id>/approve
 # Config: release-please-config.json and .release-please-manifest.json.
 name: release-please
 
