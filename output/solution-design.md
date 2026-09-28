@@ -309,8 +309,11 @@ sequenceDiagram
   - A message's `historyId` can't be used, because it moves whenever the message changes (for example, when it's marked read).
   - For imported mail, `internalDate` is the `Date` header, so an import with an old date counts as old: labels only, which is the safe direction.
   - Confirmed by E1 (`spikes/19-message-added.md`).
-- **Advance.** Once the items are safely saved, set the position to the `historyId` returned by the call's **last page** (it changes between pages while mail arrives, and later pages include the newer records). If the queue is at its cap, stop ingesting and don't advance. This back-pressure means nothing is lost; the same history is read again next run.
-- **Expired position.** A 404 from `history.list` means Gmail has discarded the history. This is typically after a week or more, and sometimes after hours. Fall back to searching `after:<epoch of last successful ingest − 1 h>`, reset the position from `getProfile`, and alert once.
+- **Advance.** The position moves only after the queued items are safely saved.
+  - **After the last page**, set it to the `historyId` that page returned (it changes between pages while mail arrives, and later pages include the newer records).
+  - **When ingest stops early**, at the queue cap or the deadline, set it to the `id` of the last history record whose threads were all queued (or that was ignored). `history.list` from a record's `id` returns exactly the records after it, and never that record ([`spikes/62-history-resume.md`](../spikes/62-history-resume.md)). If no record was handled, the position doesn't move. This back-pressure loses nothing, and the next run carries on from there instead of reading history it already queued. (Not advancing at all would queue again the threads already classified since, and a backlog bigger than the cap would never get past the same records.)
+  - `savedAt` is the time of the save, taken after the last `history.list` call. So every message already ingested is older than `savedAt`, and a later reply to its thread is never a first classification. A brand-new thread that arrives during ingest may lose its move (labels only), which is the safe direction.
+- **Expired position.** A 404 from `history.list` means Gmail has discarded the history. This is typically after a week or more, and sometimes after hours. A position ahead of the mailbox (a corrupt value) gets the same 404, so it takes the same path ([`spikes/62-history-resume.md`](../spikes/62-history-resume.md)). Fall back to searching `after:<epoch of last successful ingest − 1 h>`, reset the position from `getProfile`, and alert once.
 
 ### 6.4 Process: classify a chunk
 
