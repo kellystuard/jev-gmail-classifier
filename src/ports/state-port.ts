@@ -1,9 +1,6 @@
-/** A key for persistent state. Only `state.*` keys hold JSON (ADR-0007). */
-export type StateKey = `state.${string}`;
+import type { JsonValue, StateKey } from '../core/state-types.ts';
 
-/** A JSON value, as `JSON.stringify` writes it. */
-export type JsonValue =
-  string | number | boolean | null | readonly JsonValue[] | { readonly [key: string]: JsonValue };
+export type { JsonValue, StateKey } from '../core/state-types.ts';
 
 /**
  * Script Properties, `PropertiesService.getScriptProperties()` (Solution

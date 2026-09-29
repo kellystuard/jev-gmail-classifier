@@ -214,7 +214,7 @@ The PDD's components ([PDD §6.1](product-design-document.md#61-main-components)
 Each port is a narrow, synchronous TypeScript interface in `src/ports/<name>-port.ts`, with one Apps Script adapter and one in-memory fake (`test/fakes/`).
 
 - **Expected failures are results** (`Result`/`Fail` from `src/core/result.ts`, [§10.1](#101-error-model)). Anything an adapter doesn't recognize is thrown as `UnexpectedResponseError` and reaches the per-thread or per-run boundary.
-- **Shared data types that `core/` reads live in `core/`**, which can't import `ports/`: the Gmail resource types (`src/core/gmail-types.ts`, with byte-array `body.data` and optional history change arrays), the Script Properties limits (`src/core/state-limits.ts`), and `LogFields`.
+- **Shared data types that `core/` reads live in `core/`**, which can't import `ports/`: the Gmail resource types (`src/core/gmail-types.ts`, with byte-array `body.data` and optional history change arrays), the Script Properties limits (`src/core/state-limits.ts`), the state types `JsonValue` and `StateKey` (`src/core/state-types.ts`, which `src/ports/state-port.ts` re-exports), and `LogFields`.
 - **Common failure kinds:**
   - `scope`: a scope isn't granted. Adapters match the [§9](#9-gmail-integration) message fragments. A 403 `rateLimitExceeded` is never `scope`.
   - `rate_limited` (Gmail): the per-user rate limit. It means "stop Gmail work for this run", not a thread failure ([§9](#9-gmail-integration)).
@@ -447,7 +447,11 @@ There is **no** `Jev/Processed` label. Progress is tracked in state ([ADR-0004](
 All persistent state goes through `StatePort` ([ADR-0007](adr/0007-script-properties-state.md)):
 
 - Keys are namespaced.
-- Values are JSON with a `v` schema-version field, so a later upgrade can migrate them.
+- Values are JSON with a `v` schema-version field, so a later upgrade can migrate them. Each key has a codec made with `defineStateCodec` (`src/core/state-codec.ts`), which pairs the current version with a Zod schema of the value and ordered migration hooks:
+  - `encode` writes `{"v": <version>, ...value}`, with `v` first.
+  - `decode` migrates an older `v` on read, running the hooks `v`, `v + 1`, … in order.
+  - A newer or unknown `v`, a missing hook, or a hook that throws is `StateError` `version`. A value that isn't an object with an integer `v`, or that fails the schema, is `StateError` `schema`.
+  - `decode` never writes: a value that can't be decoded is never reset or rewritten ([§11](#11-build-and-deployment), "Upgrades"). Its error names the key, the version and the schema issue paths, and never the stored value.
 - Anything that can grow is sharded across numbered keys, with a hard cap.
 
 | Key (working name) | Holds | Growth control |
