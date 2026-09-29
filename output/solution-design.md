@@ -599,7 +599,7 @@ repeat:
   - `insufficient authentication scopes` (the Gmail API's 403);
   - `Specified permissions are not sufficient`.
 
-  None of them has been observed yet. A 403 `rateLimitExceeded` is a quota error, not a scope error ([§14](#14-technical-risks-and-items-to-verify)).
+  None of them has been observed yet. A 403 `rateLimitExceeded` is a quota error, not a scope error ([§14](#14-technical-risks-and-items-to-verify)). The adapter checks for the rate limit first (`src/adapters/gas/gmail-errors.ts`): HTTP 429, a reason of `rateLimitExceeded` or `userRateLimitExceeded`, or "Units per minute per user" in the message maps to `rate_limited`. The 404 comes from `details.code`, or, with no `details`, from a message ending "Requested entity was not found."; it is `history_expired` for `listHistory` and `not_found` for `getThread`. Any other error, including a 400 `invalid` or a 500, is thrown as `UnexpectedResponseError`.
 - **The owner's address** for alerts comes from `Gmail.Users.getProfile('me').emailAddress`, which avoids the `userinfo.email` scope.
 - **Gmail API quota** (checked by E1, [`spikes/30-gmail-quota.md`](../spikes/30-gmail-quota.md)).
   - **Unit costs** ([Gmail API usage limits](https://developers.google.com/workspace/gmail/api/reference/quota)): `getProfile` and `labels.list` 1, `history.list` 2, `threads.list` and `threads.modify` 10, `threads.trash` 20, and `threads.get` **40 in any format**. A thread costs about 50 units (get plus modify).
