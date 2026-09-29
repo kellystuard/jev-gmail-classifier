@@ -92,6 +92,13 @@ export type FakeGmailOptions = {
   readonly bareRecords?: boolean;
   /** Page size for `listHistory` and `searchThreadIds` when the request has no `maxResults`. Default 2. */
   readonly pageSize?: number;
+  /**
+   * The most IDs one `searchThreadIds` page holds, whatever `maxResults` asks
+   * for. It models Gmail returning fewer results than `maxResults`, which it's
+   * allowed to do, so a paging test doesn't need more than 500 threads. Unset,
+   * a page holds `maxResults ?? pageSize`.
+   */
+  readonly maxSearchPageSize?: number;
 };
 
 export type DeliverOptions = {
@@ -146,6 +153,7 @@ export class FakeGmail implements GmailPort {
   private readonly emailAddress: string;
   private readonly bareRecords: boolean;
   private readonly pageSize: number;
+  private readonly maxSearchPageSize: number;
   private readonly failures = new FailureQueue<GmailMethod, AnyGmailFailure>();
 
   private currentHistoryId: number;
@@ -167,6 +175,7 @@ export class FakeGmail implements GmailPort {
     this.currentHistoryId = options.historyId ?? 1000;
     this.bareRecords = options.bareRecords ?? true;
     this.pageSize = options.pageSize ?? 2;
+    this.maxSearchPageSize = options.maxSearchPageSize ?? Infinity;
     for (const id of SYSTEM_LABEL_IDS) {
       this.labels.set(id, { id, name: id, type: 'system' });
     }
@@ -255,7 +264,7 @@ export class FakeGmail implements GmailPort {
       }
     }
     const offset = request.pageToken === undefined ? 0 : decodeToken('search', request.pageToken);
-    const size = request.maxResults ?? this.pageSize;
+    const size = Math.min(request.maxResults ?? this.pageSize, this.maxSearchPageSize);
     const page = threadIds.slice(offset, offset + size);
     if (offset + size < threadIds.length) {
       return ok({ threadIds: page, nextPageToken: encodeToken('search', offset + size) });
