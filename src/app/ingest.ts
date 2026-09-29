@@ -8,25 +8,31 @@
  * (decision 6). `screenChunk` (#71) checks `Jev/Error`, current labels and
  * first classification when an item is first read.
  *
- * Extended later by #65 (`Jev/Error` removals: `INGEST_HISTORY_TYPES`,
- * `ingestRecord` and the counts) and #73 (the expired-history fallback: the
- * `history_expired` branch of the failure `switch`).
+ * It also re-queues a thread when the user removes `Jev/Error` from it (#65):
+ * a `labelRemoved` entry whose removed labels include an ID in
+ * `state.jevErrorLabel`. That retry is `scheduled` and labels-only
+ * (`firstClassification: false`), and resets the strikes of an item already
+ * queued (decisions 5 and 7).
+ *
+ * Extended later by #73 (the expired-history fallback: the `history_expired`
+ * branch of the failure `switch`).
  */
 import type { AlertCondition } from '../core/alert-condition.ts';
 import { assertNever } from '../core/assert-never.ts';
 import { StateError } from '../core/errors.ts';
 import type { GmailHistoryRecord } from '../core/gmail-types.ts';
-import { messageAddedThreadIds } from '../core/history-records.ts';
+import { jevErrorRemovalThreadIds, messageAddedThreadIds } from '../core/history-records.ts';
 import { decodePosition, encodePosition, type Position, POSITION_KEY } from '../core/position.ts';
 import { enqueue, type WorkQueue } from '../core/work-queue.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { GmailHistoryType, GmailPort } from '../ports/gmail-port.ts';
 import type { LogPort } from '../ports/log-port.ts';
 import type { StatePort } from '../ports/state-port.ts';
+import { readJevErrorLabelIds } from './jev-error-label-store.ts';
 import { saveQueue } from './queue-store.ts';
 
-/** The history types ingest asks for. #65 adds `labelRemoved`. */
-export const INGEST_HISTORY_TYPES: readonly GmailHistoryType[] = ['messageAdded'];
+/** The history types ingest asks for, in one call (SD §6.3). */
+export const INGEST_HISTORY_TYPES: readonly GmailHistoryType[] = ['messageAdded', 'labelRemoved'];
 
 /** `maxResults` for every `history.list` page (decision 9). */
 export const INGEST_PAGE_SIZE = 100;
@@ -64,6 +70,8 @@ export type IngestCounts = {
   readonly merged: number;
   /** `messagesAdded` entries left out for `DRAFT`, `SPAM` or `TRASH`. */
   readonly ignored: number;
+  /** Distinct threads queued or merged because the user removed `Jev/Error` from them. */
+  readonly jevErrorRetries: number;
 };
 
 export type IngestResult = {
@@ -98,7 +106,22 @@ export function ingest(
 ): { queue: WorkQueue; result: IngestResult } {
   const shouldContinue = options.shouldContinue ?? (() => true);
   const position = readPosition(deps.state);
-  const counts: MutableCounts = { pages: 0, records: 0, queued: 0, merged: 0, ignored: 0 };
+  const counts: MutableCounts = {
+    pages: 0,
+    records: 0,
+    queued: 0,
+    merged: 0,
+    ignored: 0,
+    jevErrorRetries: 0,
+  };
+  // Read once, before the first page. A `StateError` propagates (decision 9).
+  const recordContext: RecordContext = {
+    clock: deps.clock,
+    position,
+    jevErrorLabelIds: readJevErrorLabelIds(deps.state),
+    retriedThreadIds: new Set(),
+    counts,
+  };
 
   let current = queue;
   let lastHandledId: string | undefined;
@@ -146,7 +169,7 @@ export function ingest(
 
     for (const record of page.records) {
       counts.records += 1;
-      const step = ingestRecord(deps.clock, current, record, position, counts);
+      const step = ingestRecord(recordContext, current, record);
       current = step.queue;
       if (!step.handled) {
         stopped = 'cap';
@@ -196,19 +219,29 @@ function readPosition(state: StatePort): Position {
   return decodePosition(raw);
 }
 
+type RecordContext = {
+  readonly clock: ClockPort;
+  readonly position: Position;
+  /** The IDs in `state.jevErrorLabel`, read once per call. */
+  readonly jevErrorLabelIds: readonly string[];
+  /** The threads counted in `counts.jevErrorRetries`, so a thread in two records counts once. */
+  readonly retriedThreadIds: Set<string>;
+  readonly counts: MutableCounts;
+};
+
 /**
- * Queues the threads of one record. `handled` is true when every thread was
- * queued or merged, or there was nothing to queue. At the cap it's false, and
- * the threads queued before it stay in the returned queue: the next run reads
- * the record again, and they merge.
+ * Queues the threads of one record: its `messageAdded` threads, then the
+ * threads whose `Jev/Error` was removed. `handled` is true when every thread
+ * was queued or merged, or there was nothing to queue. At the cap it's false,
+ * and the threads queued before it stay in the returned queue: the next run
+ * reads the record again, and they merge.
  */
 function ingestRecord(
-  clock: ClockPort,
+  context: RecordContext,
   queue: WorkQueue,
   record: GmailHistoryRecord,
-  position: Position,
-  counts: MutableCounts,
 ): { readonly queue: WorkQueue; readonly handled: boolean } {
+  const { clock, position, counts } = context;
   const added = messageAddedThreadIds(record);
   counts.ignored += added.ignored;
   let current = queue;
@@ -224,6 +257,23 @@ function ingestRecord(
     }
     current = result.queue;
     counts[result.outcome] += 1;
+  }
+  for (const threadId of jevErrorRemovalThreadIds(record, context.jevErrorLabelIds)) {
+    // A retry is labels-only: its messages predate the position (decision 7).
+    const result = enqueue(current, {
+      threadId,
+      source: 'scheduled',
+      enqueuedAt: clock.now(),
+      firstClassification: false,
+      resetStrikes: true,
+    });
+    if (!result.ok) {
+      return { queue: current, handled: false };
+    }
+    current = result.queue;
+    counts[result.outcome] += 1;
+    context.retriedThreadIds.add(threadId);
+    counts.jevErrorRetries = context.retriedThreadIds.size;
   }
   return { queue: current, handled: true };
 }
