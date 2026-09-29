@@ -15,3 +15,19 @@ Each check gives the call and the expected result.
 5. Listing from `startHistoryId: '1'` returns `{ ok: false, kind: 'history_expired' }` and doesn't throw.
 6. With nothing new since the position, `records` is `[]`.
 7. Not observed yet (#125): with `gmail.modify` unticked at consent, a call returns `{ ok: false, kind: 'scope' }` and doesn't throw.
+
+### Thread search and reads (`searchThreadIds`, `getThread`)
+
+Same setup. Use a mailbox with at least 3 threads in the inbox, and keep the IDs from one check for the next.
+
+1. `searchThreadIds({ q: 'in:inbox', includeSpamTrash: false, maxResults: 2 })` returns `{ ok: true, threadIds }` with 2 IDs and a `nextPageToken`. Calling it again with `pageToken: <that token>` returns the next IDs, and none repeats an ID from the first page. Following the tokens ends on a page with no `nextPageToken` (the key is absent, not empty).
+2. `searchThreadIds({ q: 'in:inbox', includeSpamTrash: false })` with no `maxResults` still works, and `resultSizeEstimate`, snippets and history IDs aren't in the result.
+3. A query that matches nothing (for example `q: 'subject:jev-smoke-no-such-subject-91f3'`) returns `threadIds: []` and no `nextPageToken`.
+4. Trash one thread whose only matching message is the one you search for. `searchThreadIds` for that message with `includeSpamTrash: false` doesn't return it, and with `includeSpamTrash: true` does (spike 23, D1).
+5. `getThread(id, { format: 'metadata', metadataHeaders: ['Date'] })` returns every message of the thread with `id`, `labelIds` and `internalDate` (a string), only the `Date` header in `payload.headers`, and no body `data`.
+6. `getThread(id, { format: 'full' })` returns payloads whose `body.data` is an array of numbers (signed bytes), not a string, and `internalDate` is still a string.
+7. `getThread(id, { format: 'minimal' })` returns messages with `id`, `threadId`, `labelIds` and `internalDate`, and no `payload`.
+8. `getThread` on a thread that has a Trash or Spam message returns that message too, with `TRASH` or `SPAM` in its `labelIds` (SD §14).
+9. `getThread` on a thread deleted forever in the Gmail UI returns `{ ok: false, kind: 'not_found' }` and doesn't throw.
+10. `getThread('not-a-thread-id', { format: 'minimal' })` throws `UnexpectedResponseError` (`service: 'gmail'`, `status: 400`; note the status if it differs), and the error holds no header text.
+11. Not run until #125: with `gmail.modify` unticked at consent, both methods return `{ ok: false, kind: 'scope' }` and don't throw.
