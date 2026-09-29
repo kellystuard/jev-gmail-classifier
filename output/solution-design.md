@@ -406,7 +406,7 @@ sequenceDiagram
   - Runs the scope preflight.
   - Validates the config and the API key's presence.
   - Saves `state.installedAt`.
-  - Sets `state.position` from `getProfile().historyId` **only if no position exists**, or if `RESET_POSITION` is `true` (then deletes that property).
+  - Sets `state.position` from `getProfile().historyId` **only if no position exists**, or if `RESET_POSITION` is `true` (then deletes that property). A reset also deletes `state.fallback`, or ingest would keep running the old fallback instead of reading history from the new position ([§6.3](#63-ingest-gmail-history-to-work-queue)). The position is written with `encodePosition` (`src/core/position.ts`).
   - Replaces the `onTrigger` trigger at `triggerIntervalMinutes`.
   - Logs a summary.
 
@@ -786,7 +786,7 @@ This updates the PDD's [epic list](product-design-document.md#14-epics) with the
 |------|---------------------|--------------------|
 | **E1 Gmail behavior spike** | Scripts in `spikes/`. | History API behavior: `messageAdded` for sent mail, drafts, and category labels; `labelRemoved` for `Jev/Error`; expiry. Gmail's handling of grouped and `OR` exclusion queries with `after:`/`before:` epochs. What adding `SPAM` via `threads.modify` does (whether it's reported to Google). Nested label creation. Whether Advanced Service calls count toward Apps Script's daily Gmail quota. How body data is encoded. The exact error text for a missing scope. |
 | **E2 Project foundation** | Layout, tooling, lint boundaries, config schema and generation, bundle and footer, manifest, fakes harness, CI, `.gitignore` entries, example files. | Final config field names and messages: **settled** ([§7.2](#72-configuration)). The esbuild target. The lint rules that enforce the layering: **settled** ([§4.1](#lint-rules)). |
-| **E3 History sync** (was *Thread discovery*) | Ingest, position, work queue, first-classification flag, exclusion filter, expiry fallback. | Queue cap and sharding. How exclusion is batched. The fallback window. |
+| **E3 History sync** (was *Thread discovery*) | Ingest, position, work queue, first-classification flag, exclusion filter, expiry fallback. | Queue cap and sharding: **settled** ([§5.2](#52-ports), [§7.3](#73-script-properties-state)). How exclusion is batched: **settled** ([§6.4](#64-process-classify-a-chunk)). The fallback window: **settled** ([§6.3](#63-ingest-gmail-history-to-work-queue), [§7.3](#73-script-properties-state)). |
 | **E4 Thread → `state`** | State builder, header keys, `BodyConverter` `basic`, truncation. | The chars-per-token ratio and safety margin. The entity list. A `basic` quality check on real HTML-only mail using the probe. |
 | **E5 Jev client** | Pure request and response logic, the `fetchAll` transport, retry rounds, token accounting, daily budget. | Retry counts and delays. The per-status classification. Batch size per `fetchAll`. |
 | **E6 Outcomes** | Decide and apply, label ID cache and creation, `Jev/Error` and the 3-strike rule, the `scope` result. | Settled by E1 ([`spikes/26-moves.md`](../spikes/26-moves.md)): every label add plus the move go in one `threads.modify`, with `trash` as an added `TRASH` label ([§6.5](#65-applying-outcomes)). |
