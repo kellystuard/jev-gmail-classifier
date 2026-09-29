@@ -120,6 +120,45 @@ describe('FakeGmail history', () => {
     expect(ids).toEqual(['msg-1', 'msg-2']);
   });
 
+  it('caps a history page at maxPageSize, whatever maxResults asks for', () => {
+    const gmail = new FakeGmail({ maxPageSize: 2 });
+    const start = gmail.historyId;
+    gmail.deliver();
+    gmail.deliver();
+    gmail.deliver();
+    const sizes: number[] = [];
+    const ids: string[] = [];
+    let pageToken: string | undefined;
+    do {
+      const page = unwrap(
+        gmail.listHistory({
+          startHistoryId: start,
+          historyTypes: ['messageAdded'],
+          maxResults: 100,
+          ...(pageToken === undefined ? {} : { pageToken }),
+        }),
+      );
+      sizes.push(page.records.length);
+      ids.push(...page.records.map((r) => r.id));
+      pageToken = page.nextPageToken;
+    } while (pageToken !== undefined);
+    // Three messageAdded records, each followed by a bare record.
+    expect(sizes).toEqual([2, 2, 2]);
+    expect(ids).toEqual(gmail.history.map((r) => r.id));
+  });
+
+  it('caps a smaller maxResults below maxPageSize at maxResults', () => {
+    const gmail = new FakeGmail({ maxPageSize: 5 });
+    const start = gmail.historyId;
+    gmail.deliver();
+    gmail.deliver();
+    const page = unwrap(
+      gmail.listHistory({ startHistoryId: start, historyTypes: ['messageAdded'], maxResults: 3 }),
+    );
+    expect(page.records).toHaveLength(3);
+    expect(page.nextPageToken).toBeDefined();
+  });
+
   it('includes bare records, which callers must ignore', () => {
     const gmail = new FakeGmail();
     const start = gmail.historyId;
@@ -306,6 +345,17 @@ describe('FakeGmail search', () => {
       threads.slice(4),
     ]);
     expect(pages.map((p) => p.nextPageToken !== undefined)).toEqual([true, true, false]);
+  });
+
+  it('caps a search page at maxPageSize too', () => {
+    const gmail = new FakeGmail({ maxPageSize: 2 });
+    const threads = Array.from({ length: 3 }, () => gmail.deliver().threadId);
+    gmail.setSearchMatcher(() => true);
+    const first = unwrap(
+      gmail.searchThreadIds({ q: 'x', includeSpamTrash: true, maxResults: 500 }),
+    );
+    expect(first.threadIds).toEqual(threads.slice(0, 2));
+    expect(first.nextPageToken).toBeDefined();
   });
 
   it('throws without a matcher', () => {

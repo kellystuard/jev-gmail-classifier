@@ -96,9 +96,15 @@ export type FakeGmailOptions = {
    * The most IDs one `searchThreadIds` page holds, whatever `maxResults` asks
    * for. It models Gmail returning fewer results than `maxResults`, which it's
    * allowed to do, so a paging test doesn't need more than 500 threads. Unset,
-   * a page holds `maxResults ?? pageSize`.
+   * a page holds `maxResults ?? pageSize`. `maxPageSize` caps both methods.
    */
   readonly maxSearchPageSize?: number;
+  /**
+   * The most items one `listHistory` or `searchThreadIds` page holds, whatever
+   * `maxResults` asks for, as Gmail may return fewer than `maxResults`. Ingest
+   * always asks for 100, so a paging test sets this low. Unset: no limit.
+   */
+  readonly maxPageSize?: number;
 };
 
 export type DeliverOptions = {
@@ -154,6 +160,7 @@ export class FakeGmail implements GmailPort {
   private readonly bareRecords: boolean;
   private readonly pageSize: number;
   private readonly maxSearchPageSize: number;
+  private readonly maxPageSize: number;
   private readonly failures = new FailureQueue<GmailMethod, AnyGmailFailure>();
 
   private currentHistoryId: number;
@@ -176,6 +183,7 @@ export class FakeGmail implements GmailPort {
     this.bareRecords = options.bareRecords ?? true;
     this.pageSize = options.pageSize ?? 2;
     this.maxSearchPageSize = options.maxSearchPageSize ?? Infinity;
+    this.maxPageSize = options.maxPageSize ?? Infinity;
     for (const id of SYSTEM_LABEL_IDS) {
       this.labels.set(id, { id, name: id, type: 'system' });
     }
@@ -222,7 +230,7 @@ export class FakeGmail implements GmailPort {
             r.labelsRemoved === undefined &&
             r.labelsAdded === undefined)),
     );
-    const page = matching.slice(0, request.maxResults ?? this.pageSize);
+    const page = matching.slice(0, Math.min(request.maxResults ?? this.pageSize, this.maxPageSize));
     const last = page[page.length - 1];
     const historyId = String(this.currentHistoryId);
     if (last !== undefined && matching.length > page.length) {
@@ -264,7 +272,11 @@ export class FakeGmail implements GmailPort {
       }
     }
     const offset = request.pageToken === undefined ? 0 : decodeToken('search', request.pageToken);
-    const size = Math.min(request.maxResults ?? this.pageSize, this.maxSearchPageSize);
+    const size = Math.min(
+      request.maxResults ?? this.pageSize,
+      this.maxSearchPageSize,
+      this.maxPageSize,
+    );
     const page = threadIds.slice(offset, offset + size);
     if (offset + size < threadIds.length) {
       return ok({ threadIds: page, nextPageToken: encodeToken('search', offset + size) });
@@ -370,7 +382,7 @@ export class FakeGmail implements GmailPort {
     failure: GmailFailureOf<M> | Error,
     options: FailNextOptions = {},
   ): void {
-    this.failures.add(method, failure, options);
+    this.failures.add(method, failure, options, options.threadId);
   }
 
   /** The `rate_limited` failure Gmail returns for the per-user limit. */

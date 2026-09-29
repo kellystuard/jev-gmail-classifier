@@ -6,9 +6,17 @@ import {
   propertyBytes,
 } from '../../src/core/state-rules.ts';
 import type { JsonValue, StateKey, StatePort } from '../../src/ports/state-port.ts';
-import { type FailNextOptions, type FakeCall, FailureQueue } from './failure-queue.ts';
+import { type FailNextCounts, type FakeCall, FailureQueue } from './failure-queue.ts';
 
 type StateMethod = 'get' | 'set' | 'delete' | 'keys' | 'getInput' | 'deleteInput';
+
+export type FakeStateFailOptions = FailNextCounts & {
+  /**
+   * Only `get`, `set` and `delete` calls for this key fail, for example to
+   * crash exactly the `state.position` write. Other methods never match it.
+   */
+  readonly key?: StateKey;
+};
 
 /**
  * Script Properties: one map of property names to strings. `state.*` keys hold
@@ -22,7 +30,7 @@ export class FakeState implements StatePort {
   private readonly failures = new FailureQueue<StateMethod, never>();
 
   get(key: StateKey): unknown {
-    this.begin('get', [key]);
+    this.begin('get', [key], key);
     assertStateKey(key);
     const text = this.store.get(key);
     if (text === undefined) {
@@ -32,7 +40,7 @@ export class FakeState implements StatePort {
   }
 
   set(key: StateKey, value: JsonValue): void {
-    this.begin('set', [key, value]);
+    this.begin('set', [key, value], key);
     assertStateKey(key);
     const text = JSON.stringify(value);
     checkStateWrite(key, text, this.bytesUsed(), this.entryBytes(key));
@@ -40,7 +48,7 @@ export class FakeState implements StatePort {
   }
 
   delete(key: StateKey): void {
-    this.begin('delete', [key]);
+    this.begin('delete', [key], key);
     assertStateKey(key);
     this.store.delete(key);
   }
@@ -64,8 +72,8 @@ export class FakeState implements StatePort {
   }
 
   /** Makes the next call(s) to `method` throw `error`, before anything changes. */
-  failNext(method: StateMethod, error: Error, options: FailNextOptions = {}): void {
-    this.failures.add(method, error, options);
+  failNext(method: StateMethod, error: Error, options: FakeStateFailOptions = {}): void {
+    this.failures.add(method, error, options, options.key);
   }
 
   /** Stores `text` as it is, for example bad JSON or an old version. No limits are checked. */
@@ -97,8 +105,8 @@ export class FakeState implements StatePort {
     return value === undefined ? 0 : propertyBytes(key, value);
   }
 
-  private begin(method: StateMethod, args: readonly unknown[]): void {
+  private begin(method: StateMethod, args: readonly unknown[], key?: string): void {
     this.calls.push({ method, args });
-    this.failures.take(method);
+    this.failures.take(method, key);
   }
 }

@@ -138,6 +138,22 @@ describe('StateError', () => {
   });
 });
 
+describe('StateError missing', () => {
+  it('names a required key that is absent', () => {
+    const error = new StateError('State state.position is missing', {
+      key: 'state.position',
+      reason: 'missing',
+    });
+    expect(error.reason).toBe('missing');
+    expect(error.toLogFields()).toEqual({
+      key: 'state.position',
+      reason: 'missing',
+      error: 'StateError',
+      errorMessage: 'State state.position is missing',
+    });
+  });
+});
+
 describe('UnexpectedResponseError', () => {
   it('logs its typed fields and the cause', () => {
     const error = new UnexpectedResponseError(

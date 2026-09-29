@@ -27,7 +27,7 @@ export type FakePortsOptions = {
   readonly mailDailyQuota?: number;
   readonly gmail?: Pick<
     FakeGmailOptions,
-    'emailAddress' | 'historyId' | 'bareRecords' | 'pageSize' | 'maxSearchPageSize'
+    'emailAddress' | 'historyId' | 'bareRecords' | 'pageSize' | 'maxSearchPageSize' | 'maxPageSize'
   >;
 };
 

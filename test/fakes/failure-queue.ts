@@ -6,11 +6,10 @@
  * wait.
  */
 
-export type FailNextOptions = {
+/** How many calls an injected failure applies to, shared by every fake's `failNext`. */
+export type FailNextCounts = {
   /** How many calls fail. Default 1. */
   readonly times?: number;
-  /** Only calls for this thread fail. */
-  readonly threadId?: string;
   /**
    * How many matching calls succeed before the failure applies. Default 0.
    * For example, `{ after: 2 }` lets two calls through and fails the third,
@@ -19,10 +18,16 @@ export type FailNextOptions = {
   readonly after?: number;
 };
 
+export type FailNextOptions = FailNextCounts & {
+  /** Only calls for this thread fail. */
+  readonly threadId?: string;
+};
+
 type Entry<M extends string, F> = {
   readonly method: M;
   readonly failure: F | Error;
-  readonly threadId: string | undefined;
+  /** Only calls for this target (a thread ID, a state key) match. Unset: every call. */
+  readonly target: string | undefined;
   skip: number;
   remaining: number;
 };
@@ -30,7 +35,12 @@ type Entry<M extends string, F> = {
 export class FailureQueue<M extends string, F> {
   private readonly entries: Entry<M, F>[] = [];
 
-  add(method: M, failure: F | Error, options: FailNextOptions = {}): void {
+  /**
+   * Queues a failure for `method`. With `target`, only calls whose `take`
+   * passes the same target match: a fake passes the thread ID or state key a
+   * call is for.
+   */
+  add(method: M, failure: F | Error, options: FailNextCounts = {}, target?: string): void {
     const times = options.times ?? 1;
     if (!Number.isInteger(times) || times < 1) {
       throw new Error(`failNext: times must be a positive integer, got ${String(times)}`);
@@ -42,7 +52,7 @@ export class FailureQueue<M extends string, F> {
     this.entries.push({
       method,
       failure,
-      threadId: options.threadId,
+      target,
       skip: after,
       remaining: times,
     });
@@ -52,9 +62,9 @@ export class FailureQueue<M extends string, F> {
    * The next injected failure for this call, or `undefined`. An injected
    * `Error` is thrown.
    */
-  take(method: M, threadId?: string): F | undefined {
+  take(method: M, target?: string): F | undefined {
     const index = this.entries.findIndex(
-      (e) => e.method === method && (e.threadId === undefined || e.threadId === threadId),
+      (e) => e.method === method && (e.target === undefined || e.target === target),
     );
     const entry = this.entries[index];
     if (entry === undefined) {

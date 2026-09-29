@@ -88,8 +88,12 @@ export function formatConfigIssue(issue: ConfigIssue): string {
   return `${issue.path === '' ? '(root)' : issue.path}: ${issue.message}`;
 }
 
+/**
+ * Why a `state.*` value is invalid. `missing`: a key that must exist is
+ * absent, such as `state.position` before `install` wrote it.
+ */
 export type StateErrorReason =
-  'parse' | 'version' | 'schema' | 'too_large' | 'store_full' | 'bad_key';
+  'parse' | 'version' | 'schema' | 'too_large' | 'store_full' | 'bad_key' | 'missing';
 
 export type StateErrorDetails = {
   readonly key: string;
@@ -101,8 +105,8 @@ export type StateErrorDetails = {
 
 /**
  * A stored `state.*` value is invalid (bad JSON, an unknown `v`, a failed
- * schema check, a migration that can't run), or a write goes over the Script
- * Properties limits.
+ * schema check, a migration that can't run), a required key is missing, or a
+ * write goes over the Script Properties limits.
  */
 export class StateError extends JevClassifierError {
   declare readonly key: string;
