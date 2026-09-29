@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-The tooling is in place (E2, #8). `src/` has the layers, the ports, the config schema and loader, and placeholder entry points, and `test/fakes/` has in-memory fakes of the ports. There is no product behavior yet: that starts with E3. Use Node 24 (`.nvmrc`; `fnm use` or `nvm use`), then `npm ci`. The commands (`output/engineering-standards.md` §2):
+The tooling is in place (E2, #8), and history sync is done (E3, #9). `src/` has the layers, the ports, the config schema and loader, and placeholder entry points. Since E3 it also has the state codec and crash-safe sharding, the work queue, ingest (with the resumable expired-history fallback), chunk screening (`screenChunk`: it skips deleted and `Jev/Error` threads, fixes the first-classification flag and applies the exclusion filter), and the reading half of the Gmail adapter and the whole Script Properties adapter (`src/adapters/gas/`). `test/fakes/` has in-memory fakes of the ports. Nothing is wired into `src/entry/` until E7, so the entry points are still placeholders and the script does nothing when deployed. Use Node 24 (`.nvmrc`; `fnm use` or `nvm use`), then `npm ci`. The commands (`output/engineering-standards.md` §2):
 
 - `npm run build`: validates `config.yaml`, then writes `dist/Code.js` and `dist/appsscript.json` (and `src/generated/`, `config.schema.json`). Without your own `config.yaml`, run `npm run build -- --config config.example.yaml`.
 - `npm run lint`: ESLint (including the layer and V8 rules) and `prettier --check`. `npm run format` rewrites files with Prettier.
@@ -15,7 +15,7 @@ The tooling is in place (E2, #8). `src/` has the layers, the ports, the config s
 
 CI runs `npm ci`, lint, typecheck, test, the example-config build, and `git diff --exit-code` on Node 24 and 26 for every PR and push to `main`.
 
-**Next step.** E1's last task, the history-retention watch (#21), stays open until at least 2026-10-03. E3 is next and needs refinement before its tasks start. The later epics follow the order in PDD §14 and are tracked in the Project. Refine each epic the way E2 was refined: check scope, acceptance criteria, sizing, ordering, and dependencies. Put the merge order, the files to read, and the binding decisions in the epic body, and make each story and task self-contained for an independent agent, with a Read first list. Issues with open questions carry the `needs: maintainer` label; the rest go to the Project's Ready status.
+**Next step.** E1's last task, the history-retention watch (#21), stays open until at least 2026-10-03. E4 (Thread → `state`, #10) is next in the order of PDD §14 and needs refinement before its tasks start. The later epics follow the order in PDD §14 and are tracked in the Project. Refine each epic the way E2 was refined: check scope, acceptance criteria, sizing, ordering, and dependencies. Put the merge order, the files to read, and the binding decisions in the epic body, and make each story and task self-contained for an independent agent, with a Read first list. Issues with open questions carry the `needs: maintainer` label; the rest go to the Project's Ready status.
 
 ## Work tracking
 
@@ -63,8 +63,10 @@ A Google Apps Script project (TypeScript, bundled with esbuild, running in the u
   - Save a Gmail History API position (`historyId`) in state.
   - Each run ingests `messageAdded` records (received and sent; drafts, Spam, and Trash ignored) and `labelRemoved` records (for `Jev/Error`) into a persisted work queue, then processes the queue in chunks.
   - There is **no** `Jev/Processed` label.
-  - An expired position (404) falls back to a date-based search and sends an alert.
+  - An expired position (404) starts a resumable fallback: a search of time windows (oldest first, from an hour before the last successful ingest), saved in `state.fallback` after each window and continued across runs. It reports the `history_expired` alert once. E3 sends nothing: E7 passes the condition on and E9 sends it.
 - **Exclusion:** `excludeQuery` is a *positive* Gmail query of mail never to send. If any message in a thread matches, the whole thread is dropped before anything is read for Jev.
+  - `screenChunk` reads the chunk's threads in metadata form and runs one search per chunk, and it fails closed: if a read or search fails, no thread from that chunk goes on.
+  - It also skips deleted threads, threads marked `Jev/Error`, and threads with no message outside Drafts, Spam and Trash. Ingest makes no per-thread reads, so these checks happen at an item's first read.
 - **Jev request:** `POST https://api.typesafe.ai/v1/systemone` with `Authorization: Bearer <key>`.
   - One request per thread, with `questions` keyed by each rule's required, unique `id`. Every question is a Noul (yes/no) question.
   - Requests go out concurrently via `UrlFetchApp.fetchAll`. Retries happen in rounds: re-send the retryable ones after a sleep.
@@ -84,7 +86,7 @@ A Google Apps Script project (TypeScript, bundled with esbuild, running in the u
   - 422 → `Jev/Error`.
   - 401 or a missing key → stop the run and mark nothing.
   - Failing on 3 consecutive runs → `Jev/Error`.
-  - Removing `Jev/Error` retries the thread. A new reply doesn't, and manual runs skip it.
+  - Removing `Jev/Error` retries the thread. A new reply doesn't (it is queued, then skipped at its first read), and manual runs skip it.
   - The daily token budget (summed from Jev's `usage.input_tokens`) stops sending until the next day, in the script's time zone.
 - **Quotas:** every run is bounded well under the 6-minute limit and fits the daily trigger budget (90 min/day consumer, about 37 s per run at 10-minute intervals).
 - **Manual runs:**
