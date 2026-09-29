@@ -15,8 +15,9 @@ export type { JsonValue, StateKey } from '../core/state-types.ts';
  *   The store total counts keys and values: Google doesn't say whether keys
  *   count, so this is the conservative choice.
  * - The port only parses JSON. Callers check versions and shapes with Zod.
- * - **Sharding** (`state.queue.<n>`, the cap) is E3's, built on these
- *   methods. E3 decides whether it becomes a port method and updates SD §5.2.
+ * - Sharding isn't a port method. Lists that can grow (`state.queue.<n>`)
+ *   are sharded in `src/app/sharded-state.ts`, on `get`, `set`, `delete` and
+ *   `keys`, not by the port (SD §5.2, §7.3).
  *
  * A failure the adapter doesn't recognize is thrown and reaches the per-run
  * boundary (SD §10.1).
