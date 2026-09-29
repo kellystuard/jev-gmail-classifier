@@ -214,3 +214,100 @@ describe('toGmailFailure: unexpected', () => {
     expect(thrown).not.toHaveProperty('status', '404');
   });
 });
+
+describe('toGmailFailure: searchThreadIds and getThread', () => {
+  const NOT_FOUND_GET =
+    'API call to gmail.users.threads.get failed with error: Requested entity was not found.';
+  const NOT_FOUND_LIST =
+    'API call to gmail.users.threads.list failed with error: Requested entity was not found.';
+  const searchOptions = { method: 'searchThreadIds' } as const;
+  const getOptions = { method: 'getThread', notFound: 'not_found' } as const;
+
+  it('maps a getThread 404 to not_found, with its details or by its message alone', () => {
+    expect(toGmailFailure(gmailException(NOT_FOUND_GET, SPIKE_62_404_DETAILS), getOptions)).toEqual(
+      { ok: false, kind: 'not_found' },
+    );
+    expect(toGmailFailure(new Error(NOT_FOUND_GET), getOptions)).toEqual({
+      ok: false,
+      kind: 'not_found',
+    });
+  });
+
+  it('throws UnexpectedResponseError for a searchThreadIds 404, with the status when known', () => {
+    const withDetails = gmailException(NOT_FOUND_LIST, SPIKE_62_404_DETAILS);
+    const thrown = caught(() => toGmailFailure(withDetails, searchOptions));
+    expect(thrown).toBeInstanceOf(UnexpectedResponseError);
+    expect(thrown).toMatchObject({
+      service: 'gmail',
+      status: 404,
+      reason: 'searchThreadIds failed',
+      cause: withDetails,
+    });
+    const plain = new Error(NOT_FOUND_LIST);
+    expect(caught(() => toGmailFailure(plain, searchOptions))).toBeInstanceOf(
+      UnexpectedResponseError,
+    );
+  });
+
+  it.each([searchOptions, getOptions])(
+    'maps the rate limit the same way for $method',
+    (options) => {
+      expect(toGmailFailure(new Error(SPIKE_30_RATE_LIMIT_MESSAGE), options)).toEqual({
+        ok: false,
+        kind: 'rate_limited',
+        message: SPIKE_30_RATE_LIMIT_MESSAGE,
+      });
+      const error = gmailException('API call failed with error: Rate Limit Exceeded', {
+        code: 403,
+        errors: [{ reason: 'rateLimitExceeded', domain: 'usageLimits' }],
+      });
+      expect(toGmailFailure(error, options)).toMatchObject({ ok: false, kind: 'rate_limited' });
+    },
+  );
+
+  const scopeCases = SCOPE_FRAGMENTS.flatMap((fragment) => [
+    ['searchThreadIds', searchOptions, fragment] as const,
+    ['getThread', getOptions, fragment] as const,
+  ]);
+  it.each(scopeCases)('maps a scope fragment to scope for %s: %s', (_method, options, fragment) => {
+    const message = `API call to gmail.users.threads.x failed with error: ${fragment}`;
+    expect(toGmailFailure(new Error(message), options)).toEqual({
+      ok: false,
+      kind: 'scope',
+      message,
+    });
+  });
+
+  it('throws UnexpectedResponseError for a malformed thread ID (400), with the status', () => {
+    const error = gmailException(
+      'API call to gmail.users.threads.get failed with error: Invalid id value',
+      {
+        code: 400,
+        message: 'Invalid id value',
+        errors: [{ reason: 'invalidArgument', domain: 'global' }],
+      },
+    );
+    const thrown = caught(() => toGmailFailure(error, getOptions));
+    expect(thrown).toBeInstanceOf(UnexpectedResponseError);
+    expect(thrown).toMatchObject({ service: 'gmail', status: 400, reason: 'getThread failed' });
+  });
+
+  it('puts no query text in the error or its fields for an unrecognized search failure', () => {
+    const error = gmailException(
+      'API call to gmail.users.threads.list failed with error: Invalid Value',
+      { code: 400, message: 'Invalid Value', errors: [{ reason: 'invalid', domain: 'global' }] },
+    );
+    const thrown = caught(() => toGmailFailure(error, searchOptions));
+    expect(thrown).toBeInstanceOf(UnexpectedResponseError);
+    if (!(thrown instanceof UnexpectedResponseError)) {
+      return;
+    }
+    expect(thrown).toMatchObject({
+      service: 'gmail',
+      status: 400,
+      reason: 'searchThreadIds failed',
+    });
+    // The mapping never receives `q`, so nothing it builds can hold it.
+    expect(Object.keys(thrown.fields).sort()).toEqual(['reason', 'service', 'status']);
+  });
+});

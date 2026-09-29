@@ -1,18 +1,23 @@
 /**
  * `GasGmailAdapter`: `GmailPort` over the Advanced Gmail Service (`Gmail.Users.*`)
- * (Solution Design §5.2, §9; ADR-0003). This is E3's reading half: `getProfile`
- * and `listHistory`. `searchThreadIds` and `getThread` are #70's, and the
- * label and move methods are E6's.
+ * (Solution Design §5.2, §9; ADR-0003). This is E3's reading half: `getProfile`,
+ * `listHistory`, `searchThreadIds` and `getThread`. The label and move methods
+ * are E6's.
  *
  * Every call is on the user `me`. The adapter does no retries, sleeps or call
  * counting: the rate limit is E7's. Errors go through `toGmailFailure`: a
  * recognized failure is returned, and anything else is thrown as
  * `UnexpectedResponseError`.
  */
-import type { GmailHistoryRecord } from '../../core/gmail-types.ts';
+import type { GmailHistoryRecord, GmailThread } from '../../core/gmail-types.ts';
 import { UnexpectedResponseError } from '../../core/errors.ts';
 import { ok } from '../../core/result.ts';
-import type { GmailPort, ListHistoryRequest } from '../../ports/gmail-port.ts';
+import type {
+  GetThreadFormat,
+  GmailPort,
+  ListHistoryRequest,
+  SearchThreadIdsRequest,
+} from '../../ports/gmail-port.ts';
 
 import { toGmailFailure } from './gmail-errors.ts';
 
@@ -37,16 +42,39 @@ type GmailHistoryListResponse = {
   readonly nextPageToken?: string;
 };
 
+/** `Users.Threads.list`'s options: `q` and `includeSpamTrash` always, the rest only when set. */
+type GmailThreadsListOptions = {
+  readonly q: string;
+  readonly includeSpamTrash: boolean;
+  readonly pageToken?: string;
+  readonly maxResults?: number;
+};
+
+/** `Users.Threads.list`'s response. Gmail leaves `threads` out when nothing matches. */
+type GmailThreadsListResponse = {
+  readonly threads?: readonly { readonly id?: string }[];
+  readonly nextPageToken?: string;
+};
+
+/** `Users.Threads.get`'s options. `metadataHeaders` goes with `format: 'metadata'` only. */
+type GmailThreadsGetOptions =
+  | { readonly format: 'full' | 'minimal' }
+  | { readonly format: 'metadata'; readonly metadataHeaders: string[] };
+
 /**
  * The part of the Advanced Gmail Service this file uses. There is no Apps
  * Script type package (epic decision 15), and `declare const` emits nothing,
- * so the bundle calls the real global. #70 adds `Threads.list` and `Threads.get`.
+ * so the bundle calls the real global.
  */
 declare const Gmail: {
   Users: {
     getProfile(userId: 'me'): GmailProfileResponse;
     History: {
       list(userId: 'me', options: GmailHistoryListOptions): GmailHistoryListResponse;
+    };
+    Threads: {
+      list(userId: 'me', options: GmailThreadsListOptions): GmailThreadsListResponse;
+      get(userId: 'me', threadId: string, options: GmailThreadsGetOptions): GmailThread;
     };
   };
 };
@@ -102,12 +130,60 @@ export class GasGmailAdapter implements GmailPort {
     });
   }
 
-  searchThreadIds(): never {
-    throw new Error('searchThreadIds is implemented in #70');
+  searchThreadIds(request: SearchThreadIdsRequest): ReturnType<GmailPort['searchThreadIds']> {
+    // One page per call: the caller pages. Only set what the request sets.
+    const options: GmailThreadsListOptions = {
+      q: request.q,
+      includeSpamTrash: request.includeSpamTrash,
+      ...(request.pageToken === undefined ? {} : { pageToken: request.pageToken }),
+      ...(request.maxResults === undefined ? {} : { maxResults: request.maxResults }),
+    };
+    let response: GmailThreadsListResponse;
+    try {
+      response = Gmail.Users.Threads.list('me', options);
+    } catch (error) {
+      // No `notFound`: a 404 has no expected meaning for a search. The error
+      // never carries `q`, which holds the user's `excludeQuery`.
+      return toGmailFailure(error, { method: 'searchThreadIds' });
+    }
+    const { nextPageToken } = response;
+    const threads: unknown = response.threads;
+    if (threads !== undefined && !Array.isArray(threads)) {
+      throw malformed('threads.list response is malformed', 'searchThreadIds');
+    }
+    const entries: readonly unknown[] = threads ?? [];
+    const threadIds = entries.map((entry) => {
+      const id =
+        typeof entry === 'object' && entry !== null && 'id' in entry ? entry.id : undefined;
+      if (typeof id !== 'string' || id === '') {
+        throw malformed('threads.list response is malformed', 'searchThreadIds');
+      }
+      return id;
+    });
+    return ok({
+      threadIds,
+      ...(typeof nextPageToken === 'string' && nextPageToken !== '' ? { nextPageToken } : {}),
+    });
   }
 
-  getThread(): never {
-    throw new Error('getThread is implemented in #70');
+  getThread(threadId: string, format: GetThreadFormat): ReturnType<GmailPort['getThread']> {
+    const options: GmailThreadsGetOptions =
+      format.format === 'metadata'
+        ? { format: 'metadata', metadataHeaders: [...format.metadataHeaders] }
+        : { format: format.format };
+    let thread: GmailThread;
+    try {
+      thread = Gmail.Users.Threads.get('me', threadId, options);
+    } catch (error) {
+      // A 404 is a thread deleted since it was queued.
+      return toGmailFailure(error, { method: 'getThread', notFound: 'not_found' });
+    }
+    if (typeof thread !== 'object' || typeof thread.id !== 'string') {
+      throw malformed('threads.get response is malformed', 'getThread');
+    }
+    // Gmail's object is passed through: `internalDate` stays a string and
+    // `body.data` stays the signed byte array (spike 29).
+    return ok({ thread });
   }
 
   listLabels(): never {
