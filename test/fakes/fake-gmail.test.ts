@@ -282,6 +282,32 @@ describe('FakeGmail search', () => {
     expect(second.nextPageToken).toBeUndefined();
   });
 
+  it('caps a page at maxSearchPageSize, whatever maxResults asks for', () => {
+    const gmail = new FakeGmail({ maxSearchPageSize: 2 });
+    const threads = Array.from({ length: 5 }, () => gmail.deliver().threadId);
+    gmail.setSearchMatcher(() => true);
+    const pages = [];
+    let pageToken: string | undefined;
+    do {
+      const page = unwrap(
+        gmail.searchThreadIds({
+          q: 'x',
+          includeSpamTrash: true,
+          maxResults: 500,
+          ...(pageToken === undefined ? {} : { pageToken }),
+        }),
+      );
+      pages.push(page);
+      pageToken = page.nextPageToken;
+    } while (pageToken !== undefined);
+    expect(pages.map((p) => p.threadIds)).toEqual([
+      threads.slice(0, 2),
+      threads.slice(2, 4),
+      threads.slice(4),
+    ]);
+    expect(pages.map((p) => p.nextPageToken !== undefined)).toEqual([true, true, false]);
+  });
+
   it('throws without a matcher', () => {
     expect(() => new FakeGmail().searchThreadIds({ q: 'x', includeSpamTrash: true })).toThrow(
       /setSearchMatcher/,

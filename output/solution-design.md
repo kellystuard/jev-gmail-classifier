@@ -320,13 +320,17 @@ sequenceDiagram
 1. **Take a chunk** from the queue. Scheduled items come first, then manual-job items. The chunk size is a starting value owned by E7.
 2. **Exclusion filter.** This is the only exclusion check, and it applies to every chunk item, scheduled and manual alike ([ADR-0017](adr/0017-exclusion-search-per-chunk-for-all-work.md), which supersedes [ADR-0005](adr/0005-positive-thread-level-exclusion.md)).
    - Get the chunk's threads in metadata form (`metadataHeaders: ['Date']`), which gives each message's `internalDate` and `Date` header without bodies.
-   - Run **one** `threads.list` search for the whole chunk: `q = (<excludeQuery>) after:<lo> before:<hi>`, with `includeSpamTrash: true`, paged until there is no `nextPageToken`. Here:
+   - Run **one** `threads.list` search for the whole chunk (`searchExcludedThreads` in `src/app/exclusion-search.ts`): `q = (<excludeQuery>) after:<lo> before:<hi>`, with `includeSpamTrash: true` and `maxResults: 500`. Here:
      - The user's query always goes in parentheses.
      - `lo` is the earliest `internalDate` **or** parsed `Date` header of **any** message in **any** chunk thread, in epoch seconds, minus 86400. It must span the oldest message, not just the newest: a thread whose only match is its oldest message is otherwise missed. A message with no usable date, or one dated before 1970, removes the lower bound (no `after:` term).
      - `hi` is the latest of now and every chunk message's `internalDate` or `Date` header, plus 86400. Search can compare against a date other than the `internalDate` the API reports: an upload's receive time, which is never later than now. So an upper bound taken from message dates alone can miss. Including the message dates also covers a `Date` header set in the future.
      - Epoch bounds are exact to the second and both inclusive.
      - `includeSpamTrash: true` is required. Without it, a thread whose only matching message is in Spam or Trash isn't returned, yet `threads.get` still returns that message.
-   - Drop every chunk thread the search returns. Dropped threads are logged as `thread.excluded` and are finished: they are never sent, and never marked.
+   - **Batching.** The search pages until there is no `nextPageToken`, or until every remaining chunk thread has been found (no later page can add anything). A wide window can return many threads outside the chunk, so the search is bounded:
+     - It reads at most 20 pages (10,000 threads, 200 quota units). Then each chunk thread not yet found gets one search of its own, in input order, with its own window from the same builder. Each search has its own 20-page limit. A thread its own search finds is `matched`. A thread whose own search also reaches 20 pages without finding it is treated as excluded (`search_capped`), because its check didn't complete. A thread is never sent without a completed check.
+     - **Fail closed.** Any failed search call (`rate_limited`, `scope`) fails the whole check: nothing is kept or dropped, no further call is made, and the chunk is retried in a later run. An unrecognized Gmail error is thrown.
+     - The worst case, every thread capped, costs 200 units per thread, so E7's chunk sizing must allow for it ([ADR-0017](adr/0017-exclusion-search-per-chunk-for-all-work.md)).
+   - Drop every excluded chunk thread (`matched` or `search_capped`). Dropped threads are logged as `thread.excluded` and are finished: they are never sent, and never marked.
    - The search matches **per message**. A thread is returned when one message satisfies the whole query.
    - Confirmed by E1 ([`spikes/23-exclusion-query.md`](../spikes/23-exclusion-query.md)). A new message was searchable within a second of `history.list` reporting it (self-sends and uploads), so no indexing-lag delay is needed.
 3. **Build `state`** for each remaining thread ([§8.3](#83-state-layout)).
