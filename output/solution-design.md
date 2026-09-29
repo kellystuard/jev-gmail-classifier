@@ -304,8 +304,9 @@ sequenceDiagram
 - **Threads marked `Jev/Error`.** A new message on such a thread does **not** queue it. It stays flagged until the user removes the label.
   - A message that arrives after `threads.modify` added the label does **not** inherit it. So E3 checks whether any message in the thread still carries `Jev/Error` (a minimal `threads.get`), not the new message's `labelIds`.
   - Confirmed by E1 (`spikes/20-label-removed.md`).
-- **Enqueue.** Each distinct thread becomes one work item, de-duplicated against items already queued. A thread is marked **first classification** when every one of its messages arrived after the classifier's position, meaning it's a brand-new conversation. That flag is fixed when the item is queued, and survives retries.
+- **Enqueue.** Each distinct thread becomes one work item, de-duplicated against items already queued. A thread is marked **first classification** when every one of its messages arrived after the classifier's position, meaning it's a brand-new conversation. The item stores the position's `savedAt` when it is queued, and the flag is decided **once, at the item's first read**. After that it never changes: retries and later merges keep it.
   - **How "arrived after" is computed.** The item stores the position's `savedAt` at queue time. When the thread is first read, it is a first classification if every non-draft message's `internalDate` is at or after that `savedAt`, with no skew margin. The result is then fixed on the item.
+  - **Edge cases.** A thread with no non-draft message, or with a non-draft message whose `internalDate` is missing or isn't a valid epoch-ms number, is not a first classification (labels only). Messages now in Spam or Trash still count, so an old thread can't look new: `threads.get` returns them (§14).
   - A message's `historyId` can't be used, because it moves whenever the message changes (for example, when it's marked read).
   - For imported mail, `internalDate` is the `Date` header, so an import with an old date counts as old: labels only, which is the safe direction.
   - Confirmed by E1 (`spikes/19-message-added.md`).
