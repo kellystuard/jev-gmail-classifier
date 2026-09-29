@@ -165,4 +165,58 @@ describe('FakeState', () => {
     expect(state.get('state.position')).toEqual({ v: 3 });
     expect(state.calls.map((c) => c.method)).toEqual(['set', 'set', 'get', 'set', 'get']);
   });
+
+  it('fails only calls for the key given, and lets other keys through', () => {
+    const state = new FakeState();
+    state.set('state.position', { v: 1 });
+    state.failNext('set', new Error('Crash'), { key: 'state.position' });
+    state.set('state.queue.0', { v: 1, items: [] });
+    state.delete('state.budget');
+    expect(() => {
+      state.set('state.position', { v: 2 });
+    }).toThrow('Crash');
+    expect(state.get('state.position')).toEqual({ v: 1 });
+    expect(state.get('state.queue.0')).toEqual({ v: 1, items: [] });
+    state.set('state.position', { v: 3 });
+    expect(state.get('state.position')).toEqual({ v: 3 });
+  });
+
+  it.each([
+    ['get', (s: FakeState) => s.get('state.position')],
+    [
+      'delete',
+      (s: FakeState) => {
+        s.delete('state.position');
+      },
+    ],
+  ] as const)('matches a key for %s too', (method, call) => {
+    const state = new FakeState();
+    state.failNext(method, new Error('Crash'), { key: 'state.position' });
+    expect(() => state.get('state.other')).not.toThrow();
+    expect(() => {
+      state.delete('state.other');
+    }).not.toThrow();
+    expect(() => call(state)).toThrow('Crash');
+  });
+
+  it('never matches a key for keys, getInput or deleteInput', () => {
+    const state = new FakeState();
+    state.failNext('keys', new Error('Crash'), { key: 'state.queue.' });
+    expect(state.keys('state.queue.')).toEqual([]);
+  });
+
+  it('combines a key with after and times', () => {
+    const state = new FakeState();
+    state.failNext('set', new Error('Crash'), { key: 'state.position', after: 1, times: 2 });
+    state.set('state.budget', { v: 1 });
+    state.set('state.position', { v: 1 });
+    expect(() => {
+      state.set('state.position', { v: 2 });
+    }).toThrow('Crash');
+    expect(() => {
+      state.set('state.position', { v: 3 });
+    }).toThrow('Crash');
+    state.set('state.position', { v: 4 });
+    expect(state.get('state.position')).toEqual({ v: 4 });
+  });
 });

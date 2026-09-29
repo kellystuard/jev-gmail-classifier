@@ -53,6 +53,19 @@ describe('createFakePorts', () => {
     expect(ports.auth.missingScopes()).toEqual({ ok: true, missing: [] });
   });
 
+  it('passes maxPageSize through to FakeGmail', () => {
+    const { gmail } = createFakePorts({ gmail: { maxPageSize: 1 } });
+    const start = gmail.historyId;
+    gmail.deliver();
+    const page = gmail.listHistory({
+      startHistoryId: start,
+      historyTypes: ['messageAdded'],
+      maxResults: 100,
+    });
+    expect(page).toMatchObject({ ok: true, records: [{}] });
+    expect(page.ok && page.nextPageToken !== undefined).toBe(true);
+  });
+
   it('shares one clock between Gmail, HTTP and the caller', () => {
     const ports = createFakePorts({ now: 0, gmailLatencyMs: 100, httpLatencyMs: 1000 });
     ports.http.respond(() => true, [{ status: 200 }]);
