@@ -134,7 +134,8 @@ type StoredMessage = {
  * behave the way E1 observed (spikes 19, 20, 23, 25, 26, 29, 30):
  *
  * - history records with the labels at the time of the change, bare records
- *   with no change array, pages whose `historyId` moves, and expiry;
+ *   with no change array, pages whose `historyId` moves, and expiry (a start
+ *   before `expireHistoryBefore`, or ahead of the mailbox's `historyId`);
  * - search through a test-supplied matcher that misses Spam and Trash unless
  *   `includeSpamTrash` is set;
  * - label creation without parents, with case-insensitive conflicts and
@@ -215,7 +216,9 @@ export class FakeGmail implements GmailPort {
         `FakeGmail.listHistory: startHistoryId "${request.startHistoryId}" isn't a number`,
       );
     }
-    if (start < this.expiredBefore) {
+    // Gmail answers 404 both for a discarded position and for one ahead of
+    // the mailbox (spike 62, finding 3; E1 #21, E5).
+    if (start < this.expiredBefore || start > this.currentHistoryId) {
       return fail('history_expired');
     }
     const after =
