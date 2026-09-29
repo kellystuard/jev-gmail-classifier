@@ -291,7 +291,7 @@ sequenceDiagram
 - **Read.** Call `users.history.list` with `startHistoryId` and `historyTypes = [messageAdded, labelRemoved]`, paging until done or until the queue's safety cap is reached. Ignore a record that has neither `messagesAdded` nor `labelsRemoved`: Gmail also returns records with only `messages` (seen with several types, and with `labelRemoved` alone).
 - **Filter `messageAdded` records.** Ignore drafts (`DRAFT`), and messages in `SPAM` or `TRASH`. Received and sent messages both count: a reply you send can change what a thread is about.
   - A record's `labelIds` are the labels **when the message was added**, not now. So this filter drops only mail that arrived as a draft or in Spam.
-  - Mail moved to Spam or Trash before processing is caught when the thread is read for processing, using current labels. Messages now in `DRAFT`, `SPAM`, or `TRASH` are left out of `state`, and an item with no message left is skipped.
+  - Mail moved to Spam or Trash before processing is caught when the thread is read for processing, using current labels. Messages now in `DRAFT`, `SPAM`, or `TRASH` are left out of `state`, and an item with no message left is skipped ([§6.4](#64-process-classify-a-chunk) step 2, `no_messages`).
   - Each draft save adds a new message ID labelled `DRAFT`. Sending a draft adds a new ID with `SENT`. Mail sent to yourself is one message with both `SENT` and `INBOX`. `CATEGORY_*` labels don't matter.
   - The user's filters act before the record is written, so filter-archived mail has no `INBOX`, and filter labels and categories are already there. E3 must not require `INBOX`.
   - Confirmed by E1 (`spikes/19-message-added.md`).
@@ -301,8 +301,8 @@ sequenceDiagram
   - **Trash and Spam.** Skip entries whose `message.labelIds` include `TRASH` or `SPAM`: processing ignores those threads.
   - **De-duplicate** by `message.threadId`. Other changes on the same thread (for example, opening it in the UI removes `UNREAD`) come as separate records, and are ignored.
   - Confirmed by E1 (`spikes/20-label-removed.md`).
-- **Threads marked `Jev/Error`.** A new message on such a thread does **not** queue it. It stays flagged until the user removes the label.
-  - A message that arrives after `threads.modify` added the label does **not** inherit it. So E3 checks whether any message in the thread still carries `Jev/Error` (a minimal `threads.get`), not the new message's `labelIds`.
+- **Threads marked `Jev/Error`.** A new message on such a thread **is** queued: ingest makes no per-thread reads, so it can't tell. `screenChunk` skips the thread at its first read ([§6.4](#64-process-classify-a-chunk) step 2, `thread.skipped` with `reason: 'jev_error'`), so it is still never classified and stays flagged until the user removes the label.
+  - A message that arrives after `threads.modify` added the label does **not** inherit it. So the check is whether **any** message in the thread carries one of the `Jev/Error` IDs saved in `state.jevErrorLabel`, not the new message's `labelIds`. It uses the metadata read that the exclusion check needs anyway, so it costs no extra call.
   - Confirmed by E1 (`spikes/20-label-removed.md`).
 - **Enqueue.** Each distinct thread becomes one work item, de-duplicated against items already queued. A thread is marked **first classification** when every one of its messages arrived after the classifier's position, meaning it's a brand-new conversation. The item stores the position's `savedAt` when it is queued, and the flag is decided **once, at the item's first read**. After that it never changes: retries and later merges keep it.
   - **How "arrived after" is computed.** The item stores the position's `savedAt` at queue time. When the thread is first read, it is a first classification if every non-draft message's `internalDate` is at or after that `savedAt`, with no skew margin. The result is then fixed on the item.
@@ -320,8 +320,13 @@ sequenceDiagram
 
 1. **Take a chunk** from the queue. Scheduled items come first, then manual-job items. The chunk size is a starting value owned by E7.
 2. **Exclusion filter.** This is the only exclusion check, and it applies to every chunk item, scheduled and manual alike ([ADR-0017](adr/0017-exclusion-search-per-chunk-for-all-work.md), which supersedes [ADR-0005](adr/0005-positive-thread-level-exclusion.md)).
-   - Get the chunk's threads in metadata form (`metadataHeaders: ['Date']`), which gives each message's `internalDate` and `Date` header without bodies.
-   - Run **one** `threads.list` search for the whole chunk (`searchExcludedThreads` in `src/app/exclusion-search.ts`): `q = (<excludeQuery>) after:<lo> before:<hi>`, with `includeSpamTrash: true` and `maxResults: 500`. Here:
+   - **Read.** Get each chunk thread once in metadata form (`getThread` with `format: 'metadata'` and `metadataHeaders: ['Date']`), which gives each message's `labelIds`, `internalDate` and `Date` header without bodies. This is the only read before the search, and no thread is read in full until it has passed the check.
+   - **Skip** a thread that can't be classified. It is logged as `thread.skipped` with `threadId`, `source` and `reason`, removed from the queue, and never marked. The reasons are checked in this order:
+     - `not_found`: `threads.get` says the thread was deleted since it was queued.
+     - `jev_error`: any message carries a `Jev/Error` ID saved in `state.jevErrorLabel`. Without that key, nothing is skipped for this reason ([§6.3](#63-ingest-gmail-history-to-work-queue)).
+     - `no_messages`: the thread has no message, or every message is now labelled `DRAFT`, `SPAM` or `TRASH`.
+   - **First classification.** For each thread not skipped whose item has no `firstClassification` yet, decide it from the same read (`isFirstClassification` over the thread's messages and the item's `positionSavedAt`, [§6.3](#63-ingest-gmail-history-to-work-queue) "Enqueue") and fix it on the item. An item that already has the flag keeps it.
+   - Run **one** `threads.list` search for the whole chunk, over the threads left after the skips only, so a skipped thread's old messages don't widen the window (`searchExcludedThreads` in `src/app/exclusion-search.ts`). Without `excludeQuery`, or with no thread left, there is no search. `q = (<excludeQuery>) after:<lo> before:<hi>`, with `includeSpamTrash: true` and `maxResults: 500`. Here:
      - The user's query always goes in parentheses.
      - `lo` is the earliest `internalDate` **or** parsed `Date` header of **any** message in **any** chunk thread, in epoch seconds, minus 86400. It must span the oldest message, not just the newest: a thread whose only match is its oldest message is otherwise missed. A message with no usable date, or one dated before 1970, removes the lower bound (no `after:` term).
      - `hi` is the latest of now and every chunk message's `internalDate` or `Date` header, plus 86400. Search can compare against a date other than the `internalDate` the API reports: an upload's receive time, which is never later than now. So an upper bound taken from message dates alone can miss. Including the message dates also covers a `Date` header set in the future.
@@ -331,7 +336,8 @@ sequenceDiagram
      - It reads at most 20 pages (10,000 threads, 200 quota units). Then each chunk thread not yet found gets one search of its own, in input order, with its own window from the same builder. Each search has its own 20-page limit. A thread its own search finds is `matched`. A thread whose own search also reaches 20 pages without finding it is treated as excluded (`search_capped`), because its check didn't complete. A thread is never sent without a completed check.
      - **Fail closed.** Any failed search call (`rate_limited`, `scope`) fails the whole check: nothing is kept or dropped, no further call is made, and the chunk is retried in a later run. An unrecognized Gmail error is thrown.
      - The worst case, every thread capped, costs 200 units per thread, so E7's chunk sizing must allow for it ([ADR-0017](adr/0017-exclusion-search-per-chunk-for-all-work.md)).
-   - Drop every excluded chunk thread (`matched` or `search_capped`). Dropped threads are logged as `thread.excluded` and are finished: they are never sent, and never marked.
+   - Drop every excluded chunk thread (`matched` or `search_capped`). Each is logged as `thread.excluded` with `threadId`, `source` and `reason` only, never its subject, sender or any header. It is removed from the queue, finished: it is never sent, and never marked. `screenChunk` (`src/app/screen-chunk.ts`) makes no label change, no other Gmail write, and no state write: the caller saves the queue it returns.
+   - **Fail closed.** If any read or search call fails (`rate_limited`, `scope`), `screenChunk` returns that failure at once, with no further call and no log. It returns no queue, so the caller keeps the one it had: nothing is kept, removed or flagged, and the whole chunk is screened again in a later run. No thread goes on without a completed exclusion check. An unrecognized Gmail error is thrown.
    - The search matches **per message**. A thread is returned when one message satisfies the whole query.
    - Confirmed by E1 ([`spikes/23-exclusion-query.md`](../spikes/23-exclusion-query.md)). A new message was searchable within a second of `history.list` reporting it (self-sends and uploads), so no indexing-lag delay is needed.
 3. **Build `state`** for each remaining thread ([§8.3](#83-state-layout)).
@@ -486,11 +492,13 @@ All persistent state goes through `StatePort` ([ADR-0007](adr/0007-script-proper
 stateDiagram-v2
   [*] --> Queued: messageAdded / labelRemoved(Jev/Error) / manual job page
   Queued --> Excluded: matches excludeQuery
+  Queued --> Skipped: deleted, Jev/Error, or no message outside Drafts, Spam and Trash
   Queued --> Classified: Jev ok + outcomes applied
   Queued --> Queued: retryable failure (strike < 3)
   Queued --> Errored: 422, or 3rd strike (add Jev/Error)
   Queued --> Queued: 401 / budget / deadline (untouched)
   Excluded --> [*]
+  Skipped --> [*]
   Classified --> [*]
   Errored --> Queued: user removes Jev/Error
 ```
@@ -678,10 +686,11 @@ Logs are **structured JSON only**, one object per event, through `LogPort`. `con
 - **Main events:**
   - `run.start`, `run.skipped`, `run.end` (summary), `run.failed`
   - `ingest.done`, `history.expired`
-  - `thread.classified`, `thread.excluded`, `thread.failed`, `thread.errored`
+  - `thread.classified`, `thread.excluded`, `thread.skipped`, `thread.failed`, `thread.errored`
   - `scope_missing`, `budget.reached`, `alert.sent`
   - `manual.started`, `manual.progress`, `manual.completed`, `config.invalid`
 - **`ingest.done`** is logged once per ingest call that returns (not when it throws), at `info`, or `warn` when `stopped` is `rate_limited`, `scope` or `history_expired`. It carries `pages` (`history.list` calls that succeeded), `records` (records read, bare ones included), `queued` (new work items), `merged` (enqueues merged into an existing item, including a thread queued earlier in the same call), `ignored` (`messagesAdded` entries left out for `DRAFT`, `SPAM` or `TRASH`), `jevErrorRetries` (distinct threads queued or merged because the user removed `Jev/Error`; other removals aren't counted or logged), `queueSize` (items in the returned queue), `startHistoryId` and `historyId` (the position before and after; the same when it didn't move), and `stopped` (`cap`, `deadline`, `rate_limited`, `scope` or `history_expired`) only when set. Never a subject, sender or body: ingest reads no thread.
+- **`thread.skipped`** carries `threadId`, `source` and `reason` (`not_found`, `jev_error`, `no_messages`), at `info`. **`thread.excluded`** carries `threadId`, `source` and `reason` (`matched` at `info`, `search_capped` at `warn`), and never the subject or sender. Both are logged by chunk screening ([§6.4](#64-process-classify-a-chunk) step 2) once the whole chunk has been screened, never for a chunk that failed closed.
 - **`thread.classified`** carries `threadId`, `subject`, `from`, `probabilities {ruleId: p}`, `fired [ruleId]`, `actions`, `moveSkipped?`, `truncated?`, `requestId`, `model`, and `inputTokens`.
 - **`run.end`** is the evidence for the Coverage measure. It carries counts of items ingested, classified, excluded, retried, errored, and left queued; labels applied per label; moves per destination; tokens used and remaining; and duration.
 - **Never logged:** message bodies, the API key, or the `Authorization` header. One `redact` helper in the log adapter scrubs known secret fields as a last line of defence.
