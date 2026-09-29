@@ -205,6 +205,24 @@ describe('FakeGmail history', () => {
     ).toBe(true);
   });
 
+  it('returns history_expired for a start ahead of the mailbox, and succeeds at the current historyId', () => {
+    const gmail = new FakeGmail();
+    gmail.deliver();
+    const current = gmail.historyId;
+    expect(
+      gmail.listHistory({ startHistoryId: String(Number(current) + 1), historyTypes: BOTH_TYPES }),
+    ).toEqual({ ok: false, kind: 'history_expired' });
+    expect(gmail.listHistory({ startHistoryId: '99999999999', historyTypes: BOTH_TYPES })).toEqual({
+      ok: false,
+      kind: 'history_expired',
+    });
+    expect(gmail.listHistory({ startHistoryId: current, historyTypes: BOTH_TYPES })).toEqual({
+      ok: true,
+      records: [],
+      historyId: current,
+    });
+  });
+
   it('writes one removal record with one entry per message that had the label', () => {
     const gmail = new FakeGmail({ bareRecords: false });
     const label = gmail.seedLabel('Jev/Error');

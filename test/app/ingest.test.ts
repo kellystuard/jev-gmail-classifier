@@ -4,8 +4,17 @@ import { ingest, type IngestOptions } from '../../src/app/ingest.ts';
 import { rememberJevErrorLabelId } from '../../src/app/jev-error-label-store.ts';
 import { loadQueue } from '../../src/app/queue-store.ts';
 import { StateError } from '../../src/core/errors.ts';
+import type { GmailMessage } from '../../src/core/gmail-types.ts';
+import {
+  FALLBACK_KEY,
+  FALLBACK_MAX_PAGES,
+  type FallbackCursor,
+  fallbackCursorCodec,
+  startFallback,
+} from '../../src/core/history-fallback.ts';
 import { JEV_ERROR_LABEL_KEY } from '../../src/core/jev-error-label.ts';
 import { decodePosition, encodePosition, POSITION_KEY } from '../../src/core/position.ts';
+import { fail } from '../../src/core/result.ts';
 import {
   dequeue,
   QUEUE_MAX_ITEMS,
@@ -16,45 +25,92 @@ import { FakeGmail } from '../fakes/fake-gmail.ts';
 import { createFakePorts, type FakePorts, type FakePortsOptions } from '../fakes/fake-ports.ts';
 import type { FakeState } from '../fakes/fake-state.ts';
 
+/** The fake clock's start. */
+const NOW = Date.UTC(2026, 8, 26, 12);
+
 /** The seeded position's `savedAt`: an hour before the fake clock's start. */
 const SAVED_AT = Date.UTC(2026, 8, 26, 11);
 
-let world: FakePorts | undefined;
+/** The Gmail methods `ingest` itself called in this test (not the test's own setup). */
+let ingestGmailMethods: string[] = [];
 
 afterEach(() => {
-  // Ingest makes no per-thread reads (epic decision 6). `createLabel` and
-  // `modifyThread` are the tests' own setup (the `Jev/Error` cases).
+  // Ingest makes no per-thread reads (epic decision 6): only history, plus
+  // the profile and the searches of the expired-history fallback.
   expect(
-    world?.gmail.calls
-      .map((c) => c.method)
-      .filter((m) => m !== 'listHistory' && m !== 'createLabel' && m !== 'modifyThread'),
+    ingestGmailMethods.filter(
+      (m) => m !== 'listHistory' && m !== 'getProfile' && m !== 'searchThreadIds',
+    ),
   ).toEqual([]);
-  world = undefined;
+  ingestGmailMethods = [];
 });
 
-/** Fake ports with `state.position` seeded at the mailbox's current `historyId`. */
-function setup(options: FakePortsOptions = {}): FakePorts {
+/** Calls `ingest`, recording the Gmail calls it makes for the `afterEach` check. */
+function callIngest(ports: FakePorts, queue: WorkQueue = [], options?: IngestOptions) {
+  const from = ports.gmail.calls.length;
+  try {
+    return ingest(ports, queue, options);
+  } finally {
+    ingestGmailMethods.push(...ports.gmail.calls.slice(from).map((c) => c.method));
+  }
+}
+
+/**
+ * Fake ports with `state.position` seeded at the mailbox's current `historyId`
+ * (or `historyId`), saved at `savedAt`.
+ */
+function setup(
+  options: FakePortsOptions = {},
+  seed: { readonly savedAt?: number; readonly historyId?: string } = {},
+): FakePorts {
   const ports = createFakePorts(options);
   ports.state.seedRaw(
     POSITION_KEY,
-    JSON.stringify(encodePosition({ historyId: ports.gmail.historyId, savedAt: SAVED_AT })),
+    JSON.stringify(
+      encodePosition({
+        historyId: seed.historyId ?? ports.gmail.historyId,
+        savedAt: seed.savedAt ?? SAVED_AT,
+      }),
+    ),
   );
-  world = ports;
   return ports;
 }
 
-/** Runs ingest, and checks what every returning call must do: one `ingest.done` matching the result, no alerts. */
-function run(ports: FakePorts, queue: WorkQueue = [], options?: IngestOptions) {
+/**
+ * Runs ingest, and checks what every returning call must do: one
+ * `ingest.done` matching the result, and the expected alerts (none by default).
+ */
+function run(
+  ports: FakePorts,
+  queue: WorkQueue = [],
+  options?: IngestOptions,
+  alerts: readonly string[] = [],
+) {
   const before = ports.log.all('ingest.done').length;
-  const out = ingest(ports, queue, options);
-  expect(out.result.alerts).toEqual([]);
+  const out = callIngest(ports, queue, options);
+  expect(out.result.alerts).toEqual(alerts);
   const done = ports.log.all('ingest.done');
   expect(done).toHaveLength(before + 1);
-  expect(done[done.length - 1]?.fields).toMatchObject({
+  const fields = done[done.length - 1]?.fields;
+  expect(fields).toMatchObject({
     ...out.result.counts,
     queueSize: out.queue.length,
   });
-  expect(done[done.length - 1]?.fields['stopped']).toBe(out.result.stopped);
+  expect(fields?.['stopped']).toBe(out.result.stopped);
+  const { fallback } = out.result;
+  if (fallback === undefined) {
+    expect(fields).not.toHaveProperty('fallback');
+  } else {
+    expect(fields).toMatchObject({
+      fallback: true,
+      fallbackStarted: fallback.started,
+      fallbackDone: fallback.done,
+      fallbackWindows: fallback.windows,
+      fallbackMissed: fallback.missed,
+      fallbackNextAfter: fallback.nextAfter,
+      fallbackUntil: fallback.until,
+    });
+  }
   return out;
 }
 
@@ -88,11 +144,10 @@ function oldItems(count: number): WorkItem[] {
 describe('ingest: position', () => {
   it('throws StateError missing without a position, and makes no Gmail call', () => {
     const ports = createFakePorts();
-    world = ports;
     ports.gmail.deliver();
     let error: unknown;
     try {
-      ingest(ports, []);
+      callIngest(ports, []);
     } catch (caught) {
       error = caught;
     }
@@ -105,9 +160,8 @@ describe('ingest: position', () => {
 
   it('throws the codec error for a bad position, and makes no Gmail call', () => {
     const ports = createFakePorts();
-    world = ports;
     ports.state.seedRaw(POSITION_KEY, '{"v":9,"historyId":"1","savedAt":0}');
-    expect(() => ingest(ports, [])).toThrow(StateError);
+    expect(() => callIngest(ports, [])).toThrow(StateError);
     expect(ports.gmail.calls).toEqual([]);
   });
 
@@ -323,31 +377,11 @@ describe('ingest: stopping early', () => {
     expect(writes(ports.state)).toEqual([]);
   });
 
-  it('returns the input queue on history_expired and writes nothing (until #73)', () => {
-    const ports = setup();
-    const start = ports.gmail.historyId;
-    ports.gmail.deliver();
-    ports.gmail.expireHistoryBefore(Number(start) + 1);
-    const input = oldItems(1);
-    const { queue, result } = run(ports, input);
-    expect(queue).toBe(input);
-    expect(result).toEqual({
-      stopped: 'history_expired',
-      alerts: [],
-      counts: { pages: 0, records: 0, queued: 0, merged: 0, ignored: 0, jevErrorRetries: 0 },
-    });
-    expect(writes(ports.state)).toEqual([]);
-    expect(ports.log.find('ingest.done')).toMatchObject({
-      level: 'warn',
-      fields: { stopped: 'history_expired', startHistoryId: start, historyId: start },
-    });
-  });
-
   it('lets an unrecognized Gmail error propagate, with nothing saved and no ingest.done', () => {
     const ports = setup();
     ports.gmail.deliver();
     ports.gmail.failNext('listHistory', new Error('Unexpected Gmail error'));
-    expect(() => ingest(ports, [])).toThrow('Unexpected Gmail error');
+    expect(() => callIngest(ports, [])).toThrow('Unexpected Gmail error');
     expect(writes(ports.state)).toEqual([]);
     expect(ports.log.events).toEqual([]);
   });
@@ -426,7 +460,7 @@ describe('ingest: crash safety', () => {
     const threads = [gmail.deliver(), gmail.deliver()];
     state.failNext('set', new Error('Crash'), { key: 'state.position' });
 
-    expect(() => ingest(ports, [])).toThrow('Crash');
+    expect(() => callIngest(ports, [])).toThrow('Crash');
     expect(ports.log.all('ingest.done')).toEqual([]);
     const saved = loadQueue(state);
     expect(ids(saved)).toEqual(threads.map((t) => t.threadId));
@@ -690,7 +724,7 @@ describe('ingest: Jev/Error removals', () => {
   it('throws StateError for a bad state.jevErrorLabel, before any Gmail call, and leaves it alone', () => {
     const ports = setup();
     ports.state.seedRaw(JEV_ERROR_LABEL_KEY, '{"v":1,"ids":[1]}');
-    expect(() => ingest(ports, [])).toThrow(StateError);
+    expect(() => callIngest(ports, [])).toThrow(StateError);
     expect(ports.gmail.calls).toEqual([]);
     expect(writes(ports.state)).toEqual([]);
     expect(ports.log.events).toEqual([]);
@@ -741,5 +775,621 @@ describe('ingest: Jev/Error removals', () => {
       });
       expect(position(ports.state).historyId).toBe(ports.gmail.historyId);
     });
+  });
+});
+
+describe('ingest: expired-history fallback', () => {
+  const DAY_S = 86_400;
+  const DAY_MS = DAY_S * 1000;
+
+  /**
+   * The fake's search engine for the fallback's queries: reads
+   * `after:<s> before:<s>` from `q` and compares the message's
+   * `internalDate` in epoch seconds, inclusive at both ends (spike 23, C1).
+   */
+  function windowMatcher(q: string, message: GmailMessage): boolean {
+    const match = /after:(\d+) before:(\d+)/.exec(q);
+    if (match === null) {
+      throw new Error(`windowMatcher: unexpected query "${q}"`);
+    }
+    const seconds = Math.floor(Number(message.internalDate) / 1000);
+    return seconds >= Number(match[1]) && seconds <= Number(match[2]);
+  }
+
+  /** Fake ports whose position was saved at `savedAt`, with the window matcher. */
+  function expiredSetup(savedAt: number, options: FakePortsOptions = {}): FakePorts {
+    const ports = setup(options, { savedAt });
+    ports.gmail.setSearchMatcher(windowMatcher);
+    return ports;
+  }
+
+  /** From now on, the seeded position (and every earlier one) gets the 404. */
+  function expire(ports: FakePorts): void {
+    ports.gmail.expireHistoryBefore(Number(ports.gmail.historyId) + 1);
+  }
+
+  /** The first window's `after:`: an hour before `savedAt`, in epoch seconds. */
+  function firstAfter(savedAt: number): number {
+    return Math.floor(savedAt / 1000) - 3600;
+  }
+
+  /** Delivers a new thread whose one message is dated `seconds` (epoch s). */
+  function deliverAt(ports: FakePorts, seconds: number, labelIds?: readonly string[]) {
+    return ports.gmail.deliver({
+      internalDate: seconds * 1000,
+      ...(labelIds === undefined ? {} : { labelIds }),
+    });
+  }
+
+  function cursorIn(state: FakeState): FallbackCursor | undefined {
+    const raw = state.get(FALLBACK_KEY);
+    return raw === undefined ? undefined : fallbackCursorCodec.decode(FALLBACK_KEY, raw);
+  }
+
+  function q(after: number, before: number): string {
+    return `after:${String(after)} before:${String(before)}`;
+  }
+
+  function methods(ports: FakePorts, from = 0): string[] {
+    return ports.gmail.calls.slice(from).map((c) => c.method);
+  }
+
+  function searchArgs(ports: FakePorts): unknown[] {
+    return ports.gmail.calls.filter((c) => c.method === 'searchThreadIds').map((c) => c.args[0]);
+  }
+
+  it('starts on history_expired: getProfile before any search, the cursor, history.expired and the alert', () => {
+    const ports = expiredSetup(SAVED_AT);
+    const { gmail, state } = ports;
+    const oldHistoryId = gmail.historyId;
+    deliverAt(ports, Math.floor(SAVED_AT / 1000) + 60);
+    expire(ports);
+    const resume = gmail.historyId;
+
+    // Checks: before listHistory, before getProfile, then false before the first window.
+    let checks = 0;
+    const { queue, result } = run(ports, [], { shouldContinue: () => ++checks <= 2 }, [
+      'history_expired',
+    ]);
+    expect(methods(ports)).toEqual(['listHistory', 'getProfile']);
+    expect(queue).toEqual([]);
+    expect(result).toEqual({
+      stopped: 'deadline',
+      alerts: ['history_expired'],
+      counts: { pages: 0, records: 0, queued: 0, merged: 0, ignored: 0, jevErrorRetries: 0 },
+      fallback: {
+        started: true,
+        done: false,
+        windows: 0,
+        queued: 0,
+        merged: 0,
+        missed: 0,
+        nextAfter: firstAfter(SAVED_AT),
+        until: NOW / 1000,
+      },
+    });
+    expect(cursorIn(state)).toEqual({
+      historyId: resume,
+      oldSavedAt: SAVED_AT,
+      nextAfter: firstAfter(SAVED_AT),
+      until: Math.floor(NOW / 1000),
+      windowSeconds: DAY_S,
+      startedAt: NOW,
+      queued: 0,
+      merged: 0,
+    });
+    // The old position stays until the fallback finishes.
+    expect(position(state)).toEqual({ historyId: oldHistoryId, savedAt: SAVED_AT });
+    expect(writes(state)).toEqual(['set state.fallback']);
+    expect(ports.log.all('history.expired')).toEqual([
+      {
+        level: 'warn',
+        event: 'history.expired',
+        fields: {
+          historyId: oldHistoryId,
+          savedAt: SAVED_AT,
+          resumeHistoryId: resume,
+          aheadOfMailbox: false,
+          until: NOW / 1000,
+        },
+      },
+    ]);
+  });
+
+  it('calls getProfile before the first search when it runs on', () => {
+    const ports = expiredSetup(SAVED_AT);
+    deliverAt(ports, Math.floor(SAVED_AT / 1000) + 60);
+    expire(ports);
+    run(ports, [], undefined, ['history_expired']);
+    expect(methods(ports)).toEqual(['listHistory', 'getProfile', 'searchThreadIds']);
+  });
+
+  it('takes the same path for a position ahead of the mailbox, with aheadOfMailbox true', () => {
+    const ports = createFakePorts();
+    const { gmail, state } = ports;
+    gmail.setSearchMatcher(windowMatcher);
+    const current = gmail.historyId;
+    const ahead = String(Number(current) + 1_000_000);
+    state.seedRaw(
+      POSITION_KEY,
+      JSON.stringify(encodePosition({ historyId: ahead, savedAt: SAVED_AT })),
+    );
+    const thread = deliverAt(ports, Math.floor(SAVED_AT / 1000) + 60);
+    const resume = gmail.historyId;
+
+    const { queue, result } = run(ports, [], undefined, ['history_expired']);
+    expect(methods(ports)).toEqual(['listHistory', 'getProfile', 'searchThreadIds']);
+    expect(ports.log.find('history.expired')?.fields).toEqual({
+      historyId: ahead,
+      savedAt: SAVED_AT,
+      resumeHistoryId: resume,
+      aheadOfMailbox: true,
+      until: NOW / 1000,
+    });
+    expect(ids(queue)).toEqual([thread.threadId]);
+    expect(result.fallback).toMatchObject({ started: true, done: true, windows: 1 });
+    expect(position(state)).toEqual({ historyId: resume, savedAt: NOW });
+    expect(cursorIn(state)).toBeUndefined();
+  });
+
+  it('finds mail spread over three days through several windows, then sets the position and deletes the cursor', () => {
+    const savedAt = NOW - 3 * DAY_MS;
+    const t0 = firstAfter(savedAt);
+    const until = NOW / 1000;
+    const ports = expiredSetup(savedAt);
+    const { gmail, state } = ports;
+    const oldHistoryId = gmail.historyId;
+
+    deliverAt(ports, t0 - 1); // before the lookback: not searched
+    const inLookback = deliverAt(ports, t0);
+    const endOfFirst = deliverAt(ports, t0 + DAY_S - 1);
+    const startOfSecond = deliverAt(ports, t0 + DAY_S);
+    const third = deliverAt(ports, t0 + 2 * DAY_S + 500);
+    deliverAt(ports, t0 + 2 * DAY_S + 600, ['SPAM', 'UNREAD']); // Spam: not searched
+    const lastMinute = deliverAt(ports, until - 60);
+    const atThe404 = deliverAt(ports, until);
+    expire(ports);
+    const resume = gmail.historyId;
+    const found = [inLookback, endOfFirst, startOfSecond, third, lastMinute, atThe404];
+
+    const { queue, result } = run(ports, [], undefined, ['history_expired']);
+
+    const windows = [
+      [t0, t0 + DAY_S - 1],
+      [t0 + DAY_S, t0 + 2 * DAY_S - 1],
+      [t0 + 2 * DAY_S, t0 + 3 * DAY_S - 1],
+      [t0 + 3 * DAY_S, until],
+    ] as const;
+    expect(searchArgs(ports)).toEqual(
+      windows.map(([after, before]) => ({
+        q: q(after, before),
+        includeSpamTrash: false,
+        maxResults: 500,
+      })),
+    );
+    // Each window starts one second past the previous one's end.
+    for (let i = 1; i < windows.length; i++) {
+      expect(windows[i]?.[0]).toBe((windows[i - 1]?.[1] ?? 0) + 1);
+    }
+
+    expect(queue).toEqual(
+      found.map((t) => ({
+        threadId: t.threadId,
+        source: 'scheduled',
+        enqueuedAt: NOW,
+        strikes: 0,
+        positionSavedAt: savedAt,
+      })),
+    );
+    for (const item of queue) {
+      expect(item).not.toHaveProperty('firstClassification');
+    }
+    expect(loadQueue(state)).toEqual(queue);
+    expect(result).toEqual({
+      alerts: ['history_expired'],
+      counts: { pages: 0, records: 0, queued: 6, merged: 0, ignored: 0, jevErrorRetries: 0 },
+      fallback: {
+        started: true,
+        done: true,
+        windows: 4,
+        queued: 6,
+        merged: 0,
+        missed: 0,
+        nextAfter: until + 1,
+        until,
+      },
+    });
+    expect(position(state)).toEqual({ historyId: resume, savedAt: NOW });
+    expect(cursorIn(state)).toBeUndefined();
+    // The queue before the cursor after every window; the position before the delete.
+    expect(writes(state)).toEqual([
+      'set state.fallback',
+      ...windows.flatMap(() => ['set state.queue.0', 'set state.fallback']),
+      'set state.position',
+      'delete state.fallback',
+    ]);
+    expect(ports.log.find('ingest.done')).toMatchObject({
+      level: 'info',
+      fields: {
+        startHistoryId: oldHistoryId,
+        historyId: resume,
+        fallback: true,
+        fallbackStarted: true,
+        fallbackDone: true,
+        fallbackWindows: 4,
+        fallbackMissed: 0,
+        fallbackNextAfter: until + 1,
+        fallbackUntil: until,
+      },
+    });
+  });
+
+  it('saves the queue from earlier history pages before the cursor when a later page is a 404', () => {
+    const ports = expiredSetup(SAVED_AT, { gmail: { maxPageSize: 2 } });
+    const { gmail, state } = ports;
+    const threads = [
+      deliverAt(ports, Math.floor(SAVED_AT / 1000) + 1),
+      deliverAt(ports, Math.floor(SAVED_AT / 1000) + 2),
+    ];
+    gmail.onCall = (method) => {
+      if (method === 'listHistory' && gmail.calls.length === 1) {
+        expire(ports);
+      }
+    };
+    const { queue, result } = run(ports, [], undefined, ['history_expired']);
+    expect(result.counts).toMatchObject({ pages: 1, records: 2, queued: 2, merged: 1 });
+    expect(writes(state).slice(0, 2)).toEqual(['set state.queue.0', 'set state.fallback']);
+    expect(ids(queue)).toEqual(threads.map((t) => t.threadId));
+    expect(result.fallback).toMatchObject({ queued: 1, merged: 1, done: true });
+    expect(queue.every((item) => item.positionSavedAt === SAVED_AT)).toBe(true);
+  });
+
+  it('reports the alert only from the call that starts the fallback', () => {
+    const savedAt = NOW - 2 * DAY_MS;
+    const t0 = firstAfter(savedAt);
+    const ports = expiredSetup(savedAt);
+    const { gmail } = ports;
+    const threads = [deliverAt(ports, t0 + 10), deliverAt(ports, t0 + DAY_S + 10)];
+    expire(ports);
+
+    const first = run(ports, [], { shouldContinue: () => gmail.searches.length < 1 }, [
+      'history_expired',
+    ]);
+    expect(first.result.stopped).toBe('deadline');
+    expect(first.result.fallback).toMatchObject({ started: true, done: false, windows: 1 });
+
+    const from = gmail.calls.length;
+    const second = run(ports, first.queue);
+    expect(second.result.alerts).toEqual([]);
+    expect(second.result.fallback).toMatchObject({ started: false, done: true, windows: 2 });
+    expect(ports.log.all('history.expired')).toHaveLength(1);
+    expect(methods(ports, from)).toEqual(['searchThreadIds', 'searchThreadIds']);
+    expect(ids(second.queue)).toEqual(threads.map((t) => t.threadId));
+  });
+
+  it('runs the fallback instead of listHistory while state.fallback exists, without reading the position', () => {
+    const ports = createFakePorts();
+    const { gmail, state } = ports;
+    gmail.setSearchMatcher(windowMatcher);
+    const thread = deliverAt(ports, Math.floor(SAVED_AT / 1000));
+    const cursor = startFallback({ historyId: gmail.historyId, oldSavedAt: SAVED_AT, now: NOW });
+    state.seedRaw(FALLBACK_KEY, JSON.stringify(fallbackCursorCodec.encode(cursor)));
+
+    const { queue, result } = run(ports);
+    expect(methods(ports)).toEqual(['searchThreadIds']);
+    expect(state.calls.filter((c) => c.method === 'get' && c.args[0] === POSITION_KEY)).toEqual([]);
+    expect(ids(queue)).toEqual([thread.threadId]);
+    expect(result.fallback).toMatchObject({ started: false, done: true });
+    expect(position(state)).toEqual({ historyId: cursor.historyId, savedAt: NOW });
+    expect(ports.log.find('ingest.done')?.fields).not.toHaveProperty('startHistoryId');
+    expect(ports.log.find('ingest.done')?.fields).toMatchObject({ historyId: cursor.historyId });
+  });
+
+  it('halves a window that does not fit until it does, then doubles the next one', () => {
+    const savedAt = NOW - 2 * DAY_MS;
+    const t0 = firstAfter(savedAt);
+    const ports = expiredSetup(savedAt);
+    const early = [deliverAt(ports, t0 + 100), deliverAt(ports, t0 + 200)];
+    deliverAt(ports, t0 + 30_000);
+    deliverAt(ports, t0 + 30_001);
+    deliverAt(ports, t0 + 60_000);
+    expire(ports);
+    const input = oldItems(QUEUE_MAX_ITEMS - 3);
+
+    const { queue } = run(ports, input, undefined, ['history_expired']);
+    // 5 new threads (room 3), then 4, then 2: that fits.
+    expect(ports.gmail.searches.slice(0, 4)).toEqual([
+      q(t0, t0 + DAY_S - 1),
+      q(t0, t0 + DAY_S / 2 - 1),
+      q(t0, t0 + DAY_S / 4 - 1),
+      q(t0 + DAY_S / 4, t0 + DAY_S / 4 + DAY_S / 2 - 1),
+    ]);
+    for (const thread of early) {
+      expect(ids(queue)).toContain(thread.threadId);
+    }
+  });
+
+  it('waits at the 60 s window when scheduled items leave too little room, then continues from the same window', () => {
+    const t0 = firstAfter(SAVED_AT);
+    const ports = expiredSetup(SAVED_AT);
+    const { gmail, state } = ports;
+    const threads = [deliverAt(ports, t0 + 5), deliverAt(ports, t0 + 5)];
+    expire(ports);
+    const input = oldItems(QUEUE_MAX_ITEMS - 1);
+
+    const first = run(ports, input, undefined, ['history_expired']);
+    expect(first.result.stopped).toBe('cap');
+    expect(first.result.counts).toMatchObject({ queued: 0, merged: 0 });
+    expect(first.queue).toBe(input);
+    expect(gmail.searches[gmail.searches.length - 1]).toBe(q(t0, t0 + 59));
+    expect(cursorIn(state)).toMatchObject({ nextAfter: t0, windowSeconds: 60 });
+    // The start cursor, then the shrunk one: nothing from the window.
+    expect(writes(state)).toEqual(['set state.fallback', 'set state.fallback']);
+
+    // Processing finishes two items: room for the window, and one to spare.
+    const drained = dequeue(dequeue(first.queue, 'old0'), 'old1');
+    const from = gmail.searches.length;
+    const second = run(ports, drained);
+    expect(gmail.searches[from]).toBe(q(t0, t0 + 59));
+    expect(second.result.stopped).toBeUndefined();
+    expect(second.result.fallback).toMatchObject({ done: true, queued: 2 });
+    for (const thread of threads) {
+      expect(ids(second.queue)).toContain(thread.threadId);
+    }
+  });
+
+  it('stops at cap with no search when the queue is full', () => {
+    const ports = expiredSetup(SAVED_AT);
+    deliverAt(ports, Math.floor(SAVED_AT / 1000));
+    expire(ports);
+    const input = oldItems(QUEUE_MAX_ITEMS);
+    const { queue, result } = run(ports, input, undefined, ['history_expired']);
+    expect(result.stopped).toBe('cap');
+    expect(queue).toBe(input);
+    expect(methods(ports)).toEqual(['listHistory', 'getProfile']);
+    expect(writes(ports.state)).toEqual(['set state.fallback']);
+    expect(cursorIn(ports.state)?.nextAfter).toBe(firstAfter(SAVED_AT));
+  });
+
+  it('takes what fits from a 60 s window bigger than an empty queue, logs history.fallback_missed, and moves on', () => {
+    const t0 = firstAfter(SAVED_AT);
+    const ports = expiredSetup(SAVED_AT);
+    const { state } = ports;
+    for (let i = 0; i < QUEUE_MAX_ITEMS + 5; i++) {
+      deliverAt(ports, t0 + 10);
+    }
+    expire(ports);
+
+    const { queue, result } = run(ports, [], undefined, ['history_expired']);
+    expect(queue).toHaveLength(QUEUE_MAX_ITEMS);
+    expect(loadQueue(state)).toEqual(queue);
+    expect(ports.log.all('history.fallback_missed')).toEqual([
+      {
+        level: 'warn',
+        event: 'history.fallback_missed',
+        fields: { after: t0, before: t0 + 59, missed: 5 },
+      },
+    ]);
+    // The queue is full now, so the next window waits.
+    expect(result.stopped).toBe('cap');
+    expect(result.fallback).toMatchObject({ windows: 1, queued: QUEUE_MAX_ITEMS, missed: 5 });
+    expect(cursorIn(state)).toMatchObject({ nextAfter: t0 + 60, windowSeconds: 120 });
+    expect(ports.log.find('ingest.done')?.level).toBe('warn');
+  });
+
+  it('keeps the completed windows on rate_limited at the second page of a window, and the next call finishes', () => {
+    const savedAt = NOW - 2 * DAY_MS;
+    const t0 = firstAfter(savedAt);
+    const ports = expiredSetup(savedAt, { gmail: { maxSearchPageSize: 1 } });
+    const { gmail, state } = ports;
+    const a = deliverAt(ports, t0 + 10);
+    const b = deliverAt(ports, t0 + DAY_S + 10);
+    const c = deliverAt(ports, t0 + DAY_S + 20);
+    const d = deliverAt(ports, NOW / 1000 - 10);
+    expire(ports);
+    const resume = gmail.historyId;
+    // Search calls: window 1 (one page), window 2 page 1, window 2 page 2 (fails).
+    gmail.failNext('searchThreadIds', FakeGmail.rateLimited(), { after: 2 });
+
+    const first = run(ports, [], undefined, ['history_expired']);
+    expect(first.result.stopped).toBe('rate_limited');
+    expect(ids(first.queue)).toEqual([a.threadId]);
+    expect(loadQueue(state)).toEqual(first.queue);
+    expect(cursorIn(state)).toMatchObject({ nextAfter: t0 + DAY_S, queued: 1 });
+    expect(ports.log.find('ingest.done')?.level).toBe('warn');
+
+    const second = run(ports, loadQueue(state));
+    expect(second.result.stopped).toBeUndefined();
+    expect(ids(second.queue)).toEqual([a, b, c, d].map((t) => t.threadId));
+    expect(position(state)).toEqual({ historyId: resume, savedAt: NOW });
+    expect(cursorIn(state)).toBeUndefined();
+  });
+
+  it('drops an unfinished window at the deadline between its pages', () => {
+    const savedAt = NOW - 2 * DAY_MS;
+    const t0 = firstAfter(savedAt);
+    const ports = expiredSetup(savedAt, { gmail: { maxSearchPageSize: 1 } });
+    const { gmail, state } = ports;
+    const a = deliverAt(ports, t0 + 10);
+    deliverAt(ports, t0 + DAY_S + 10);
+    deliverAt(ports, t0 + DAY_S + 20);
+    expire(ports);
+
+    // False only before window 2's second page.
+    const { queue, result } = run(
+      ports,
+      [],
+      { shouldContinue: () => gmail.searches.length !== 2 },
+      ['history_expired'],
+    );
+    expect(result.stopped).toBe('deadline');
+    expect(gmail.searches).toHaveLength(2);
+    expect(ids(queue)).toEqual([a.threadId]);
+    expect(loadQueue(state)).toEqual(queue);
+    expect(cursorIn(state)).toMatchObject({ nextAfter: t0 + DAY_S, windowSeconds: DAY_S });
+  });
+
+  it('stops paging once the new matches exceed the room, and halves the window', () => {
+    const savedAt = NOW - 2 * DAY_MS;
+    const t0 = firstAfter(savedAt);
+    const ports = expiredSetup(savedAt, { gmail: { maxSearchPageSize: 1 } });
+    for (let i = 0; i < 3; i++) {
+      deliverAt(ports, t0 + 10 + i);
+    }
+    expire(ports);
+    // Room 1: the second page's second new thread is already too many.
+    run(ports, oldItems(QUEUE_MAX_ITEMS - 1), undefined, ['history_expired']);
+    expect(ports.gmail.searches.slice(0, 3)).toEqual([
+      q(t0, t0 + DAY_S - 1),
+      q(t0, t0 + DAY_S - 1),
+      q(t0, t0 + DAY_S / 2 - 1),
+    ]);
+    expect(searchArgs(ports)[1]).toHaveProperty('pageToken');
+  });
+
+  it('treats a window as not fitting after FALLBACK_MAX_PAGES pages, and halves it', () => {
+    const savedAt = NOW - 2 * DAY_MS;
+    const t0 = firstAfter(savedAt);
+    const ports = expiredSetup(savedAt, { gmail: { maxSearchPageSize: 1 } });
+    const threads = Array.from({ length: FALLBACK_MAX_PAGES + 1 }, (_, i) =>
+      deliverAt(ports, t0 + i * 100),
+    );
+    expire(ports);
+    const { queue, result } = run(ports, [], undefined, ['history_expired']);
+    const searches = ports.gmail.searches;
+    expect(searches.slice(0, FALLBACK_MAX_PAGES + 1)).toEqual([
+      ...Array.from({ length: FALLBACK_MAX_PAGES }, () => q(t0, t0 + DAY_S - 1)),
+      q(t0, t0 + DAY_S / 2 - 1),
+    ]);
+    expect(result.fallback).toMatchObject({ done: true, missed: 0 });
+    expect(new Set(ids(queue))).toEqual(new Set(threads.map((t) => t.threadId)));
+  });
+
+  it('writes nothing on scope from getProfile, and the next call starts the fallback', () => {
+    const ports = expiredSetup(SAVED_AT);
+    const { gmail, state } = ports;
+    const before = position(state);
+    deliverAt(ports, Math.floor(SAVED_AT / 1000));
+    expire(ports);
+    gmail.failNext('getProfile', fail('scope', { message: 'Insufficient Permission' }));
+
+    const first = run(ports);
+    expect(first.result).toEqual({
+      stopped: 'scope',
+      alerts: [],
+      counts: { pages: 0, records: 0, queued: 0, merged: 0, ignored: 0, jevErrorRetries: 0 },
+    });
+    expect(methods(ports)).toEqual(['listHistory', 'getProfile']);
+    expect(writes(state)).toEqual([]);
+    expect(ports.log.all('history.expired')).toEqual([]);
+    expect(position(state)).toEqual(before);
+
+    const second = run(ports, [], undefined, ['history_expired']);
+    expect(second.result.fallback).toMatchObject({ started: true, done: true });
+    expect(second.queue).toHaveLength(1);
+  });
+
+  it('starts nothing at the deadline right after the 404, and the next call starts the fallback', () => {
+    const ports = expiredSetup(SAVED_AT);
+    deliverAt(ports, Math.floor(SAVED_AT / 1000));
+    expire(ports);
+    let checks = 0;
+    const first = run(ports, [], { shouldContinue: () => ++checks <= 1 });
+    expect(first.result.stopped).toBe('deadline');
+    expect(first.result).not.toHaveProperty('fallback');
+    expect(methods(ports)).toEqual(['listHistory']);
+    expect(writes(ports.state)).toEqual([]);
+
+    const second = run(ports, [], undefined, ['history_expired']);
+    expect(second.result.fallback).toMatchObject({ started: true, done: true });
+  });
+
+  it('keeps the completed windows at the deadline between windows', () => {
+    const savedAt = NOW - 3 * DAY_MS;
+    const t0 = firstAfter(savedAt);
+    const ports = expiredSetup(savedAt);
+    const { gmail, state } = ports;
+    const kept = [deliverAt(ports, t0 + 10), deliverAt(ports, t0 + DAY_S + 10)];
+    deliverAt(ports, t0 + 2 * DAY_S + 10);
+    expire(ports);
+
+    const { queue, result } = run(ports, [], { shouldContinue: () => gmail.searches.length < 2 }, [
+      'history_expired',
+    ]);
+    expect(result.stopped).toBe('deadline');
+    expect(result.fallback).toMatchObject({ windows: 2, done: false });
+    expect(ids(queue)).toEqual(kept.map((t) => t.threadId));
+    expect(loadQueue(state)).toEqual(queue);
+    expect(cursorIn(state)).toMatchObject({ nextAfter: t0 + 2 * DAY_S, queued: 2 });
+    expect(ports.log.find('ingest.done')?.level).toBe('info');
+  });
+
+  it('searches a window again after a crash between the queue save and the cursor save, with no duplicate', () => {
+    const savedAt = NOW - 2 * DAY_MS;
+    const t0 = firstAfter(savedAt);
+    const ports = expiredSetup(savedAt);
+    const { gmail, state } = ports;
+    const threads = [deliverAt(ports, t0 + 10), deliverAt(ports, t0 + DAY_S + 10)];
+    expire(ports);
+    // The first cursor write (the start) succeeds; the one after window 1 crashes.
+    state.failNext('set', new Error('Crash'), { key: FALLBACK_KEY, after: 1 });
+
+    expect(() => callIngest(ports, [])).toThrow('Crash');
+    expect(ports.log.all('ingest.done')).toEqual([]);
+    const saved = loadQueue(state);
+    expect(ids(saved)).toEqual([threads[0]?.threadId]);
+    expect(cursorIn(state)?.nextAfter).toBe(t0);
+
+    const from = gmail.searches.length;
+    const { queue, result } = run(ports, saved);
+    expect(gmail.searches[from]).toBe(q(t0, t0 + DAY_S - 1));
+    expect(result.counts).toMatchObject({ queued: 1, merged: 1 });
+    expect(ids(queue)).toEqual(threads.map((t) => t.threadId));
+    expect(result.fallback).toMatchObject({ done: true });
+  });
+
+  it('repeats the finish after a crash between the position write and the key delete, with no search', () => {
+    const ports = expiredSetup(SAVED_AT);
+    const { gmail, state, clock } = ports;
+    deliverAt(ports, Math.floor(SAVED_AT / 1000));
+    expire(ports);
+    const resume = gmail.historyId;
+    state.failNext('delete', new Error('Crash'), { key: FALLBACK_KEY });
+
+    expect(() => callIngest(ports, [])).toThrow('Crash');
+    expect(position(state)).toEqual({ historyId: resume, savedAt: NOW });
+    const left = cursorIn(state);
+    expect(left).toBeDefined();
+
+    clock.advance(10 * 60_000);
+    const from = gmail.calls.length;
+    const { result } = run(ports, loadQueue(state));
+    expect(methods(ports, from)).toEqual([]);
+    expect(result.fallback).toEqual({
+      started: false,
+      done: true,
+      windows: 0,
+      queued: 0,
+      merged: 0,
+      missed: 0,
+      nextAfter: left?.nextAfter,
+      until: left?.until,
+    });
+    expect(position(state)).toEqual({ historyId: resume, savedAt: NOW });
+    expect(cursorIn(state)).toBeUndefined();
+  });
+
+  it('finds a thread with messages in two windows twice, and merges it into one item', () => {
+    const savedAt = NOW - 2 * DAY_MS;
+    const t0 = firstAfter(savedAt);
+    const ports = expiredSetup(savedAt);
+    const { threadId } = deliverAt(ports, t0 + 10);
+    ports.gmail.deliver({ threadId, internalDate: (t0 + DAY_S + 10) * 1000 });
+    expire(ports);
+
+    const { queue, result } = run(ports, [], undefined, ['history_expired']);
+    expect(ids(queue)).toEqual([threadId]);
+    expect(result.counts).toMatchObject({ queued: 1, merged: 1 });
+    expect(result.fallback).toMatchObject({ queued: 1, merged: 1, windows: 3, done: true });
   });
 });

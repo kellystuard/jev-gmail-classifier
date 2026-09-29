@@ -91,7 +91,7 @@ To retry a thread marked `Jev/Error`, remove that label in Gmail. The next run p
   - the daily token budget is reached;
   - a permission is missing;
   - the configuration is invalid;
-  - Gmail's history had expired.
+  - Gmail's history had expired. After a long outage, the classifier catches up on the missed mail over several runs.
 
   Each condition sends at most one alert per day.
 
