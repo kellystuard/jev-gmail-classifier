@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { ingest, type IngestOptions } from '../../src/app/ingest.ts';
+import { rememberJevErrorLabelId } from '../../src/app/jev-error-label-store.ts';
 import { loadQueue } from '../../src/app/queue-store.ts';
 import { StateError } from '../../src/core/errors.ts';
+import { JEV_ERROR_LABEL_KEY } from '../../src/core/jev-error-label.ts';
 import { decodePosition, encodePosition, POSITION_KEY } from '../../src/core/position.ts';
 import {
   dequeue,
@@ -20,8 +22,13 @@ const SAVED_AT = Date.UTC(2026, 8, 26, 11);
 let world: FakePorts | undefined;
 
 afterEach(() => {
-  // Ingest makes no per-thread reads (epic decision 6).
-  expect(world?.gmail.calls.map((c) => c.method).filter((m) => m !== 'listHistory')).toEqual([]);
+  // Ingest makes no per-thread reads (epic decision 6). `createLabel` and
+  // `modifyThread` are the tests' own setup (the `Jev/Error` cases).
+  expect(
+    world?.gmail.calls
+      .map((c) => c.method)
+      .filter((m) => m !== 'listHistory' && m !== 'createLabel' && m !== 'modifyThread'),
+  ).toEqual([]);
   world = undefined;
 });
 
@@ -112,7 +119,7 @@ describe('ingest: position', () => {
     expect(queue).toEqual([]);
     expect(result).toEqual({
       alerts: [],
-      counts: { pages: 1, records: 0, queued: 0, merged: 0, ignored: 0 },
+      counts: { pages: 1, records: 0, queued: 0, merged: 0, ignored: 0, jevErrorRetries: 0 },
     });
     expect(writes(ports.state)).toEqual([]);
     expect(position(ports.state)).toEqual({ historyId: start, savedAt: SAVED_AT });
@@ -132,7 +139,7 @@ describe('ingest: paging and advancing', () => {
     for (const args of calls) {
       expect(args).toMatchObject({
         startHistoryId: start,
-        historyTypes: ['messageAdded'],
+        historyTypes: ['messageAdded', 'labelRemoved'],
         maxResults: 100,
       });
     }
@@ -143,7 +150,7 @@ describe('ingest: paging and advancing', () => {
     expect(loadQueue(ports.state)).toEqual(queue);
     expect(result).toEqual({
       alerts: [],
-      counts: { pages: 3, records: 6, queued: 3, merged: 0, ignored: 0 },
+      counts: { pages: 3, records: 6, queued: 3, merged: 0, ignored: 0, jevErrorRetries: 0 },
     });
     expect(position(ports.state)).toEqual({
       historyId: ports.gmail.historyId,
@@ -162,6 +169,7 @@ describe('ingest: paging and advancing', () => {
           queued: 3,
           merged: 0,
           ignored: 0,
+          jevErrorRetries: 0,
           queueSize: 3,
           startHistoryId: start,
           historyId: ports.gmail.historyId,
@@ -249,7 +257,14 @@ describe('ingest: stopping early', () => {
     };
     const { queue, result } = run(ports);
     expect(result.stopped).toBe('rate_limited');
-    expect(result.counts).toEqual({ pages: 1, records: 2, queued: 1, merged: 0, ignored: 0 });
+    expect(result.counts).toEqual({
+      pages: 1,
+      records: 2,
+      queued: 1,
+      merged: 0,
+      ignored: 0,
+      jevErrorRetries: 0,
+    });
     expect(ids(queue)).toEqual([a.threadId]);
     expect(loadQueue(state)).toEqual(queue);
     expect(position(state)).toEqual({ historyId: history[1]?.id, savedAt: ports.clock.now() });
@@ -268,7 +283,7 @@ describe('ingest: stopping early', () => {
     expect(result).toEqual({
       stopped: 'scope',
       alerts: [],
-      counts: { pages: 0, records: 0, queued: 0, merged: 0, ignored: 0 },
+      counts: { pages: 0, records: 0, queued: 0, merged: 0, ignored: 0, jevErrorRetries: 0 },
     });
     expect(queue).toEqual([]);
     expect(writes(ports.state)).toEqual([]);
@@ -301,7 +316,7 @@ describe('ingest: stopping early', () => {
     expect(result).toEqual({
       stopped: 'deadline',
       alerts: [],
-      counts: { pages: 0, records: 0, queued: 0, merged: 0, ignored: 0 },
+      counts: { pages: 0, records: 0, queued: 0, merged: 0, ignored: 0, jevErrorRetries: 0 },
     });
     expect(queue).toEqual([]);
     expect(ports.gmail.calls).toEqual([]);
@@ -319,7 +334,7 @@ describe('ingest: stopping early', () => {
     expect(result).toEqual({
       stopped: 'history_expired',
       alerts: [],
-      counts: { pages: 0, records: 0, queued: 0, merged: 0, ignored: 0 },
+      counts: { pages: 0, records: 0, queued: 0, merged: 0, ignored: 0, jevErrorRetries: 0 },
     });
     expect(writes(ports.state)).toEqual([]);
     expect(ports.log.find('ingest.done')).toMatchObject({
@@ -350,7 +365,14 @@ describe('ingest: filtering and queuing', () => {
     const archived = gmail.deliver({ labelIds: [label.id, 'UNREAD'] });
     const { queue, result } = run(ports);
     expect(ids(queue)).toEqual([sent.threadId, archived.threadId]);
-    expect(result.counts).toEqual({ pages: 1, records: 10, queued: 2, merged: 0, ignored: 3 });
+    expect(result.counts).toEqual({
+      pages: 1,
+      records: 10,
+      queued: 2,
+      merged: 0,
+      ignored: 3,
+      jevErrorRetries: 0,
+    });
     expect(position(ports.state).historyId).toBe(gmail.historyId);
   });
 
@@ -414,5 +436,310 @@ describe('ingest: crash safety', () => {
     expect(result.counts).toMatchObject({ queued: 0, merged: 2 });
     expect(queue).toEqual(saved);
     expect(position(state).historyId).toBe(gmail.historyId);
+  });
+});
+
+describe('ingest: Jev/Error removals', () => {
+  /** Creates `Jev/Error` and remembers its ID, as E6 does before it labels anything. */
+  function createJevError(ports: FakePorts): string {
+    const created = ports.gmail.createLabel('Jev/Error');
+    if (!created.ok) {
+      throw new Error('createLabel failed');
+    }
+    rememberJevErrorLabelId(ports.state, created.label.id);
+    return created.label.id;
+  }
+
+  /** A thread of `messages` messages, all labelled `labelId`. */
+  function flagThread(ports: FakePorts, labelId: string, messages = 1): string {
+    const { threadId } = ports.gmail.deliver();
+    for (let i = 1; i < messages; i += 1) {
+      ports.gmail.deliver({ threadId });
+    }
+    ports.gmail.modifyThread(threadId, { addLabelIds: [labelId], removeLabelIds: [] });
+    return threadId;
+  }
+
+  /** Moves the saved position to now, so ingest reads only what happens next. */
+  function startFromHere(ports: FakePorts): void {
+    ports.state.seedRaw(
+      POSITION_KEY,
+      JSON.stringify(encodePosition({ historyId: ports.gmail.historyId, savedAt: SAVED_AT })),
+    );
+  }
+
+  it('asks for messageAdded and labelRemoved', () => {
+    const ports = setup();
+    run(ports);
+    expect(listHistoryArgs(ports.gmail)[0]).toMatchObject({
+      historyTypes: ['messageAdded', 'labelRemoved'],
+    });
+  });
+
+  it('queues a three-message thread once, as a scheduled labels-only retry', () => {
+    const ports = setup({ gmail: { maxPageSize: 2 } });
+    const labelId = createJevError(ports);
+    const threadId = flagThread(ports, labelId, 3);
+    startFromHere(ports);
+    ports.gmail.removeLabelAsUser(threadId, labelId);
+    ports.clock.advance(5_000);
+
+    const { queue, result } = run(ports);
+    expect(ports.gmail.history.find((r) => r.labelsRemoved)?.labelsRemoved).toHaveLength(3);
+    expect(queue).toEqual([
+      {
+        threadId,
+        source: 'scheduled',
+        enqueuedAt: ports.clock.now(),
+        strikes: 0,
+        firstClassification: false,
+      },
+    ]);
+    expect(queue[0]).not.toHaveProperty('positionSavedAt');
+    expect(queue[0]).not.toHaveProperty('applyMoves');
+    // The removal's record and the bare record Gmail writes beside it.
+    expect(result.counts).toEqual({
+      pages: 1,
+      records: 2,
+      queued: 1,
+      merged: 0,
+      ignored: 0,
+      jevErrorRetries: 1,
+    });
+    expect(ports.log.find('ingest.done')?.fields).toMatchObject({ jevErrorRetries: 1 });
+    expect(loadQueue(ports.state)).toEqual(queue);
+    expect(position(ports.state)).toEqual({
+      historyId: ports.gmail.historyId,
+      savedAt: ports.clock.now(),
+    });
+  });
+
+  it('retries every thread when the label is deleted, even after a new Jev/Error exists', () => {
+    const ports = setup();
+    const oldId = createJevError(ports);
+    const a = flagThread(ports, oldId);
+    const b = flagThread(ports, oldId);
+    startFromHere(ports);
+    ports.gmail.deleteLabelAsUser(oldId);
+    const newId = createJevError(ports);
+    expect(newId).not.toBe(oldId);
+    expect(ports.state.get(JEV_ERROR_LABEL_KEY)).toEqual({ v: 1, ids: [oldId, newId] });
+
+    const { queue, result } = run(ports);
+    expect(ids(queue)).toEqual([a, b]);
+    expect(result.counts).toMatchObject({ queued: 2, jevErrorRetries: 2 });
+    for (const item of queue) {
+      expect(item).toMatchObject({ source: 'scheduled', strikes: 0, firstClassification: false });
+    }
+    expect(position(ports.state).historyId).toBe(ports.gmail.historyId);
+  });
+
+  it('queues nothing for a removal on a thread in Trash, and moves past it', () => {
+    const ports = setup();
+    const labelId = createJevError(ports);
+    const threadId = flagThread(ports, labelId, 2);
+    ports.gmail.modifyThread(threadId, { addLabelIds: ['TRASH'], removeLabelIds: [] });
+    startFromHere(ports);
+    ports.gmail.removeLabelAsUser(threadId, labelId);
+
+    const { queue, result } = run(ports);
+    expect(queue).toEqual([]);
+    expect(result.counts).toMatchObject({ queued: 0, merged: 0, jevErrorRetries: 0 });
+    expect(writes(ports.state)).not.toContain('set state.queue.0');
+    expect(position(ports.state).historyId).toBe(ports.gmail.historyId);
+  });
+
+  it('queues nothing when trashing a labelled thread writes its INBOX removal', () => {
+    const ports = setup();
+    const labelId = createJevError(ports);
+    const threadId = flagThread(ports, labelId);
+    startFromHere(ports);
+    ports.gmail.modifyThread(threadId, { addLabelIds: ['TRASH'], removeLabelIds: [] });
+
+    const { queue, result } = run(ports);
+    expect(ports.gmail.history.some((r) => r.labelsRemoved !== undefined)).toBe(true);
+    expect(queue).toEqual([]);
+    expect(result.counts).toMatchObject({ queued: 0, merged: 0, jevErrorRetries: 0 });
+  });
+
+  it('queues nothing for the removal of another user label, or of UNREAD', () => {
+    const ports = setup();
+    createJevError(ports);
+    const other = ports.gmail.seedLabel('Newsletters');
+    const { threadId } = ports.gmail.deliver();
+    ports.gmail.modifyThread(threadId, { addLabelIds: [other.id], removeLabelIds: [] });
+    startFromHere(ports);
+    ports.gmail.removeLabelAsUser(threadId, other.id);
+    ports.gmail.removeLabelAsUser(threadId, 'UNREAD');
+
+    const { queue, result } = run(ports);
+    expect(result.counts).toMatchObject({ queued: 0, merged: 0, jevErrorRetries: 0 });
+    expect(queue).toEqual([]);
+    expect(position(ports.state).historyId).toBe(ports.gmail.historyId);
+  });
+
+  it('queues a thread removed, labelled again and removed again once', () => {
+    const ports = setup();
+    const labelId = createJevError(ports);
+    const threadId = flagThread(ports, labelId);
+    startFromHere(ports);
+    ports.gmail.removeLabelAsUser(threadId, labelId);
+    ports.gmail.modifyThread(threadId, { addLabelIds: [labelId], removeLabelIds: [] });
+    ports.gmail.removeLabelAsUser(threadId, labelId);
+
+    const { queue, result } = run(ports);
+    expect(ids(queue)).toEqual([threadId]);
+    expect(result.counts).toMatchObject({
+      queued: 1,
+      merged: 1,
+      jevErrorRetries: 1,
+    });
+  });
+
+  it('merges into an item already queued: strikes 0, the earlier enqueuedAt and the queue length kept', () => {
+    const ports = setup();
+    const labelId = createJevError(ports);
+    const threadId = flagThread(ports, labelId);
+    startFromHere(ports);
+    ports.gmail.removeLabelAsUser(threadId, labelId);
+    const existing: WorkItem = {
+      threadId,
+      source: 'scheduled',
+      enqueuedAt: 500,
+      strikes: 2,
+      positionSavedAt: 400,
+    };
+    const other = oldItems(1);
+
+    const { queue, result } = run(ports, [...other, existing]);
+    expect(queue).toHaveLength(2);
+    expect(queue.find((item) => item.threadId === threadId)).toEqual({
+      threadId,
+      source: 'scheduled',
+      enqueuedAt: 500,
+      strikes: 0,
+      positionSavedAt: 400,
+      firstClassification: false,
+    });
+    expect(result.counts).toMatchObject({ queued: 0, merged: 1, jevErrorRetries: 1 });
+    expect(loadQueue(ports.state)).toEqual(queue);
+  });
+
+  it('keeps a decided firstClassification when merging a retry', () => {
+    const ports = setup();
+    const labelId = createJevError(ports);
+    const threadId = flagThread(ports, labelId);
+    startFromHere(ports);
+    ports.gmail.removeLabelAsUser(threadId, labelId);
+    const existing: WorkItem = {
+      threadId,
+      source: 'scheduled',
+      enqueuedAt: 500,
+      strikes: 1,
+      firstClassification: true,
+    };
+    const { queue } = run(ports, [existing]);
+    expect(queue).toEqual([{ ...existing, strikes: 0 }]);
+  });
+
+  it.each<[string, boolean]>([
+    ['a new message, then the removal', true],
+    ['the removal, then a new message', false],
+  ])('queues one item for %s', (_name, messageFirst) => {
+    const ports = setup();
+    const labelId = createJevError(ports);
+    const threadId = flagThread(ports, labelId);
+    startFromHere(ports);
+    if (messageFirst) {
+      ports.gmail.deliver({ threadId });
+      ports.gmail.removeLabelAsUser(threadId, labelId);
+    } else {
+      ports.gmail.removeLabelAsUser(threadId, labelId);
+      ports.gmail.deliver({ threadId });
+    }
+
+    const { queue, result } = run(ports);
+    expect(queue).toEqual([
+      {
+        threadId,
+        source: 'scheduled',
+        enqueuedAt: ports.clock.now(),
+        strikes: 0,
+        positionSavedAt: SAVED_AT,
+        firstClassification: false,
+      },
+    ]);
+    expect(result.counts).toMatchObject({ queued: 1, merged: 1, jevErrorRetries: 1 });
+  });
+
+  it('queues nothing without state.jevErrorLabel, and still moves the position', () => {
+    const ports = setup();
+    const label = ports.gmail.seedLabel('Jev/Error');
+    const { threadId } = ports.gmail.deliver();
+    ports.gmail.modifyThread(threadId, { addLabelIds: [label.id], removeLabelIds: [] });
+    startFromHere(ports);
+    ports.gmail.removeLabelAsUser(threadId, label.id);
+
+    expect(ports.state.get(JEV_ERROR_LABEL_KEY)).toBeUndefined();
+    const { queue, result } = run(ports);
+    expect(queue).toEqual([]);
+    expect(result.counts).toMatchObject({ queued: 0, jevErrorRetries: 0 });
+    expect(position(ports.state).historyId).toBe(ports.gmail.historyId);
+  });
+
+  it('throws StateError for a bad state.jevErrorLabel, before any Gmail call, and leaves it alone', () => {
+    const ports = setup();
+    ports.state.seedRaw(JEV_ERROR_LABEL_KEY, '{"v":1,"ids":[1]}');
+    expect(() => ingest(ports, [])).toThrow(StateError);
+    expect(ports.gmail.calls).toEqual([]);
+    expect(writes(ports.state)).toEqual([]);
+    expect(ports.log.events).toEqual([]);
+  });
+
+  describe('at the queue cap', () => {
+    it('stops at a removal of a thread not queued, with the position at the record before it', () => {
+      const ports = setup();
+      const labelId = createJevError(ports);
+      const threadId = flagThread(ports, labelId);
+      startFromHere(ports);
+      // A draft is ignored (handled), then the removal (not handled at the cap).
+      ports.gmail.deliver({ labelIds: ['DRAFT'] });
+      ports.gmail.removeLabelAsUser(threadId, labelId);
+      const before = position(ports.state);
+      const input = oldItems(QUEUE_MAX_ITEMS);
+
+      const { queue, result } = run(ports, input);
+      expect(result.stopped).toBe('cap');
+      expect(result.counts).toMatchObject({ queued: 0, jevErrorRetries: 0 });
+      expect(queue).toBe(input);
+      // The position is the record just before the removal record.
+      const history = ports.gmail.history;
+      const removalIndex = history.findIndex((r) => r.labelsRemoved !== undefined);
+      expect(removalIndex).toBeGreaterThan(0);
+      expect(position(ports.state).historyId).toBe(history[removalIndex - 1]?.id);
+      expect(position(ports.state).historyId).not.toBe(before.historyId);
+    });
+
+    it('merges a removal of a thread already queued, and moves past it', () => {
+      const ports = setup();
+      const labelId = createJevError(ports);
+      const threadId = flagThread(ports, labelId);
+      startFromHere(ports);
+      ports.gmail.removeLabelAsUser(threadId, labelId);
+      const queued: WorkItem = { threadId, source: 'scheduled', enqueuedAt: 10, strikes: 1 };
+      const input = [...oldItems(QUEUE_MAX_ITEMS - 1), queued];
+      expect(input).toHaveLength(QUEUE_MAX_ITEMS);
+
+      const { queue, result } = run(ports, input);
+      expect(result.stopped).toBeUndefined();
+      expect(result.counts).toMatchObject({ queued: 0, merged: 1, jevErrorRetries: 1 });
+      expect(queue).toHaveLength(QUEUE_MAX_ITEMS);
+      expect(queue.find((item) => item.threadId === threadId)).toMatchObject({
+        strikes: 0,
+        firstClassification: false,
+        enqueuedAt: 10,
+      });
+      expect(position(ports.state).historyId).toBe(ports.gmail.historyId);
+    });
   });
 });
