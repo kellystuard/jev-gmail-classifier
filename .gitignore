@@ -75,6 +75,8 @@ web_modules/
 
 # Local project config and clasp settings (copy from the committed *.example files)
 config.yaml
+# The probe tests' default config: synthetic, the rules of config.example.yaml.
+!test/fixtures/probe-root/config.yaml
 .clasp.json
 .clasprc.json
 

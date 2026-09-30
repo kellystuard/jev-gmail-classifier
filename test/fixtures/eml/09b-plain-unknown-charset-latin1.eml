@@ -1,0 +1,11 @@
+From: Synthetic Sender <sender@example.com>
+To: Recipient <recipient@example.org>
+Subject: s29-09b plain unknown charset, iso-8859-1 bytes
+Date: Thu, 24 Sep 2026 12:00:00 +0000
+Message-ID: <s29-09b@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="x-unknown"
+Content-Transfer-Encoding: quoted-printable
+
+Scenario 9 control: charset=3D"x-unknown", ISO-8859-1 bytes: caf=E9 Gr=
+=FC=DFe =A35.

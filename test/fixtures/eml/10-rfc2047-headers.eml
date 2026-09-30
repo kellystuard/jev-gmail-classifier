@@ -1,0 +1,11 @@
+From: =?ISO-8859-1?Q?Jos=E9_M=FCller?= <jose@example.com>
+To: =?UTF-8?Q?Gr=C3=BC=C3=9Fe_Empf=C3=A4nger?= <recipient@example.org>
+Subject: s29-10 =?UTF-8?B?R3LDvMOfZSBhdXM=?=
+ =?UTF-8?B?IOaXpeacrCBlbmNvZGVkIHN1YmplY3Q=?=
+Date: Thu, 24 Sep 2026 12:00:00 +0000
+Message-ID: <s29-10@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: 7bit
+
+Scenario 10: RFC 2047 encoded Subject, From, and To display names. ASCII body.

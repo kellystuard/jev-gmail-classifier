@@ -15,7 +15,8 @@
     "test": "vitest run --coverage",
     "test:watch": "vitest watch",
     "lint": "eslint . --max-warnings 0 && prettier --check .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "probe": "node scripts/probe.ts"
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "^4.8.1",

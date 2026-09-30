@@ -1,0 +1,52 @@
+From: Synthetic Sender <sender@example.com>
+To: Recipient <recipient@example.org>
+Subject: s29-14b inline message/rfc822 (API-built)
+Date: Thu, 24 Sep 2026 12:00:00 +0000
+Message-ID: <s29-14b@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="s29b_mixed_6"
+
+--s29b_mixed_6
+Content-Type: multipart/alternative; boundary="s29b_alternative_5"
+
+--s29b_alternative_5
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: 7bit
+
+Scenario 14: forwarded message attached.
+
+--s29b_alternative_5
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: 7bit
+
+<div dir="ltr">Scenario 14: forwarded message attached.</div>
+
+--s29b_alternative_5--
+
+--s29b_mixed_6
+Content-Type: message/rfc822
+
+From: =?ISO-8859-1?Q?Jos=E9_M=FCller?= <jose@example.com>
+To: Recipient <recipient@example.org>
+Subject: =?UTF-8?B?czI5LTE0IGlubmVyIEdyw7bDn2UgY2Fmw6kg5pel5pys?=
+Date: Wed, 23 Sep 2026 09:30:00 +0000
+Message-ID: <s29-14-inner@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="s29b_alternative_4"
+
+--s29b_alternative_4
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: base64
+
+SW5uZXIgbWVzc2FnZSBvZiBzY2VuYXJpbyAxNC4gR3LDtsOfZSBjYWbDqSDml6XmnKwuDQo=
+
+--s29b_alternative_4
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: base64
+
+PGRpdiBkaXI9Imx0ciI+SW5uZXIgbWVzc2FnZSBvZiBzY2VuYXJpbyAxNC4gPGI+R3LDtsOfZSBj
+YWbDqSDml6XmnKw8L2I+LjwvZGl2Pg0K
+
+--s29b_alternative_4--
+
+--s29b_mixed_6--

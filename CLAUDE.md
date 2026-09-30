@@ -11,7 +11,7 @@ The tooling is in place (E2, #8), history sync is done (E3, #9), and so is Threa
 - `npm run typecheck`: `tsc --noEmit`.
 - `npm test`: Vitest once, with coverage (reported, never enforced). `npm run test:watch` runs it in watch mode.
 - `npm run push`: `build` from `config.yaml`, then `clasp push` to the project in your `.clasp.json`. It's the only deploy, and it's manual.
-- `npm run probe` (the local Jev probe) arrives with E5 (#101, #102).
+- `npm run probe -- [--config <file>] [--show-state] [--json] [--env <file>] <file.eml>...`: the local Jev probe. It sends each `.eml` to Jev with your key (from `.env`) and prints each rule's probability and whether it fires. Use only synthetic mail, or mail you are happy to send.
 
 CI runs `npm ci`, lint, typecheck, test, the example-config build, and `git diff --exit-code` on Node 24 and 26 for every PR and push to `main`.
 

@@ -1,0 +1,22 @@
+From: Synthetic Sender <sender@example.com>
+To: Recipient <recipient@example.org>
+Subject: s29-07 plain shift_jis and iso-2022-jp base64
+Date: Thu, 24 Sep 2026 12:00:00 +0000
+Message-ID: <s29-07@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="s29b_mixed_5"
+
+--s29b_mixed_5
+Content-Type: text/plain; charset="Shift_JIS"
+Content-Transfer-Encoding: base64
+
+g1aDaYOKg0mCVoFGU2hpZnRfSklTIILMg2WDTINYg2eBQpP6lnuM6oLFgreBQg0K
+
+--s29b_mixed_5
+Content-Type: text/plain; charset="ISO-2022-JP"
+Content-Transfer-Encoding: base64
+
+GyRCJTclSiVqJSojNyEnGyhCSVNPLTIwMjItSlAgGyRCJE4lRiUtJTklSCEjJDMkcyRLJEEkT0Ak
+MyYhIxsoQg0K
+
+--s29b_mixed_5--

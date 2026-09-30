@@ -1,0 +1,24 @@
+From: Synthetic Sender <sender@example.com>
+To: Recipient <recipient@example.org>
+Subject: s29-03 alternative utf8 base64
+Date: Thu, 24 Sep 2026 12:00:00 +0000
+Message-ID: <s29-03@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="s29b_alternative_1"
+
+--s29b_alternative_1
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: base64
+
+U2NlbmFyaW8gMzogbXVsdGlwYXJ0L2FsdGVybmF0aXZlLCBVVEYtOCwgYmFzZTY0Lg0KR3LDvMOf
+ZSwg5pel5pys6KqeLCBlbW9qaSDwn5mCLg0K
+
+--s29b_alternative_1
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: base64
+
+PGh0bWw+PGJvZHk+PHA+U2NlbmFyaW8gMzogbXVsdGlwYXJ0L2FsdGVybmF0aXZlLCBVVEYtOCwg
+YmFzZTY0LjwvcD48cD5HcsO8w59lLCDml6XmnKzoqp4sIGVtb2ppIPCfmYIuPC9wPjwvYm9keT48
+L2h0bWw+DQo=
+
+--s29b_alternative_1--

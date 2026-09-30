@@ -1,0 +1,12 @@
+From: Synthetic Sender <sender@example.com>
+To: Recipient <recipient@example.org>
+Subject: s29-06 html windows-1252 quoted-printable
+Date: Thu, 24 Sep 2026 12:00:00 +0000
+Message-ID: <s29-06@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset="windows-1252"
+Content-Transfer-Encoding: quoted-printable
+
+<html><body><p>Scenario 6: windows-1252 =93curly quotes=94, =91single=92=
+, =80 5, em dash =97 en dash =96, ellipsis =85, trademark =99, bullet =
+=95.</p></body></html>
