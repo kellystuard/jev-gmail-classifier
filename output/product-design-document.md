@@ -92,7 +92,7 @@ Trigger fires
 
 ### 4.4 What Is Sent to Jev
 
-Each thread is one request, containing every rule's question (keyed by rule `id`) and the thread's content: a list of messages, newest first, each with a fixed header allowlist under descriptive names and a plain-text body (converted from HTML when needed, per `plainTextMethod`). The oldest content is truncated first to fit Jev's limit. Attachments are never sent. The details are in the [README](../README.md#what-is-sent-to-jev) and the [Solution Design](solution-design.md#83-state-layout).
+Each thread is one request, containing every rule's question (keyed by rule `id`) and the thread's content: a list of messages, newest first, each with a fixed header allowlist under descriptive names and a plain-text body (converted from HTML when needed, per `plainTextMethod`). The oldest content is truncated first to fit Jev's limit. Attachments are never sent, and drafts and messages in Spam or Trash are left out of the thread's content. The details are in the [README](../README.md#what-is-sent-to-jev) and the [Solution Design](solution-design.md#83-state-layout).
 
 ### 4.5 Applying Outcomes
 

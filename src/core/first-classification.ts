@@ -35,7 +35,7 @@ export function isFirstClassification(
 }
 
 /** Parses a string of decimal characters 0-9 into a safe integer, else `undefined`. */
-function parseInternalDate(value: string | undefined): number | undefined {
+export function parseInternalDate(value: string | undefined): number | undefined {
   if (typeof value !== 'string' || !/^\d+$/.test(value)) return undefined;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : undefined;
