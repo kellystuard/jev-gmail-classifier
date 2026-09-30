@@ -520,8 +520,8 @@ The client is hand-written, because the official SDK needs `fetch`. It has two h
 
 - **Pure functions in `core/`:**
   - `buildRequest({model, rules}, state)`, with the `JEV_ENDPOINT` constant
-  - `interpretResponse(status, headers, body) → JevResult`
   - `retryDelay(attempt, retryAfterMs, random) → ms | undefined` and `parseRetryAfter(headers, nowMs) → ms | undefined`
+  - `interpretResponse(response, ruleIds) → JevResult`, with `response` a `{status, headers, body}` and `ruleIds` the config's rule ids, and `usageInputTokens(response)`, which reads the billed input tokens of a 200 and never throws (both in `src/core/jev-response.ts`)
 - **A transport:** the `HttpPort` and its `fetchAll` adapter.
 
 The local probe ([§12](#12-testing-architecture)) reuses the pure half with Node's `fetch`.
@@ -545,10 +545,10 @@ The local probe ([§12](#12-testing-architecture)) reuses the pure half with Nod
 ```
 
 - The body is built by `buildRequest` in `src/core/jev-request.ts`. The API key and the headers are added by the caller (the sender and the probe).
-- Answers are matched by `rule.id`. A missing or malformed answer is an unexpected response ([§10.1](#101-error-model)).
+- Answers are matched by `rule.id`, as own keys of `answers`. Each must be `{type: "noul", noul: p}` with `p` a finite number in `[0, 1]`. A missing or malformed answer is an unexpected response ([§10.1](#101-error-model)). Extra keys (ids we didn't ask, unknown envelope fields) are ignored. `test/fixtures/jev/` holds the recorded responses the tests use.
 - The actual `model` returned and the `x-typesafe-request-id` response header are logged with every classification.
 - `usage.input_tokens` feeds the daily budget.
-- The error body format is undocumented, so it is parsed defensively. It is logged only after truncation, and it never contains email content that we sent back.
+- The error body format is undocumented, and a 422 body echoes the request (`state` included), so it is parsed defensively and **never logged or put in an error or a result**. Only `detail.error_type`, when it is a short identifier, is kept (as `errorType`).
 
 ### 8.3 `state` layout
 
@@ -721,7 +721,13 @@ repeat:
 Exceptions are for **invalid input or invalid state**. An expected failure is a **result**, not an exception ([ADR-0006](adr/0006-results-and-error-boundaries.md)).
 
 - **Results.** Operations that can fail in expected ways return a discriminated union, for example:
-  - `JevResult = {ok: true, answers, usage, requestId} | {ok: false, kind: 'retryable' | 'invalid' | 'auth' | 'config' | 'scope', …}`
+  - `JevResult` (`src/core/jev-response.ts`), built by `interpretResponse(response, ruleIds)`:
+    - `ok`: `{ok: true, answers, inputTokens, outputTokens?, requestId?, model}`. `answers` maps each asked rule id, in order, to its probability. Absent optional fields are omitted.
+    - `fail('invalid', {status, errorType?, requestId?})`: a 422, or the 400 `max_tokens_exceeded`.
+    - `fail('auth', {status, requestId?})`: 401, 402 or 403.
+    - `fail('config', {status, errorType?, requestId?})`: the unknown-model response.
+    - `fail('retryable', {status, requestId?})`: still retryable when the sender's rounds ran out.
+    - `fail('scope', {message})`: never returned by `interpretResponse`. The sender returns it for a request `HttpPort` refused for a missing scope.
 
   An `ok:false` from Jev is a successful call that failed. The code handling it also "fails successfully": it records a strike or a `Jev/Error`, and does not throw.
 
