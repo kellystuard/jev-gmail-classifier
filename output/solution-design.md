@@ -517,7 +517,7 @@ stateDiagram-v2
 The client is hand-written, because the official SDK needs `fetch`. It has two halves ([ADR-0010](adr/0010-jev-request-shape-and-retries.md)):
 
 - **Pure functions in `core/`:**
-  - `buildRequest(config, state)`
+  - `buildRequest({model, rules}, state)`, with the `JEV_ENDPOINT` constant
   - `interpretResponse(status, headers, body) → JevResult`
   - `retryDelay(attempt, retryAfter, random)`
 - **A transport:** the `HttpPort` and its `fetchAll` adapter.
@@ -542,6 +542,7 @@ The local probe ([§12](#12-testing-architecture)) reuses the pure half with Nod
   "usage": { "input_tokens": 2140, "output_tokens": 20 } }
 ```
 
+- The body is built by `buildRequest` in `src/core/jev-request.ts`. The API key and the headers are added by the caller (the sender and the probe).
 - Answers are matched by `rule.id`. A missing or malformed answer is an unexpected response ([§10.1](#101-error-model)).
 - The actual `model` returned and the `x-typesafe-request-id` response header are logged with every classification.
 - `usage.input_tokens` feeds the daily budget.
