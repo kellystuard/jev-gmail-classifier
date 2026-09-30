@@ -14,7 +14,7 @@ Each check gives the call and the expected result.
 4. Listing from a record's `id` returns only the records after it.
 5. Listing from `startHistoryId: '1'` returns `{ ok: false, kind: 'history_expired' }` and doesn't throw.
 6. With nothing new since the position, `records` is `[]`.
-7. Not observed yet (#125): with `gmail.modify` unticked at consent, a call returns `{ ok: false, kind: 'scope' }` and doesn't throw.
+7. Not observed yet (#268): with `gmail.modify` unticked at consent, a call returns `{ ok: false, kind: 'scope' }` and doesn't throw.
 
 ### Thread search and reads (`searchThreadIds`, `getThread`)
 
@@ -30,7 +30,7 @@ Same setup. Use a mailbox with at least 3 threads in the inbox, and keep the IDs
 8. `getThread` on a thread that has a Trash or Spam message returns that message too, with `TRASH` or `SPAM` in its `labelIds` (SD §14).
 9. `getThread` on a thread deleted forever in the Gmail UI returns `{ ok: false, kind: 'not_found' }` and doesn't throw.
 10. `getThread('not-a-thread-id', { format: 'minimal' })` throws `UnexpectedResponseError` (`service: 'gmail'`, `status: 400`; note the status if it differs), and the error holds no header text.
-11. Not run until #125: with `gmail.modify` unticked at consent, both methods return `{ ok: false, kind: 'scope' }` and don't throw.
+11. Not run until #268: with `gmail.modify` unticked at consent, both methods return `{ ok: false, kind: 'scope' }` and don't throw.
 
 ### Labels and moves (`listLabels`, `createLabel`, `modifyThread`)
 
@@ -48,7 +48,7 @@ Same setup. Import synthetic threads first (for example with `Gmail.Users.Messag
    - spam: add `SPAM` and remove `INBOX`; user labels are kept;
    - trash: add `TRASH` only; `INBOX` goes too, and user labels are kept.
 8. `modifyThread` on a thread deleted forever in the Gmail UI returns `{ ok: false, kind: 'not_found' }` and doesn't throw.
-9. Not run until #125: with `gmail.modify` unticked at consent, each of the three methods returns `{ ok: false, kind: 'scope' }` and doesn't throw.
+9. Not run until #268: with `gmail.modify` unticked at consent, each of the three methods returns `{ ok: false, kind: 'scope' }` and doesn't throw.
 
 Afterwards, delete the `JevSmoke` labels and the synthetic threads.
 
@@ -86,4 +86,11 @@ The "Jev request" below is `{ url: 'https://api.typesafe.ai/v1/systemone', metho
 4. `sendAll([<Jev request>, { url: 'https://jev-smoke.invalid/', method: 'get', headers: {} }, { url: 'https://www.google.com/generate_204', method: 'get', headers: {} }])` returns three `{ ok: false, kind: 'transport', message: 'DNS error: https://jev-smoke.invalid/' }` results and doesn't throw. No `message` contains `Bearer`, the key, or the payload.
 5. `sendAll([{ url: 'https://google.com/', method: 'get', headers: {} }])` returns status 301 with a `location` header, not the redirected page.
 6. `new GasSecretsAdapter().getJevApiKey()`: with `JEV_API_KEY` unset → `undefined`; set to `'   '` → `undefined`; set to `' test-key '` → `'test-key'`. Restore the real key afterwards.
-7. Not observed yet (#125): with `script.external_request` unticked at consent, every result is `{ ok: false, kind: 'scope' }` and nothing throws.
+7. Not observed yet (#268): with `script.external_request` unticked at consent, every result is `{ ok: false, kind: 'scope' }` and nothing throws.
+
+## Auth adapter (GasAuthAdapter)
+
+This runs through `install` / `onTrigger` once E7 (#121) wires `new GasAuthAdapter()` into `src/entry/main.ts`; until then, from a scratch function in the throwaway test account. Write `<test-account>`, never the address.
+
+1. With all four scopes granted, `new GasAuthAdapter().missingScopes()` returns `{ ok: true, missing: [] }` and doesn't throw.
+2. Not observed yet (#268, partly granted states): with one scope unticked at consent, `missing` is exactly that scope. With `script.scriptapp` unticked, record whether it returns `missing: ['https://www.googleapis.com/auth/script.scriptapp']` or `{ ok: false, kind: 'unknown' }`. In no state does it throw.
