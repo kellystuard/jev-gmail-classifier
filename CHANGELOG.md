@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.4.0...v0.5.0) (2026-09-30)
+
+
+### Features
+
+* **gmail:** implement the label and move methods with their error mapping ([#256](https://github.com/kellystuard/jev-gmail-classifier/issues/256)) ([7e6eae5](https://github.com/kellystuard/jev-gmail-classifier/commit/7e6eae522fd2c5874d774ecd1926f41b0229e392))
+* **outcomes:** add strikes and the Jev/Error outcome ([#260](https://github.com/kellystuard/jev-gmail-classifier/issues/260)) ([94e55a0](https://github.com/kellystuard/jev-gmail-classifier/commit/94e55a0e81e189c05b5d7009bcb91370c1a2a608))
+* **outcomes:** apply labels and moves in one threads.modify ([#257](https://github.com/kellystuard/jev-gmail-classifier/issues/257)) ([994ab87](https://github.com/kellystuard/jev-gmail-classifier/commit/994ab87b0b12b509fb5bbea5ac712e89931bc926))
+* **outcomes:** skip only the move when a scope is missing ([#259](https://github.com/kellystuard/jev-gmail-classifier/issues/259)) ([6f6ba0e](https://github.com/kellystuard/jev-gmail-classifier/commit/6f6ba0e2a9295ab8ea18758c332fd5f508a872c6))
+
 ## [0.4.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.3.0...v0.4.0) (2026-09-30)
 
 
