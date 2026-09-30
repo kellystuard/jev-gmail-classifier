@@ -348,8 +348,8 @@ sequenceDiagram
    - The search matches **per message**. A thread is returned when one message satisfies the whole query.
    - Confirmed by E1 ([`spikes/23-exclusion-query.md`](../spikes/23-exclusion-query.md)). A new message was searchable within a second of `history.list` reporting it (self-sends and uploads), so no indexing-lag delay is needed.
 3. **Build `state`** for each remaining thread ([§8.3](#83-state-layout)).
-4. **Budget check.** If the daily token budget is already spent, stop. Items stay queued, and the budget alert is sent. A run may overshoot by at most the batch in flight.
-5. **Send** all the chunk's requests with `fetchAll`, retrying in rounds ([§8.5](#85-retries-in-rounds)).
+4. **Budget preflight (optional).** E7 may use `loadBudget` and `isBudgetReached` to skip reading threads when the daily token budget is already spent. The check that counts is in the sender: it runs before each batch ([§10.2](#102-token-budget)). Items held back stay queued, and the budget alert is sent.
+5. **Send** all the chunk's requests with `fetchAll`, retrying in rounds ([§8.5](#85-retries-in-rounds)). The sender checks the budget before each batch and records the tokens after it.
 6. **Per-thread outcome.** This is the per-thread error boundary ([§10.1](#101-error-model)).
    - **Success:** decide and apply outcomes ([§6.5](#65-applying-outcomes)), log `thread.classified`, and dequeue.
    - **Retryable failure, retries exhausted:** add a strike and leave the item queued for the next run. On the third strike, add `Jev/Error`, dequeue, and queue an alert.
@@ -357,7 +357,7 @@ sequenceDiagram
    - **Auth (401, 402 or 403) or missing key:** stop the whole run. Nothing is marked, items stay queued, and an alert is sent.
    - **Config (the unknown-model response):** stop the whole run like auth, and send the `config_invalid` alert.
    - **Outage (a round in which every request got a 5xx or a network error, [§8.5](#85-retries-in-rounds)):** stop sending. Nothing is struck and the items stay queued.
-7. **Record** token usage into today's budget.
+7. **Token usage** is recorded into today's budget by the sender, after each batch, not here.
 
 ### 6.5 Applying outcomes
 
@@ -490,7 +490,7 @@ All persistent state goes through `StatePort` ([ADR-0007](adr/0007-script-proper
 | `state.fallback` | The expired-history fallback's cursor (#73): `{v, historyId, oldSavedAt, nextAfter, until, windowSeconds, startedAt, queued, merged}` (`src/core/history-fallback.ts`, #211). Present only while a fallback is running. | One cursor; deleted when the fallback finishes. |
 | `state.queue.<n>` | The work queue, a sharded list (`src/core/work-queue.ts`, `src/app/queue-store.ts`). Each shard is `{"v": 1, "items": [...]}`, and an item is version 1 (#61): `threadId` (1 to 32 characters from `A-Za-z0-9_-`), `source` (`scheduled` or `manual`), `enqueuedAt` (epoch ms), `strikes` (0 to 2), and the optional `positionSavedAt` (epoch ms, from the position the item was queued against), `firstClassification` (unset until the first read decides it, then fixed) and `applyMoves` (manual items only). Timestamps are integers of at most 13 digits. Items are written in that field order with absent optional fields left out, so an unchanged item gives the same JSON text.<ul><li>**Order:** scheduled items first, then manual, each by `enqueuedAt` ascending, ties in their existing order. The order lives in memory: `loadQueue` re-sorts after reading, so the shard an item is in doesn't matter.</li><li>**Merge** (same `threadId`, [§6.3](#63-ingest-gmail-history-to-work-queue)): `source` is `scheduled` if either is; `applyMoves` is true if either is; `enqueuedAt` is the earlier; a decided `firstClassification` and an existing `positionSavedAt` are kept; `strikes` are kept, except that a `Jev/Error` removal resets them to 0.</li><li>**Removal:** `takeChunk` removes nothing. An item leaves the queue only through `dequeue` or the third `addStrike`, once it's finished.</li></ul> | Capped: `QUEUE_MAX_ITEMS` = 1,000 in total, `QUEUE_MAX_MANUAL_ITEMS` = 200 of them manual (so a manual job can never block scheduled ingest), and `QUEUE_MAX_SHARDS` = 24. A full queue of worst-case items (about 187 bytes each) needs about 21 shards, and a test proves it fits. Internal constants, not config. Ingest stops at the cap (back-pressure); a merge always succeeds. |
 | `state.manual` | The manual job: query, flags, cursor, counts. | One job. |
-| `state.budget` | `{"v": 1, "day": "YYYY-MM-DD", "inputTokens": <int>}` (`src/core/token-budget.ts`, #99): `day` is a real calendar day in the script's time zone, `inputTokens` a non-negative safe integer (Jev's `usage.input_tokens` summed over that day). An absent key means today at 0. The store and the save rules are #100 ([§10.2](#102-token-budget)). | Fixed size. Reset when the day changes. |
+| `state.budget` | `{"v": 1, "day": "YYYY-MM-DD", "inputTokens": <int>}` (`src/core/token-budget.ts`, #99): `day` is a real calendar day in the script's time zone, `inputTokens` a non-negative safe integer (Jev's `usage.input_tokens` summed over that day). An absent key means today at 0. The store is `src/app/budget-store.ts` (`loadBudget`, `saveBudget`, #100). Read once per `sendJevRequests` call and saved after each batch that used tokens; a stored day other than today's starts from 0 ([§10.2](#102-token-budget)). | Fixed size. Reset when the day changes. |
 | `state.gmailCalls` | `{day, count}`: Gmail API calls made today, in the script's time zone. Read once at run start and written once at run end (in a `finally`), inside the script lock, which keeps it exact ([§9](#9-gmail-integration)). | Reset when the day changes. |
 | `state.alerts` | `{condition: lastSentDay}` | Fixed set of conditions. |
 | `state.runs` | `{lastStart, lastEnd, consecutiveFailures, lastSummary}` | Fixed size. |
@@ -640,6 +640,7 @@ Apps Script has no timers, and `fetchAll` blocks until every request returns, so
 ```text
 estimate = INITIAL_ROUND_ESTIMATE_MS
 for each batch of at most MAX_REQUESTS_PER_FETCHALL requests, in input order:
+  roll the budget over to today; if it is reached: stop (budget); this and later batches are not sent
   if remainingMs() < estimate: stop (deadline); this and later batches are not sent
   pending = the batch; attempt = 1
   repeat:
@@ -653,7 +654,7 @@ for each batch of at most MAX_REQUESTS_PER_FETCHALL requests, in input order:
     sleep = the largest retryDelay among them
     if remainingMs() < sleep + estimate: break (deadline); they are final as they are
     clock.sleep(sleep); pending = retry; attempt += 1
-  add the batch's billed tokens; log jev.batch
+  add the batch's billed tokens to the budget (save if any); log jev.batch
 ```
 
 - **The sender** (`sendJevRequests`, `src/app/jev-sender.ts`; E5 task #96):
@@ -773,8 +774,9 @@ Exceptions are for **invalid input or invalid state**. An expected failure is a 
 
 - `state.budget` accumulates `usage.input_tokens` for the current day, in the script's time zone. "A day" is the calendar day from `dayInTimeZone(clock.now(), clock.timeZone())` (`src/core/token-budget.ts`), which uses `Intl.DateTimeFormat`; Apps Script's V8 gives the same days as Node and as `Utilities.formatDate` ([spike 99](../spikes/99-time-zone-day.md)). An absent key, or a stored day other than today's, starts from 0. (A later stored day only happens when the clock or the time zone moved back.)
 - The budget is **reached** when `inputTokens >= dailyTokenBudget`.
-- The budget is checked before each batch. Once it is reached, nothing more is sent until the day changes. Queued items wait, and a `budget_reached` alert is sent.
-- Overshoot is bounded by the batch already in flight.
+- `sendJevRequests` loads the budget once per call (`loadBudget`; a corrupt value throws `StateError` before anything is sent). **Before each batch** it rolls the budget over in memory to the current day (so a call can cross midnight and start the new day from 0), then checks it. Once it is reached, that batch and all later ones get `notSent: 'budget'`, the result has `stopped: 'budget'` and `alerts: ['budget_reached']`, and `budget.reached` is logged. The check comes before the time check, so a held-back batch is reported as `budget`. Queued items wait, and E9 sends the alert.
+- **After each batch** (its last retry round included) the sender adds the `usage.input_tokens` of every 200, including one `interpretResponse` later rejects (Jev billed it), and saves the budget at once if any tokens were used, so a crash loses at most one batch's count. A batch with no 200 writes nothing. A `StateError` from that save (`store_full` on an already full store) reaches the per-run boundary; the batch's answers are lost for this run and its items, still queued, are re-sent later.
+- **Overshoot** is at most one batch: `MAX_REQUESTS_PER_FETCHALL` requests, each under 65,536 input tokens. The check isn't repeated inside a batch or between its retry rounds, and a budget crossed by the last batch of a call stops nothing until the next call.
 - The budget covers both scheduled and manual work.
 
 ### 10.3 Time budget
@@ -803,6 +805,7 @@ Logs are **structured JSON only**, one object per event, through `LogPort`. `con
 - **`history.expired`** (`warn`) is logged by the call that starts a fallback. It carries `historyId` and `savedAt` (the old position), `resumeHistoryId` (from `getProfile`), `aheadOfMailbox` (the old position was ahead of the mailbox: corrupt, not expired) and `until` (epoch seconds, the last second the fallback searches).
 - **`history.fallback_missed`** (`warn`) is logged when a 60 s window has more new threads than an otherwise empty queue can hold. It carries `after` and `before` (the window, epoch seconds) and `missed` (a lower bound). No thread IDs, subjects or senders.
 - **`jev.batch`** (`info`) is logged by the sender ([§8.5](#85-retries-in-rounds)) once per batch it started. Its fields are flat numbers: `batch` (1-based), `requests`, `rounds`, `attempts` (sends in all), `sleptMs`, `inputTokens` (this batch's), and the batch's final outcomes by class: `success`, `invalid`, `auth`, `config`, `exceptional`, `retryable` (final while still retryable), `transport`, `scope` and `outage` (not final because of an outage round). No thread IDs, bodies, headers or statuses: `thread.classified` covers each thread.
+- **`budget.reached`** (`warn`) is logged by the sender once per `sendJevRequests` call that holds a batch back for the budget ([§10.2](#102-token-budget)). It carries `day`, `inputTokens` and `dailyTokenBudget`, and nothing else.
 - **`jev.outage`** (`warn`) is logged once when a round is an outage ([§8.5](#85-retries-in-rounds)). It carries `batch`, `requests` (the round's), `serverErrors` (5xx responses) and `transport` (network errors).
 - **`thread.skipped`** carries `threadId`, `source` and `reason` (`not_found`, `jev_error`, `no_messages`), at `info`. **`thread.excluded`** carries `threadId`, `source` and `reason` (`matched` at `info`, `search_capped` at `warn`), and never the subject or sender. Both are logged by chunk screening ([§6.4](#64-process-classify-a-chunk) step 2) once the whole chunk has been screened, never for a chunk that failed closed.
 - **`thread.classified`** carries `threadId`, `subject`, `from`, `probabilities {ruleId: p}`, `fired [ruleId]`, `actions`, `moveSkipped?`, `truncated?` (`{messagesDropped, bodiesDropped, charsDropped}`, present only when `state` was cut; [§8.4](#84-truncation)), `requestId`, `model`, and `inputTokens`.
