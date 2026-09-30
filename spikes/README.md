@@ -4,7 +4,7 @@
 
 These are spikes for [epic #7](https://github.com/kellystuard/jev-gmail-classifier/issues/7): hand-run scripts that confirm or correct assumptions about Gmail (History API, exclusion queries, labels, and moves) before E3 and E6 are built. They are **plain Apps Script JavaScript**, not TypeScript, and are not part of the E2 build: no `src/`, no build/lint/test tooling, and E2's tooling excludes `spikes/`.
 
-The exception is `spikes/84-token-ratio.mjs` (E4, #84): a Node script that calls the Jev API directly, with no Gmail account and no Apps Script. `spikes/run.mjs push` uploads only `*.js`, so it never reaches the spike project.
+The exception is `spikes/84-token-ratio.mjs` (E4, #84): a Node script that calls the Jev API directly, with no Gmail account and no Apps Script. `spikes/run.mjs push` uploads only `*.js`, so it never reaches the spike project. So does `spikes/90-jev-fixtures.mjs` (E5, #90), which likewise calls Jev directly with no Gmail account: it records the response fixtures in `test/fixtures/jev/` and measures latency.
 
 `GmailApp` is never used, even here ([ADR-0003](../output/adr/0003-advanced-gmail-service-and-scopes.md)): the product can't use it, so its behavior would prove nothing. Only the Advanced Gmail Service (`Gmail.Users.*`) is used.
 

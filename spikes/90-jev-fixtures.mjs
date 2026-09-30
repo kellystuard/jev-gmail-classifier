@@ -295,7 +295,7 @@ async function main() {
     log(`${f.name}: ${r.status} ${r.ms} ms`);
   }
 
-  if (args.latency && !unexpected401 && live + 30 <= args.max) {
+  if (args.latency && !unexpected401 && live + 40 <= args.max) {
     const singles = [];
     for (let i = 0; i < 5; i++) {
       const b = { model: MODEL, state: [message({ body: `Synthetic note number ${i}: lunch is at noon.` })], questions: oneQ };
@@ -311,12 +311,23 @@ async function main() {
       questions: oneQ,
     }));
     summary.latency.burst20Small = await burst('burst-small', small);
-    const large = Array.from({ length: 5 }, (_, i) => ({
+    // Size the large requests: one calibration request, then scale to about 30,000 tokens.
+    const largeBody = (i, chars) => ({
       model: MODEL,
-      state: [message({ body: prose(rng(100 + i), 176000) })],
+      state: [message({ body: prose(rng(100 + i), chars) })],
       questions: oneQ,
-    }));
-    summary.latency.burst5Large = await burst('burst-large', large);
+    });
+    let chars = 60000;
+    let ratio;
+    for (let tries = 0; tries < 3 && ratio === undefined; tries++) {
+      const r = await send(largeBody(99, chars));
+      log(`calibration ${chars} chars: ${r.status} ${r.inputTokens ?? '-'} tokens`);
+      if (r.inputTokens) ratio = r.inputTokens / chars;
+      else chars = Math.floor(chars / 2);
+    }
+    summary.latency.largeChars = ratio ? Math.floor(30000 / ratio) : undefined;
+    const large = ratio ? Array.from({ length: 5 }, (_, i) => largeBody(i, summary.latency.largeChars)) : [];
+    if (large.length) summary.latency.burst5Large = await burst('burst-large', large);
   }
 
   summary.liveRequests = live;
