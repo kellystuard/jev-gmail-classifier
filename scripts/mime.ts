@@ -314,7 +314,10 @@ function escapeRegExp(s: string): string {
  */
 export function splitMultipart(body: Buffer, boundary: string): Buffer[] {
   const text = body.toString('latin1');
-  const delimiter = new RegExp(`(^|\\r?\\n)--${escapeRegExp(boundary)}(--)?[ \\t]*(\\r?\\n|$)`, 'g');
+  const delimiter = new RegExp(
+    `(^|\\r?\\n)--${escapeRegExp(boundary)}(--)?[ \\t]*(\\r?\\n|$)`,
+    'g',
+  );
   const parts: Buffer[] = [];
   let start: number | undefined;
   for (let match = delimiter.exec(text); match !== null; match = delimiter.exec(text)) {

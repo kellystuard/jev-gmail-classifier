@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import { REPO_ROOT } from '../../scripts/bundle.ts';
 import { EmlParseError, emlToThread, nodeDecodeUtf8 } from '../../scripts/eml-thread.ts';
@@ -37,15 +38,20 @@ function fromEml(name: string): GmailThread {
   return emlToThread(readEml(name), name);
 }
 
+function isThread(value: unknown): value is GmailThread {
+  return typeof value === 'object' && value !== null && 'messages' in value;
+}
+
 function gmailFixture(name: string): GmailThread {
-  return JSON.parse(readFileSync(join(GMAIL, `${name}.json`), 'utf8')) as GmailThread;
+  const parsed: unknown = JSON.parse(readFileSync(join(GMAIL, `${name}.json`), 'utf8'));
+  if (!isThread(parsed)) throw new Error(`${name}.json is not a thread`);
+  return parsed;
 }
 
 function expectedTexts(name: string): Record<string, string> {
-  return JSON.parse(readFileSync(join(GMAIL, `${name}.expected.json`), 'utf8')) as Record<
-    string,
-    string
-  >;
+  return z
+    .record(z.string(), z.string())
+    .parse(JSON.parse(readFileSync(join(GMAIL, `${name}.expected.json`), 'utf8')));
 }
 
 function payload(thread: GmailThread): GmailMessagePart {
@@ -203,7 +209,7 @@ describe('emlToThread, on hand-built input', () => {
         '',
         '--b',
         'Content-Type: application/octet-stream',
-        "Content-Disposition: attachment; filename*0*=UTF-8''caf%C3%A9; filename*1=\".txt\"",
+        'Content-Disposition: attachment; filename*0*=UTF-8\'\'caf%C3%A9; filename*1=".txt"',
         '',
         'x',
         '--b--',
