@@ -25,7 +25,7 @@ export type Budget = {
 const DAY_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** True for `YYYY-MM-DD` that names a real calendar date (`2026-02-30` is not). */
-function isCalendarDay(day: string): boolean {
+export function isCalendarDay(day: string): boolean {
   if (!DAY_SHAPE.test(day)) return false;
   const year = Number(day.slice(0, 4));
   const month = Number(day.slice(5, 7));
