@@ -202,13 +202,13 @@ When you run `install`, Google asks you to grant the script these permissions ([
 | Permission (scope) | Why it's needed | If not granted |
 | ------------------ | --------------- | -------------- |
 | `https://www.googleapis.com/auth/gmail.modify` | Read your mail's change history and threads, search for excluded mail, create and apply labels, and move threads to Archive, Spam, or Trash. Also reads your address, to send alerts. | Nothing works. |
-| `https://www.googleapis.com/auth/script.external_request` | Send thread content to the Jev API. | Nothing is classified. |
-| `https://www.googleapis.com/auth/script.scriptapp` | Create and remove the timed trigger, and check which permissions were granted. | `install` and `uninstall` fail. |
+| `https://www.googleapis.com/auth/script.external_request` | Send thread content to the Jev API. | Nothing is classified; new mail waits in the queue. |
+| `https://www.googleapis.com/auth/script.scriptapp` | Create and remove the timed trigger, and check which permissions were granted. | `install` and `uninstall` stop; runs already scheduled keep going. |
 | `https://www.googleapis.com/auth/script.send_mail` | Send alert emails to you. | Alerts are only written to the log. |
 
 **Moving to Trash needs only `gmail.modify`.** Permanent deletion would need the full-access scope `https://mail.google.com/`, which the classifier **never requests**, so it can't permanently delete mail even by mistake. The code uses Gmail's [Advanced Gmail Service](https://developers.google.com/apps-script/advanced/gmail) rather than `GmailApp` for exactly this reason: `GmailApp` requires the full-access scope.
 
-Google may let you untick individual permissions on the consent screen. If a permission is missing, the script logs which one and what it disables, emails you (if it can), and keeps doing what it still can. To fix it, run `install` again and grant the missing permission.
+Google may let you untick individual permissions on the consent screen. The classifier checks which permissions were granted when you run `install` and at the start of every run. If a permission is missing, the script logs which one and what it disables, emails you (if it can), and keeps doing what it still can. To fix it, run `install` again and grant the missing permission.
 
 ## Setup (planned)
 
