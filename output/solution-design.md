@@ -368,11 +368,28 @@ sequenceDiagram
   - Moves are considered only if the item is a first classification, or a manual job with `applyMoves`: `movesAllowed` is `firstClassification === true || applyMoves === true`, so unset counts as not first. When they are, the **first** firing move rule in config order wins.
   - When moves aren't allowed, a move rule still fires (and is logged), but nothing of it applies, including a `label:<name>` destination's label.
   - A missing or out-of-range answer is a bug (`InvalidArgumentError`): `interpretResponse` guarantees both.
-- **Apply** (`GmailPort`). Every label add and the move go into **one** `threads.modify` call. Confirmed by E1 ([`spikes/26-moves.md`](../spikes/26-moves.md)):
+- **Apply** (`applyDecision`, `src/app/apply-decision.ts`; the change itself is `buildThreadChange`, `src/core/thread-change.ts`). Every label add and the move go into **one** `threads.modify` call:
+
+  | Move | Adds | Removes |
+  |------|------|---------|
+  | none | every firing label | — |
+  | `archive` | every firing label | `INBOX` |
+  | `label:<name>` | every firing label + the label | `INBOX` |
+  | `spam` | every firing label + `SPAM` | `INBOX` |
+  | `trash` | every firing label + `TRASH` | — |
+
+  - `addLabelIds` is de-duplicated (firing labels first, then the move's). `removeLabelIds` only ever holds `INBOX`.
+  - No labels and no move means no call at all.
+  - Every label ID is resolved through the label cache (below) **before** the call: the decision's labels, then a `label:<name>` move's label. A failure (`scope`, `rate_limited`) is returned and nothing is modified; labels already created stay.
+  - A stale ID (`invalid_label`: a label deleted or renamed since the cache loaded) gives one cache refresh, the IDs resolved again (a deleted label is created again) and one retry. A second `invalid_label` throws `UnexpectedResponseError` (`reason: 'invalid_label'`), which reaches the per-thread boundary.
+  - `not_found`, `failed_precondition` and `rate_limited` are returned to the per-thread boundary (`settleThread`), which decides what they mean.
+  - The result's `applied` holds the label names added and the whole `MoveDestination`, so later epics can count moves per destination.
+
+  Confirmed by E1 ([`spikes/26-moves.md`](../spikes/26-moves.md)):
   - `archive` removes `INBOX`.
   - `spam` adds `SPAM` and removes `INBOX`. Adding `SPAM` alone also removes `INBOX`, so sending both is harmless. Gmail then shows the thread as reported by the user ([§14](#14-technical-risks-and-items-to-verify)).
   - `label:<name>` adds the label and removes `INBOX`.
-  - `trash` adds `TRASH` in the same call. It gives the same labels as `threads.trash` (both remove `INBOX`), which stays an equivalent second call if E6 prefers it.
+  - `trash` adds `TRASH` in the same call (10 units). It gives the same labels as `threads.trash` (both remove `INBOX`), which costs 20 units and isn't used.
   - User labels are kept in Spam and Trash, and can be added after a thread is trashed.
   - The change applies to every message in the thread, including the user's own sent messages. They get `SPAM` or `TRASH` and keep `SENT`.
   - Repeating a call is safe: no error, no change, and no history record. A move creates only `labelsAdded`/`labelsRemoved` history records, one per label, never `messagesAdded`, so E3 doesn't re-queue a thread the classifier just moved.
@@ -908,7 +925,7 @@ This updates the PDD's [epic list](product-design-document.md#14-epics) with the
 | **E3 History sync** (was *Thread discovery*) | Ingest, position, work queue, first-classification flag, exclusion filter, expiry fallback. | Queue cap and sharding: **settled** ([§5.2](#52-ports), [§7.3](#73-script-properties-state)). How exclusion is batched: **settled** ([§6.4](#64-process-classify-a-chunk)). The fallback window: **settled** ([§6.3](#63-ingest-gmail-history-to-work-queue), [§7.3](#73-script-properties-state)). |
 | **E4 Thread → `state`** | State builder, header keys, `BodyConverter` `basic`, truncation. | The `basic` rules and the entity list: **settled** ([§8.3](#83-state-layout)). The token estimate (UTF-8 bytes, not a chars-per-token ratio), the limits, the overhead and the safety margin: **settled** ([§8.4](#84-truncation)). Truncation's step 4 and stats, and `threadToState`: **settled** ([§8.4](#84-truncation)). The `basic` quality check on real HTML-only mail using the probe (moved to E5, #86): **settled** ([§14](#14-technical-risks-and-items-to-verify)). |
 | **E5 Jev client** | Pure request and response logic, the `fetchAll` transport, retry rounds, token accounting, daily budget. | The per-status classification, including the 400 `max_tokens_exceeded` as `invalid`: **settled** ([§8.5](#85-retries-in-rounds)). Retry counts, delays, jitter and `Retry-After`: **settled** ([§8.5](#85-retries-in-rounds)). Batch size per `fetchAll` (20) and the round-time rule: **settled** ([§8.5](#85-retries-in-rounds)). `state.budget` and its day rollover: **settled** ([§7.3](#73-script-properties-state), [§10.2](#102-token-budget)). The `jev.batch` and `budget.reached` events: **settled** ([§10.5](#105-logging-and-alerts)). |
-| **E6 Outcomes** | Decide and apply, label ID cache and creation, `Jev/Error` and the 3-strike rule, the `scope` result. | Settled by E1 ([`spikes/26-moves.md`](../spikes/26-moves.md)): every label add plus the move go in one `threads.modify`, with `trash` as an added `TRASH` label ([§6.5](#65-applying-outcomes)). |
+| **E6 Outcomes** | Decide and apply, label ID cache and creation, `Jev/Error` and the 3-strike rule, the `scope` result. | Settled by E1 ([`spikes/26-moves.md`](../spikes/26-moves.md)): every label add plus the move go in one `threads.modify`, with `trash` as an added `TRASH` label ([§6.5](#65-applying-outcomes)). Implemented in `applyDecision` (#107). |
 | **E7 Scheduling and lifecycle** | Run controller, lock, `Deadline`, trigger, `install`/`uninstall`, scope preflight. | Chunk size, soft limits, reserve. Scope introspection: **API settled, error text not observed** by E1 ([`spikes/27-missing-scope.md`](../spikes/27-missing-scope.md)): `getAuthorizationInfo(FULL).getAuthorizedScopes()`. The per-scope errors are observed in a partly granted install (#125). Whether `install` calls `requireAllScopes` (#128). |
 | **E8 Manual runs** | `MANUAL_*` inputs, the job in state, spare-time continuation, `continueManualRun`/`cancelManualRun`, per-destination counts. | The search cursor design. The timespan grammar. |
 | **E9 Observability** | Log events and fields, `redact`, alert conditions and rate limits, heartbeat. | Alert email format. |
