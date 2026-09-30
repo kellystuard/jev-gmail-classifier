@@ -229,19 +229,17 @@ describe('applyDecision: a stale label ID', () => {
       throw new Error('setup: idFor failed');
     }
     gmail.deleteLabelAsUser(first.id);
-    gmail.failNext('createLabel', noScope);
-    expect(applyDecision(threadId, decision([BILL]), deps)).toEqual(noScope);
+    gmail.failNext('createLabel', FakeGmail.rateLimited());
+    expect(applyDecision(threadId, decision([BILL]), deps)).toEqual(FakeGmail.rateLimited());
     expect(callsTo(gmail, 'modifyThread')).toHaveLength(1);
   });
 });
 
 describe('applyDecision: failures', () => {
-  it.each([
-    ['scope', noScope],
-    ['rate_limited', FakeGmail.rateLimited()],
-  ])('returns listLabels %s and modifies nothing', (_name, failure) => {
+  it('returns listLabels rate_limited and modifies nothing', () => {
     const { gmail, deps } = setup();
     const { threadId } = gmail.deliver();
+    const failure = FakeGmail.rateLimited();
     gmail.failNext('listLabels', failure);
     expect(applyDecision(threadId, decision([BILL], { kind: 'spam' }), deps)).toEqual(failure);
     expect(callsTo(gmail, 'modifyThread')).toHaveLength(0);
@@ -266,12 +264,126 @@ describe('applyDecision: failures', () => {
   it.each([
     ['failed_precondition', FakeGmail.failedPrecondition()],
     ['rate_limited', FakeGmail.rateLimited()],
-    ['scope', noScope],
   ] as const)('returns modifyThread %s as is, with no retry', (_name, failure) => {
     const { gmail, deps } = setup();
     const { threadId } = gmail.deliver();
     gmail.failNext('modifyThread', failure);
     expect(applyDecision(threadId, decision([BILL], { kind: 'trash' }), deps)).toEqual(failure);
     expect(callsTo(gmail, 'modifyThread')).toHaveLength(1);
+  });
+});
+
+describe('applyDecision: a missing scope', () => {
+  const archive: MoveDestination = { kind: 'archive' };
+
+  function scopeSetup() {
+    const s = setup();
+    const bill = s.gmail.seedLabel(BILL).id;
+    const { threadId } = s.gmail.deliver();
+    return { ...s, bill, threadId };
+  }
+
+  it('drops the move and applies the labels when modifyThread lacks a scope once', () => {
+    const { gmail, deps, bill, threadId } = scopeSetup();
+    gmail.failNext('modifyThread', noScope);
+    const result = applyDecision(threadId, decision([BILL], archive), deps);
+    expect(result).toEqual({ ok: true, applied: { labels: [BILL] }, moveSkipped: 'scope' });
+    expect(modifyChanges(gmail)).toEqual([
+      expect.anything(),
+      { addLabelIds: [bill], removeLabelIds: [] },
+    ]);
+    expect(sorted(gmail.threadLabels(threadId)[0] ?? [])).toEqual(
+      sorted(['INBOX', 'UNREAD', bill]),
+    );
+  });
+
+  it.each(['spam', 'trash'] as const)('does not add %s in the labels-only retry', (kind) => {
+    const { gmail, deps, bill, threadId } = scopeSetup();
+    gmail.failNext('modifyThread', noScope);
+    const result = applyDecision(threadId, decision([BILL], { kind }), deps);
+    expect(result).toEqual({ ok: true, applied: { labels: [BILL] }, moveSkipped: 'scope' });
+    expect(modifyChanges(gmail)[1]).toEqual({ addLabelIds: [bill], removeLabelIds: [] });
+  });
+
+  it('skips a label move whose label cannot be created, and applies the labels', () => {
+    const { gmail, deps, bill, threadId } = scopeSetup();
+    gmail.failNext('createLabel', noScope);
+    const result = applyDecision(threadId, decision([BILL], receipts), deps);
+    expect(result).toEqual({ ok: true, applied: { labels: [BILL] }, moveSkipped: 'scope' });
+    expect(modifyChanges(gmail)).toEqual([{ addLabelIds: [bill], removeLabelIds: [] }]);
+  });
+
+  it('reports both skipped when the retry lacks the scope too, and stops there', () => {
+    const { gmail, deps, threadId } = scopeSetup();
+    const before = gmail.threadLabels(threadId);
+    gmail.failNext('modifyThread', noScope, { times: 2 });
+    const result = applyDecision(threadId, decision([BILL], archive), deps);
+    expect(result).toEqual({
+      ok: true,
+      applied: { labels: [] },
+      moveSkipped: 'scope',
+      labelsSkipped: 'scope',
+    });
+    expect(callsTo(gmail, 'modifyThread')).toHaveLength(2);
+    expect(gmail.threadLabels(threadId)).toEqual(before);
+  });
+
+  it('makes at most one retry when the label list keeps failing with scope', () => {
+    const { gmail, deps, threadId } = scopeSetup();
+    gmail.failNext('listLabels', noScope, { times: 10 });
+    const result = applyDecision(threadId, decision([BILL], archive), deps);
+    expect(result).toEqual({
+      ok: true,
+      applied: { labels: [] },
+      moveSkipped: 'scope',
+      labelsSkipped: 'scope',
+    });
+    expect(callsTo(gmail, 'modifyThread')).toHaveLength(0);
+    expect(callsTo(gmail, 'listLabels')).toHaveLength(2);
+  });
+
+  it('skips only the move, with no retry, when there are no labels', () => {
+    const { gmail, deps, threadId } = scopeSetup();
+    gmail.failNext('modifyThread', noScope);
+    expect(applyDecision(threadId, decision([], archive), deps)).toEqual({
+      ok: true,
+      applied: { labels: [] },
+      moveSkipped: 'scope',
+    });
+    expect(callsTo(gmail, 'modifyThread')).toHaveLength(1);
+  });
+
+  it('skips only the labels, with no retry, when there is no move', () => {
+    const { gmail, deps, threadId } = scopeSetup();
+    gmail.failNext('modifyThread', noScope);
+    expect(applyDecision(threadId, decision([BILL]), deps)).toEqual({
+      ok: true,
+      applied: { labels: [] },
+      labelsSkipped: 'scope',
+    });
+    expect(callsTo(gmail, 'modifyThread')).toHaveLength(1);
+  });
+
+  it('refreshes once for a stale ID inside the labels-only retry', () => {
+    const { gmail, deps, bill, threadId } = scopeSetup();
+    gmail.failNext('modifyThread', noScope);
+    gmail.failNext('modifyThread', invalidLabel);
+    const result = applyDecision(threadId, decision([BILL], archive), deps);
+    expect(result).toEqual({ ok: true, applied: { labels: [BILL] }, moveSkipped: 'scope' });
+    expect(callsTo(gmail, 'modifyThread')).toHaveLength(3);
+    expect(callsTo(gmail, 'listLabels')).toHaveLength(2);
+    expect(gmail.threadLabels(threadId)[0]).toContain(bill);
+  });
+
+  it.each([
+    ['rate_limited', FakeGmail.rateLimited()],
+    ['not_found', fail('not_found')],
+    ['failed_precondition', FakeGmail.failedPrecondition()],
+  ] as const)('returns %s from the labels-only retry as it is', (_name, failure) => {
+    const { gmail, deps, threadId } = scopeSetup();
+    gmail.failNext('modifyThread', noScope);
+    gmail.failNext('modifyThread', failure);
+    expect(applyDecision(threadId, decision([BILL], archive), deps)).toEqual(failure);
+    expect(callsTo(gmail, 'modifyThread')).toHaveLength(2);
   });
 });

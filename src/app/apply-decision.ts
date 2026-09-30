@@ -25,19 +25,38 @@ export type AppliedChange = {
 };
 
 export type ApplyFailure =
-  GmailFailure | Fail<'not_found'> | Fail<'failed_precondition', { message: string }>;
+  | Exclude<GmailFailure, { readonly kind: 'scope' }>
+  | Fail<'not_found'>
+  | Fail<'failed_precondition', { message: string }>;
+
+export type ApplyOutcome = {
+  readonly applied: AppliedChange;
+  /** The move was dropped because a scope is missing. `applied.move` is then absent. */
+  readonly moveSkipped?: 'scope';
+  /** The labels were dropped too (the labels-only retry also found a scope missing). */
+  readonly labelsSkipped?: 'scope';
+};
+
+const SCOPE = 'scope' as const;
+
+type AttemptFailure = ApplyFailure | Fail<'scope', { message: string }>;
 
 /**
  * Resolves the IDs, then makes one `modifyThread` (none when there is nothing
- * to apply). `scope`, `rate_limited`, `not_found` and `failed_precondition`
- * are returned for the per-thread boundary. A second `invalid_label` throws
+ * to apply). `rate_limited`, `not_found` and `failed_precondition` are
+ * returned for the per-thread boundary. A second `invalid_label` throws
  * `UnexpectedResponseError` (`reason: 'invalid_label'`).
+ *
+ * A missing scope never fails the thread (epic #12 decision 7). With a move and
+ * labels, the move is dropped and the labels get one more attempt on their own;
+ * `moveSkipped` / `labelsSkipped` say what was dropped. Any other failure in
+ * that retry is returned as it is.
  */
 export function applyDecision(
   threadId: string,
   decision: Pick<Decision, 'labels' | 'move'>,
   deps: ApplyDeps,
-): Result<{ applied: AppliedChange }, ApplyFailure> {
+): Result<ApplyOutcome, ApplyFailure> {
   const destination = decision.move?.destination;
   const applied: AppliedChange =
     destination === undefined
@@ -47,13 +66,44 @@ export function applyDecision(
     return ok({ applied });
   }
 
-  const first = resolveChange(decision.labels, destination, deps.labels);
+  const first = attempt(threadId, decision.labels, destination, deps);
+  if (first.ok) {
+    return ok({ applied });
+  }
+  if (first.kind !== 'scope') {
+    return first;
+  }
+  if (destination === undefined) {
+    return ok({ applied: { labels: [] }, labelsSkipped: SCOPE });
+  }
+  if (decision.labels.length === 0) {
+    return ok({ applied: { labels: [] }, moveSkipped: SCOPE });
+  }
+
+  const retry = attempt(threadId, decision.labels, undefined, deps);
+  if (retry.ok) {
+    return ok({ applied: { labels: decision.labels }, moveSkipped: SCOPE });
+  }
+  if (retry.kind === 'scope') {
+    return ok({ applied: { labels: [] }, moveSkipped: SCOPE, labelsSkipped: SCOPE });
+  }
+  return retry;
+}
+
+/** One attempt: resolve the IDs, `modifyThread`, and on a stale ID one refresh and one retry. */
+function attempt(
+  threadId: string,
+  names: readonly string[],
+  destination: MoveDestination | undefined,
+  deps: ApplyDeps,
+): Result<object, AttemptFailure> {
+  const first = resolveChange(names, destination, deps.labels);
   if (!first.ok) {
     return first;
   }
   const modified = deps.gmail.modifyThread(threadId, first.change);
   if (modified.ok) {
-    return ok({ applied });
+    return ok({});
   }
   if (modified.kind !== 'invalid_label') {
     return modified;
@@ -64,13 +114,13 @@ export function applyDecision(
   if (!refreshed.ok) {
     return refreshed;
   }
-  const second = resolveChange(decision.labels, destination, deps.labels);
+  const second = resolveChange(names, destination, deps.labels);
   if (!second.ok) {
     return second;
   }
   const retried = deps.gmail.modifyThread(threadId, second.change);
   if (retried.ok) {
-    return ok({ applied });
+    return ok({});
   }
   if (retried.kind === 'invalid_label') {
     throw new UnexpectedResponseError(
