@@ -74,7 +74,7 @@ If the classifier stops for so long that Gmail no longer has the history it need
 
 - **Temporary errors** (rate limits, overload, network errors) are retried with exponential backoff: each wait doubles, with random jitter, up to a fixed number of attempts, as [TypeSafe recommends](https://docs.typesafe.ai/api#handling-rate-limits). If a thread still fails, it stays queued so the next run tries it again.
 - **Repeated failures:** a thread that fails on 3 consecutive runs gets a `Jev/Error` label and is no longer retried automatically.
-- **Invalid request** (HTTP `422`): the thread gets `Jev/Error` immediately, because retrying the same content will not help.
+- **Invalid request** (HTTP `422`, or a `400` saying the request is over Jev's token limit): the thread gets `Jev/Error` immediately, because retrying the same content will not help.
 - **Bad API key** (HTTP `401`): the run stops and logs the error, and no thread is marked. Once the key is fixed, the next run continues where it left off.
 - **Daily token budget reached:** no more requests are sent until the next day (see [Configuration](#configuration)). Queued threads wait.
 - **Missing permission:** if a permission was not granted (see [Permissions](#permissions)), the run logs which one and what it disables, emails you an alert, and carries on with what still works. For example, if a move can't be made, the labels are still applied and the log records the skipped move.

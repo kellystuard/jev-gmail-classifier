@@ -255,7 +255,7 @@ These are known low-level decisions, left to the epic that owns them. The [Solut
 
 - Final `config.yaml` field names and validation messages (E2). **Settled:** see [§5](#5-configuration-surface) and the [Solution Design §7.2](solution-design.md#72-configuration).
 - Queue size cap and sharding, exclusion-search batching, and the fallback window when history has expired (E3). **Settled:** see the [Solution Design §6.3](solution-design.md#63-ingest-gmail-history-to-work-queue), [§6.4](solution-design.md#64-process-classify-a-chunk) and [§7.3](solution-design.md#73-script-properties-state).
-- The HTML-to-text `basic` conversion rules, the characters-per-token estimate, and the truncation safety margin (E4).
+- The HTML-to-text `basic` conversion rules, the characters-per-token estimate, and the truncation safety margin (E4). **Settled:** see the [Solution Design §8.3](solution-design.md#83-state-layout) and [§8.4](solution-design.md#84-truncation). The estimate is the UTF-8 byte count rather than a characters-per-token ratio, because no ratio covers every kind of text. Still open: the `basic` quality check on real mail using the probe, which moved to E5 (#86).
 - Which responses are retryable, retry attempt count, backoff base, and jitter (E5).
 - Chunk size, the time budget per run, and the permission-check API (E7).
 - The manual-run cursor that survives across executions, and the time-span format (E8).
