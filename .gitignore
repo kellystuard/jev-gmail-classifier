@@ -80,6 +80,9 @@ config.yaml
 .clasp.json
 .clasprc.json
 
+# Real .eml files for the local probe (#86). Never commit.
+probe-samples/
+
 # Written by `npm run build`: a copy of the embedded config, which holds your rules
 src/generated/
 
