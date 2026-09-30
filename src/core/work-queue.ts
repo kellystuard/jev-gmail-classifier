@@ -232,15 +232,29 @@ export function enqueue(queue: WorkQueue, request: EnqueueRequest): EnqueueResul
 }
 
 /**
- * The first `n` items in canonical order, `n` a positive integer (else it
- * throws `JevClassifierError`). Removes nothing: an item leaves the queue only
+ * The first `n` items in canonical order whose `threadId` isn't in `exclude`,
+ * `n` a positive integer (else it throws `JevClassifierError`). The run
+ * controller passes the threads already taken this run, so each thread is
+ * settled at most once per run. Removes nothing: an item leaves the queue only
  * through `dequeue` or `addStrike`, once it's finished.
  */
-export function takeChunk(queue: WorkQueue, n: number): readonly WorkItem[] {
+export function takeChunk(
+  queue: WorkQueue,
+  n: number,
+  exclude?: ReadonlySet<string>,
+): readonly WorkItem[] {
   if (!Number.isInteger(n) || n < 1) {
     throw new JevClassifierError('A chunk size must be a positive integer', { n });
   }
-  return queue.slice(0, n);
+  if (exclude === undefined || exclude.size === 0) {
+    return queue.slice(0, n);
+  }
+  const chunk: WorkItem[] = [];
+  for (const item of queue) {
+    if (chunk.length >= n) break;
+    if (!exclude.has(item.threadId)) chunk.push(item);
+  }
+  return chunk;
 }
 
 /** Removes the item. An unknown ID returns the queue unchanged, so a repeat is harmless. */

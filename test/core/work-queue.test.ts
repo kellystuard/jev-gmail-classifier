@@ -394,6 +394,28 @@ describe('takeChunk', () => {
   it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])('rejects n = %s', (n) => {
     expect(thrown(() => takeChunk(queue, n))).toBeInstanceOf(JevClassifierError);
   });
+
+  it.each<[string[], number, string[]]>([
+    [['a'], 2, ['b', 'c']],
+    [['b'], 3, ['a', 'c', 'm']],
+    [['a', 'c'], 10, ['b', 'm']],
+    [['a', 'b', 'c', 'm'], 5, []],
+    [['zzz'], 2, ['a', 'b']],
+    [[], 2, ['a', 'b']],
+  ])('skips the excluded IDs %j and keeps canonical order', (excluded, n, expected) => {
+    expect(ids(takeChunk(queue, n, new Set(excluded)))).toEqual(expected);
+  });
+
+  it('still validates n with an exclude set', () => {
+    expect(thrown(() => takeChunk(queue, 0, new Set(['a'])))).toBeInstanceOf(JevClassifierError);
+  });
+
+  it('leaves the exclude set and the queue unchanged', () => {
+    const excluded = new Set(['a']);
+    takeChunk(queue, 2, excluded);
+    expect([...excluded]).toEqual(['a']);
+    expect(ids(queue)).toEqual(['a', 'b', 'c', 'm']);
+  });
 });
 
 describe('dequeue', () => {
