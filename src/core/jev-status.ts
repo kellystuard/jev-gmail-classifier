@@ -9,7 +9,8 @@
  * The table (one row per case; SD §8.5 has the same table):
  *
  * - 200: `success`. Interpreted by `interpretResponse`; the body is never read here.
- * - The unknown-model response (status and error body): `config`. A mistyped
+ * - The unknown-model response (a 400 `api_usage_error` whose message starts
+ *   with `Unknown model`, recorded by #90): `config`. A mistyped
  *   `jevModel` is a config mistake, not a property of the mail. Checked first.
  * - 400 with `detail.error_type === 'max_tokens_exceeded'`: `invalid`. Over
  *   Jev's token limit (measured by #84). The same content fails again.
@@ -63,34 +64,51 @@ const STATUS_CLASSES: ReadonlyMap<number, JevResponseClass> = new Map<number, Je
   [529, 'retryable'], // overloaded
 ]);
 
+const UNKNOWN_MODEL_ERROR_TYPE = 'api_usage_error';
+const UNKNOWN_MODEL_MESSAGE_PREFIX = 'Unknown model';
+
 /**
  * `detail.error_type` from an error body, or `undefined` when the body isn't
  * JSON, has no `detail` object, or `error_type` isn't a string. Never throws.
  */
 export function jevErrorType(body: string): string | undefined {
+  const errorType = jevDetailField(body, 'error_type');
+  return typeof errorType === 'string' ? errorType : undefined;
+}
+
+/** A field of the body's `detail` object, or `undefined`. Never throws. */
+function jevDetailField(body: string, key: string): unknown {
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
   } catch {
     // Handled and documented: an error body's shape is undocumented (SD §8.2),
-    // so a body that isn't JSON simply has no error type.
+    // so a body that isn't JSON simply has no detail.
     return undefined;
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     return undefined;
   }
   const detail: unknown = Reflect.get(parsed, 'detail');
-  // FastAPI-style 422 bodies have `detail` as an array: that has no error type.
+  // FastAPI-style 422 bodies have `detail` as an array: that has no fields.
   if (typeof detail !== 'object' || detail === null || Array.isArray(detail)) {
     return undefined;
   }
-  const errorType: unknown = Reflect.get(detail, 'error_type');
-  return typeof errorType === 'string' ? errorType : undefined;
+  return Reflect.get(detail, key);
 }
 
-/** The unknown-model response, matched by status and error body (answer 4a). */
-function isUnknownModelResponse(_response: JevHttpResponse): boolean {
-  return false;
+/**
+ * The unknown-model response, recorded by #90 (`400-unknown-model.json`):
+ * status 400, `detail.error_type` `api_usage_error` and a `detail.message`
+ * that starts with `Unknown model`. Other `api_usage_error` 400s (for example
+ * `Invalid request.`) don't match. Read only for a 400; never logged.
+ */
+function isUnknownModelResponse(response: JevHttpResponse): boolean {
+  if (response.status !== 400 || jevErrorType(response.body) !== UNKNOWN_MODEL_ERROR_TYPE) {
+    return false;
+  }
+  const message = jevDetailField(response.body, 'message');
+  return typeof message === 'string' && message.startsWith(UNKNOWN_MODEL_MESSAGE_PREFIX);
 }
 
 /** Never throws, for any input. */

@@ -12,6 +12,12 @@ import {
 /** The verbatim over-limit 400 body measured by #84. */
 const MAX_TOKENS_BODY = '{"detail":{"error_type":"max_tokens_exceeded"}}';
 
+/** Recorded by #90 (`400-unknown-model.json`, `400-question-type-yesno.json`). */
+const UNKNOWN_MODEL_BODY =
+  '{"detail":{"error_type":"api_usage_error","message":"Unknown model: jev-does-not-exist"}}';
+const INVALID_REQUEST_BODY =
+  '{"detail":{"error_type":"api_usage_error","message":"Invalid request."}}';
+
 function response(status: number, body = ''): JevHttpResponse {
   return { status, headers: {}, body };
 }
@@ -51,6 +57,47 @@ describe('classifyJevResponse', () => {
     ['JSON null', 'null'],
   ])('classifies a 400 with %s as exceptional', (_name, body) => {
     expect(classifyJevResponse(response(400, body))).toBe('exceptional');
+  });
+
+  it.each<[string, number, string, JevResponseClass]>([
+    ['the unknown-model response', 400, UNKNOWN_MODEL_BODY, 'config'],
+    [
+      'the same with extra keys',
+      400,
+      '{"detail":{"error_type":"api_usage_error","message":"Unknown model: x","n":1},"z":0}',
+      'config',
+    ],
+    ['a 400 api_usage_error of another message', 400, INVALID_REQUEST_BODY, 'exceptional'],
+    [
+      'a 400 api_usage_error without a message',
+      400,
+      '{"detail":{"error_type":"api_usage_error"}}',
+      'exceptional',
+    ],
+    [
+      'a 400 api_usage_error with a numeric message',
+      400,
+      '{"detail":{"error_type":"api_usage_error","message":7}}',
+      'exceptional',
+    ],
+    [
+      'a 400 with the message but another error_type',
+      400,
+      '{"detail":{"error_type":"x","message":"Unknown model: a"}}',
+      'exceptional',
+    ],
+    ['a 422 with the unknown-model body', 422, UNKNOWN_MODEL_BODY, 'invalid'],
+    ['a 404 with the unknown-model body', 404, UNKNOWN_MODEL_BODY, 'exceptional'],
+    ['a 404 with an empty body', 404, '', 'exceptional'],
+    ['a 422 with an empty body', 422, '', 'invalid'],
+    [
+      'the no-key 403 body',
+      403,
+      '{"detail":{"error_type":"authentication_error","message":"Must supply an API key! Check your request and try again."}}',
+      'auth',
+    ],
+  ])('classifies %s', (_name, status, body, expected) => {
+    expect(classifyJevResponse(response(status, body))).toBe(expected);
   });
 
   it.each<[number, string, JevResponseClass]>([

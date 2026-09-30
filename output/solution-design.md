@@ -652,7 +652,7 @@ repeat:
   | Status | Class | Why |
   |--------|-------|-----|
   | 200 | `success` | Interpreted by `interpretResponse`; classification never reads a 200 body. |
-  | The unknown-model response (matched by status **and** error body) | `config` | A mistyped `jevModel` is a config mistake, not a property of the mail. The run stops, nothing is marked, and the `config_invalid` alert is sent. Checked before the status rows. |
+  | 400 with `detail.error_type` = `api_usage_error` and a `detail.message` starting `Unknown model` (recorded by E5, `test/fixtures/jev/400-unknown-model.json`) | `config` | A mistyped `jevModel` is a config mistake, not a property of the mail. The run stops, nothing is marked, and the `config_invalid` alert is sent. Checked before the status rows. |
   | 400 with `detail.error_type` = `max_tokens_exceeded` | `invalid` | Over Jev's token limit (measured by E4, [`spikes/84-token-ratio.md`](../spikes/84-token-ratio.md)). The same content fails again, so like a 422: `Jev/Error`. |
   | any other 400 | `exceptional` | An unknown bad request is a bug on our side. |
   | 401, 402, 403 | `auth` | A missing or invalid key (documented), or an account that can't be used (no credit, suspended, no access). The problem is the account, not the mail: the run stops, nothing is marked, and the `auth` alert is sent. |
