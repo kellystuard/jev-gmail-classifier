@@ -55,6 +55,8 @@ export default defineConfig(
   globalIgnores(
     [
       'spikes/',
+      // Real .eml files and local helper scripts for the probe (#86), git-ignored.
+      'probe-samples/',
       'test/fixtures/',
       'docs/',
       'dist/',
