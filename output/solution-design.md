@@ -353,8 +353,10 @@ sequenceDiagram
 6. **Per-thread outcome.** This is the per-thread error boundary ([§10.1](#101-error-model)).
    - **Success:** decide and apply outcomes ([§6.5](#65-applying-outcomes)), log `thread.classified`, and dequeue.
    - **Retryable failure, retries exhausted:** add a strike and leave the item queued for the next run. On the third strike, add `Jev/Error`, dequeue, and queue an alert.
-   - **Invalid (422):** add `Jev/Error` immediately, dequeue, and queue an alert.
-   - **Auth (401) or missing key:** stop the whole run. Nothing is marked, items stay queued, and an alert is sent.
+   - **Invalid (a 422 or the 400 `max_tokens_exceeded`):** add `Jev/Error` immediately, dequeue, and queue an alert.
+   - **Auth (401, 402 or 403) or missing key:** stop the whole run. Nothing is marked, items stay queued, and an alert is sent.
+   - **Config (the unknown-model response):** stop the whole run like auth, and send the `config_invalid` alert.
+   - **Outage (a round in which every request got a 5xx or a network error, [§8.5](#85-retries-in-rounds)):** stop sending. Nothing is struck and the items stay queued.
 7. **Record** token usage into today's budget.
 
 ### 6.5 Applying outcomes
@@ -420,7 +422,7 @@ sequenceDiagram
 | Label | Written by | Meaning |
 |-------|-----------|---------|
 | Classification labels (from `rules[]`) | Classifier | Added when a rule fires. Never removed by the classifier. |
-| `Jev/Error` | Classifier | The thread needs attention: a 422, or 3 strikes. Only the user removes it, and removing it retries the thread. |
+| `Jev/Error` | Classifier | The thread needs attention: a 422, the 400 `max_tokens_exceeded`, or 3 strikes. Only the user removes it, and removing it retries the thread. |
 
 There is **no** `Jev/Processed` label. Progress is tracked in state ([ADR-0004](adr/0004-history-api-position.md)).
 
@@ -502,8 +504,8 @@ stateDiagram-v2
   Queued --> Skipped: deleted, Jev/Error, or no message outside Drafts, Spam and Trash
   Queued --> Classified: Jev ok + outcomes applied
   Queued --> Queued: retryable failure (strike < 3)
-  Queued --> Errored: 422, or 3rd strike (add Jev/Error)
-  Queued --> Queued: 401 / budget / deadline (untouched)
+  Queued --> Errored: 422 or 400 max_tokens_exceeded, or 3rd strike (add Jev/Error)
+  Queued --> Queued: 401 / 402 / 403 / config / outage / budget / deadline (untouched)
   Excluded --> [*]
   Skipped --> [*]
   Classified --> [*]
@@ -645,10 +647,24 @@ repeat:
 ```
 
 - **Starting policy** (tuned in E5), copied from TypeSafe's SDK: exponential backoff from 500 ms, doubling to 5 s, with jitter, and about 3 attempts. `Retry-After` / `retry-after-ms` is honoured, capped by the time left in the run.
-- **What counts as retryable, a normal failure, or exceptional is decided by the implementer for each case** ([§10.1](#101-error-model)). The guideline:
-  - Retryable: 429, 529, other overload or unavailable statuses, and network or timeout errors.
-  - Normal failures: 422 and 401.
-  - Exceptional: a generic 500 and anything unexpected.
+- **Classification.** `classifyJevResponse` (`core/jev-status.ts`) decides from the status (and, for two rows, the error body). It never throws: `interpretResponse` throws for the exceptional class, per thread. The table:
+
+  | Status | Class | Why |
+  |--------|-------|-----|
+  | 200 | `success` | Interpreted by `interpretResponse`; classification never reads a 200 body. |
+  | 400 with `detail.error_type` = `api_usage_error` and a `detail.message` starting `Unknown model` (recorded by E5, `test/fixtures/jev/400-unknown-model.json`) | `config` | A mistyped `jevModel` is a config mistake, not a property of the mail. The run stops, nothing is marked, and the `config_invalid` alert is sent. Checked before the status rows. |
+  | 400 with `detail.error_type` = `max_tokens_exceeded` | `invalid` | Over Jev's token limit (measured by E4, [`spikes/84-token-ratio.md`](../spikes/84-token-ratio.md)). The same content fails again, so like a 422: `Jev/Error`. |
+  | any other 400 | `exceptional` | An unknown bad request is a bug on our side. |
+  | 401, 402, 403 | `auth` | A missing or invalid key (documented), or an account that can't be used (no credit, suspended, no access). The problem is the account, not the mail: the run stops, nothing is marked, and the `auth` alert is sent. |
+  | 408, 429, 502, 503, 504, 529 | `retryable` | Timeout, rate limit (documented), bad gateway, unavailable, gateway timeout, overloaded (documented). |
+  | 422 | `invalid` | The request failed validation (documented): `Jev/Error`. |
+  | 500 and any other 500-599 | `exceptional` | A generic server error isn't assumed temporary (PDD §4.6). TypeSafe's SDK retries every 5xx; we deliberately don't. |
+  | 404 and any other 400-499 | `exceptional` | Unexpected. |
+  | anything else (1xx, other 2xx, 3xx, 600 and up, not an integer) | `exceptional` | Never expected. |
+  | `transport` (from `HttpPort`, not a status) | `retryable` | A network error or timeout. The sender applies it; `classifyJevResponse` never sees it. |
+
+  What the Jev docs say: only 401, 422, 429 and 529 are documented; the error body is "a JSON body describing what went wrong" with no schema, and no retry or request-ID headers are documented for the HTTP API. The SDK retries 408, 429 and all 5xx, and honours `Retry-After` and `retry-after-ms`. Measured (E4) and winning over the docs: the over-limit 400 and its body. The error body is parsed defensively (`jevErrorType`) and never logged.
+- **Outage.** A round with at least 2 requests in which every request got a 5xx (500-599, including the retryable 502, 503, 504 and 529) or a network error is an outage (`isJevOutageRound`): sending stops for the run, nothing is struck, and the items stay queued. Otherwise a 500 strikes its own thread. One failure among successes isn't an outage.
 
 ## 9. Gmail Integration
 
@@ -697,7 +713,7 @@ repeat:
 Exceptions are for **invalid input or invalid state**. An expected failure is a **result**, not an exception ([ADR-0006](adr/0006-results-and-error-boundaries.md)).
 
 - **Results.** Operations that can fail in expected ways return a discriminated union, for example:
-  - `JevResult = {ok: true, answers, usage, requestId} | {ok: false, kind: 'retryable' | 'invalid' | 'auth' | 'scope', …}`
+  - `JevResult = {ok: true, answers, usage, requestId} | {ok: false, kind: 'retryable' | 'invalid' | 'auth' | 'config' | 'scope', …}`
 
   An `ok:false` from Jev is a successful call that failed. The code handling it also "fails successfully": it records a strike or a `Jev/Error`, and does not throw.
 
@@ -860,7 +876,7 @@ This updates the PDD's [epic list](product-design-document.md#14-epics) with the
 | The Gmail per-user, per-minute quota ("Total Query Cost", "Units per minute per user", 6,000 units/minute per user per Cloud project) is shared by everything using the account through that project, and is easy to hit: E1 hit it at about 2,900 units in 18 s of back-to-back calls ([`spikes/30-gmail-quota.md`](../spikes/30-gmail-quota.md)), and again while several spikes ran at once. | Runs fail mid-chunk with a quota exception (HTTP 403, `rateLimitExceeded`). | E7 sizes runs by quota units as well as time, and treats the error as retryable in a later run: it stops Gmail work for the run, not a per-thread failure and not the daily stop ([§9](#9-gmail-integration)). |
 | Adding `SPAM` via the API reports the thread to Google as spam. | A surprising side effect: Google receives a copy, and the sender's later mail may be filtered. | E1 ([`spikes/26-moves.md`](../spikes/26-moves.md)): treat it as a report. A thread spammed through the API shows the same banner as one the user reported with "Report spam" ("You reported this message as spam from your inbox"). Google's Help says that when you report spam "or move an email into Spam", Google receives a copy and may analyze it. The API docs are silent, and the test had no outside sender. The README Permissions section (#151) says to use `spam` only for mail the user would report themselves. |
 | How well `basic` HTML conversion works for classification. | Precision on HTML-only mail. | A probe check on real mail, moved from E4 to E5 (#86), since it needs E5's probe. `advanced` converter reserved. |
-| Character-based token estimate. | A rejection from Jev because the request is too large. | Measured by E4 ([`spikes/84-token-ratio.md`](../spikes/84-token-ratio.md), [§8.4](#84-truncation)): the estimate is the UTF-8 byte count, which is above Jev's count for every kind of text measured, plus a fixed overhead and a margin under the 32,768 and 65,536 limits. An over-limit request gets a 400 `max_tokens_exceeded`, not a 422, so E5's per-status classification is to treat it like a 422 (`Jev/Error`), keeping it visible and never silent. |
+| Character-based token estimate. | A rejection from Jev because the request is too large. | Measured by E4 ([`spikes/84-token-ratio.md`](../spikes/84-token-ratio.md), [§8.4](#84-truncation)): the estimate is the UTF-8 byte count, which is above Jev's count for every kind of text measured, plus a fixed overhead and a margin under the 32,768 and 65,536 limits. An over-limit request gets a 400 `max_tokens_exceeded`, not a 422, so E5 classifies it `invalid`, like a 422 (`Jev/Error`), keeping it visible and never silent ([§8.5](#85-retries-in-rounds)). |
 | Consumer trigger runtime of about 37 s per run. | Backlog. | Bounded chunks, concurrent `fetchAll`, configurable interval, back-pressure. |
 | Whether the Advanced Gmail Service counts toward the 20,000/day "Email read/write" quota is undocumented, and not tested by exhausting it ([E1](../spikes/30-gmail-quota.md)). | Unexpected daily quota errors. | Daily Gmail calls are tracked in `state.gmailCalls` and logged in `run.end` (`gmailCalls`, `gmailCallsToday`). E7 keeps the tally; E9 logs it. |
 
