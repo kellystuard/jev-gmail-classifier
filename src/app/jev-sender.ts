@@ -8,7 +8,10 @@
  * each) before the next batch starts. After a round, the retryable ones
  * (`classifyJevResponse` says `retryable`, or a network error) are retried
  * after one sleep, the largest of their `retryDelay`s, up to `MAX_ATTEMPTS`
- * attempts. Every other response is final.
+ * attempts. Every other response is final. When `fetchAll` throws, the
+ * adapter reports every request of the batch as `transport`, although some
+ * may have reached Jev (#94), so a retry can send a request twice: accepted,
+ * since a repeat costs tokens but never a wrong label.
  *
  * - **Time.** A batch starts only if `remainingMs()` is at least the round
  *   estimate, and a retry round only if it's at least the sleep plus the
@@ -49,10 +52,11 @@ export const MAX_REQUESTS_PER_FETCHALL = 20;
 /**
  * SD §8.5: the round-time estimate before any round of a call has been timed.
  * From #90's latency figures (`test/fixtures/jev/README.md`): the slowest
- * round measured was 625 ms (5 concurrent requests of about 29,600 tokens),
- * doubled and rounded up to a whole second is 2,000 ms, and the floor of
- * 5,000 ms wins, leaving room for `fetchAll`'s own overhead and a batch of 20
- * large requests, which no measurement covers.
+ * round measured was 625 ms (5 concurrent requests of about 29,600 tokens,
+ * from Node). #94's S5 (`spikes/94-fetch-all.md`) timed `fetchAll` itself at
+ * 255 to 435 ms for 5 cheap requests. Doubled and rounded up to a whole
+ * second, the slowest is 2,000 ms, and the floor of 5,000 ms wins, leaving
+ * room for a batch of 20 large requests, which no measurement covers.
  */
 export const INITIAL_ROUND_ESTIMATE_MS = 5000;
 
