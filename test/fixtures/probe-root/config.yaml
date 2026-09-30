@@ -1,0 +1,27 @@
+# The default config.yaml for the probe tests (test/scripts/probe-run.test.ts):
+# the rules of config.example.yaml. Synthetic: no real mail or addresses.
+defaultThreshold: 0.8
+triggerIntervalMinutes: 10
+jevModel: jev-latest
+dailyTokenBudget: 20000000
+excludeQuery: from:bank.example OR label:Private
+plainTextMethod: basic
+
+rules:
+  - id: approval
+    question: Does this email ask the recipient to approve something?
+    label: Approval Required
+  - id: bill
+    question: Is this email a bill or invoice?
+    label: Finance/Bill
+    threshold: 0.9
+  - id: newsletter
+    question: Is this email a newsletter the recipient subscribed to?
+    action: move
+    destination: label:Newsletters
+    threshold: 0.95
+  - id: shipping
+    question: Is this email only a shipping or delivery notification?
+    action: move
+    destination: archive
+    threshold: 0.95
