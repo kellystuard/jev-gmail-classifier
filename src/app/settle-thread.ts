@@ -132,13 +132,33 @@ export function settleThread(
       // a second strike (#109). The thread is sent again next run.
       return markFailedByException(error, attempt.strike, context, deps);
     }
-    const strike: StrikeRequest = { cause: 'strike', ...exceptionFields(error) };
-    try {
-      return strikeThread(strike, context, deps, attempt);
-    } catch (strikeError) {
-      rethrowIfRunStopping(strikeError);
-      return markFailedByException(strikeError, strike, context, deps);
-    }
+    return strikeForException(error, context, deps);
+  }
+}
+
+/**
+ * One strike for an exception thrown while handling this thread, logged as
+ * `thread.failed` exactly as `settleThread`'s boundary does (E7's
+ * `processChunk` uses it for an exception while reading the thread or building
+ * its request; epic #13 decision 5). Rethrows `RunAbortError` and
+ * `StateError` (the given error, or one thrown while striking). If striking
+ * throws anything else: `untouched`, the input queue, and `thread.failed`
+ * with `jevError: 'exception'`. Never strikes twice.
+ *
+ * @throws RunAbortError, StateError as above.
+ */
+export function strikeForException(
+  error: unknown,
+  context: SettleContext,
+  deps: SettleDeps,
+): ThreadSettlement {
+  rethrowIfRunStopping(error);
+  const strike: StrikeRequest = { cause: 'strike', ...exceptionFields(error) };
+  try {
+    return strikeThread(strike, context, deps, {});
+  } catch (strikeError) {
+    rethrowIfRunStopping(strikeError);
+    return markFailedByException(strikeError, strike, context, deps);
   }
 }
 

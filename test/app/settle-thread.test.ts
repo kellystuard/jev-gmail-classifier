@@ -6,6 +6,7 @@ import {
   type SettleContext,
   type SettleDeps,
   settleThread,
+  strikeForException,
   type ThreadSettlement,
 } from '../../src/app/settle-thread.ts';
 import type { Config } from '../../src/config/schema.ts';
@@ -917,6 +918,101 @@ describe('settleThread: privacy', () => {
       expect(event.fields).not.toHaveProperty('subject');
       expect(event.fields).not.toHaveProperty('from');
     }
+  });
+});
+
+describe('strikeForException', () => {
+  it.each<[string, unknown, Record<string, unknown>]>([
+    [
+      'a TypeError',
+      new TypeError('x is not a function'),
+      { reason: 'TypeError', error: 'TypeError', errorMessage: 'x is not a function' },
+    ],
+    [
+      'a JevClassifierError',
+      new UnexpectedResponseError('Gmail said no', {
+        service: 'gmail',
+        status: 500,
+        reason: 'unrecognized',
+      }),
+      {
+        reason: 'UnexpectedResponseError',
+        error: 'UnexpectedResponseError',
+        errorMessage: 'Gmail said no',
+        service: 'gmail',
+        status: 500,
+        errorReason: 'unrecognized',
+      },
+    ],
+    ['a non-Error', 'boom', { reason: 'unknown' }],
+  ])('%s is one strike, logged as thread.failed', (_name, error, expected) => {
+    const s = setup();
+    const { threadId, context } = oneThread(s, {}, { subject: 'Secret', from: 'a@example.com' });
+    const settled = strikeForException(error, context, s.deps);
+    expect(settled).toEqual({
+      queue: [{ ...context.item, strikes: 1 }],
+      outcome: 'struck',
+      alerts: [],
+      strikes: 1,
+    });
+    const events = threadEvents(s.log);
+    expect(events.map((e) => [e.level, e.event])).toEqual([['warn', 'thread.failed']]);
+    expect(events[0]?.fields).toEqual({ ...expected, threadId, source: 'scheduled', strikes: 1 });
+  });
+
+  it('the third strike gives Jev/Error', () => {
+    const s = setup();
+    const { threadId, context } = oneThread(s, { strikes: 2 });
+    const settled = strikeForException(new TypeError('bad'), context, s.deps);
+    expect(settled).toEqual({ queue: [], outcome: 'errored', alerts: ['errored'], strikes: 3 });
+    expect(s.gmail.threadLabels(threadId)[0]).toContain(labelId(s.gmail, JEV_ERROR_LABEL));
+    expect(threadEvents(s.log).map((e) => [e.event, e.fields['reason']])).toEqual([
+      ['thread.failed', 'TypeError'],
+      ['thread.errored', 'strikes'],
+    ]);
+  });
+
+  it.each<[string, Error]>([
+    ['RunAbortError', new RunAbortError('stop', { reason: 'auth' })],
+    ['StateError', new StateError('bad state', { key: 'state.queue.0', reason: 'schema' })],
+  ])('rethrows a given %s, with no strike and no log', (_name, error) => {
+    const s = setup();
+    const { context } = oneThread(s);
+    expect(thrown(() => strikeForException(error, context, s.deps))).toBe(error);
+    expect(threadEvents(s.log)).toEqual([]);
+    expect(s.gmail.calls).toEqual([]);
+  });
+
+  it('rethrows a StateError thrown while striking', () => {
+    const s = setup();
+    const { context } = oneThread(s, { strikes: 2 });
+    s.state.seedRaw(JEV_ERROR_LABEL_KEY, '{"v":1,"ids":[42]}');
+    expect(thrown(() => strikeForException(new TypeError('x'), context, s.deps))).toBeInstanceOf(
+      StateError,
+    );
+  });
+
+  it('striking throws: untouched, input queue, jevError exception, one attempt', () => {
+    const s = setup();
+    const { threadId, context } = oneThread(s, { strikes: 2 });
+    s.gmail.failNext('modifyThread', new TypeError('label boom'));
+    const settled = strikeForException(new RangeError('first'), context, s.deps);
+    expect(settled).toEqual({ queue: context.queue, outcome: 'untouched', alerts: [] });
+    expect(settled.queue).toBe(context.queue);
+    expect(s.gmail.calls.filter((c) => c.method === 'modifyThread')).toHaveLength(1);
+    expect(threadEvents(s.log).map((e) => [e.event, e.fields])).toEqual([
+      [
+        'thread.failed',
+        {
+          error: 'TypeError',
+          errorMessage: 'label boom',
+          threadId,
+          source: 'scheduled',
+          reason: 'RangeError',
+          jevError: 'exception',
+        },
+      ],
+    ]);
   });
 });
 
