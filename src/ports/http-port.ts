@@ -19,8 +19,13 @@ export type HttpRequest = {
  *   the status is the caller's job (SD §8.5). Header names are **lower-case**
  *   (the adapter normalizes them), so the core reads `retry-after` and
  *   `x-typesafe-request-id` (SD §8.2, §8.5).
- * - `transport`: a network error or timeout for this request.
- * - `scope`: `script.external_request` isn't granted (SD §9).
+ * - `transport`: a network error or timeout; the adapter reports it for every
+ *   request in the batch, since `fetchAll` can't say which failed.
+ * - `scope`: `script.external_request` isn't granted (SD §9); also reported
+ *   for every request in the batch.
+ *
+ * Redirects aren't followed, so the `Authorization` header never follows one
+ * to another host: a 3xx is an `ok` result with its status.
  */
 export type HttpResult = Result<
   { status: number; headers: Readonly<Record<string, string>>; body: string },
