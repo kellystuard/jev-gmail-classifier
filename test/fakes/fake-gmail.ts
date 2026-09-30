@@ -38,7 +38,6 @@ export const GMAIL_UNIT_COSTS: Readonly<Record<GmailMethod, number>> = {
   listHistory: 2,
   searchThreadIds: 10,
   modifyThread: 10,
-  trashThread: 20,
   getThread: 40,
   createLabel: 5,
 };
@@ -352,25 +351,16 @@ export class FakeGmail implements GmailPort {
     change: ThreadLabelChange,
   ): Result<
     NoFields,
-    GmailFailure | Fail<'not_found'> | Fail<'invalid_label', { message: string }>
+    | GmailFailure
+    | Fail<'not_found'>
+    | Fail<'invalid_label', { message: string }>
+    | Fail<'failed_precondition', { message: string }>
   > {
     const failure = this.begin('modifyThread', [threadId, change], threadId);
     if (failure !== undefined) {
       return failure;
     }
     return this.applyChange(threadId, change.addLabelIds, change.removeLabelIds);
-  }
-
-  trashThread(threadId: string): Result<NoFields, GmailFailure | Fail<'not_found'>> {
-    const failure = this.begin('trashThread', [threadId], threadId);
-    if (failure !== undefined) {
-      return failure;
-    }
-    const result = this.applyChange(threadId, ['TRASH'], []);
-    if (!result.ok && result.kind === 'invalid_label') {
-      throw new Error('FakeGmail.trashThread: TRASH is missing from the label list');
-    }
-    return result.ok ? ok({}) : fail(result.kind);
   }
 
   // ---- Test helpers ----
@@ -391,6 +381,11 @@ export class FakeGmail implements GmailPort {
   /** The `rate_limited` failure Gmail returns for the per-user limit. */
   static rateLimited(): Fail<'rate_limited', { message: string }> {
     return fail('rate_limited', { message: RATE_LIMIT_MESSAGE });
+  }
+
+  /** The transient `failed_precondition` E1 saw on a freshly imported thread (spike 26). */
+  static failedPrecondition(): Fail<'failed_precondition', { message: string }> {
+    return fail('failed_precondition', { message: 'Precondition check failed.' });
   }
 
   /**

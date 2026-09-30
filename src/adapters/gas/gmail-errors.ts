@@ -12,12 +12,18 @@
  * `details` can be missing (a scope error may be a plain `Error`), so every
  * field is read with a type guard.
  *
- * Classification of each error:
- * - **normal failure** (returned): `rate_limited`, `scope`, and, when the
- *   caller names one, a 404 as `history_expired` or `not_found`;
+ * Classification of each error, checked in this order:
+ * - **normal failure** (returned):
+ *   - `rate_limited` and `scope`, on every method;
+ *   - when the caller names one, a 404 as `history_expired` or `not_found`;
+ *   - when the caller lists them, its own expected kinds
+ *     (`spikes/25-nested-labels.md`, `spikes/26-moves.md`): `label_exists`
+ *     and `invalid_label_name` (`createLabel`), `invalid_label` and
+ *     `failed_precondition` (`modifyThread`). Each is recognized only for a
+ *     method that lists it;
  * - **exceptional** (thrown as `UnexpectedResponseError`): everything else,
- *   including a 400 `invalid` (a malformed `startHistoryId` is invalid state)
- *   and a 500.
+ *   including any other 400 (a malformed `startHistoryId` or thread ID is
+ *   invalid state) and a 500.
  */
 import { UnexpectedResponseError } from '../../core/errors.ts';
 import { fail, type Fail } from '../../core/result.ts';
@@ -26,6 +32,44 @@ import { isScopeErrorMessage } from './scope-errors.ts';
 
 /** The failure a 404 becomes, chosen by the caller: a 404 means different things per call. */
 export type GmailNotFoundKind = 'history_expired' | 'not_found';
+
+/**
+ * A failure only some methods expect, recognized only when the caller lists
+ * it. Each carries the error's original `message`.
+ */
+export type GmailExpectedKind =
+  'label_exists' | 'invalid_label_name' | 'invalid_label' | 'failed_precondition';
+
+/** Recognizes one expected kind, given the lower-case message. */
+type ExpectedMatcher = {
+  /** With a `details` object: its code and reasons, plus the text where a reason is too broad. */
+  readonly withDetails: (details: GmailErrorDetails, lower: string) => boolean;
+  /** Without one: the message text alone, as for the 404. */
+  readonly byMessage: (lower: string) => boolean;
+};
+
+const EXPECTED_MATCHERS: Readonly<Record<GmailExpectedKind, ExpectedMatcher>> = {
+  // 409 "Label name exists or conflicts", `reason: aborted` (spike 25 rows 5, 6, 9).
+  label_exists: {
+    withDetails: (details) => details.code === 409 || hasReason(details, 'aborted'),
+    byMessage: (lower) => lower.includes('label name exists or conflicts'),
+  },
+  // 400 "Invalid label name", `reason: invalidArgument` (spike 25 row 7).
+  invalid_label_name: {
+    withDetails: (details, lower) => details.code === 400 && lower.includes('invalid label name'),
+    byMessage: (lower) => lower.includes('invalid label name'),
+  },
+  // 400 "Invalid label: <x>" or "labelId not found", `reason: invalidArgument` (spike 25 rows 13, 14).
+  invalid_label: {
+    withDetails: (details, lower) => details.code === 400 && isInvalidLabelText(lower),
+    byMessage: isInvalidLabelText,
+  },
+  // 400 "Precondition check failed.", `reason: failedPrecondition` (spike 26 "Errors").
+  failed_precondition: {
+    withDetails: (details) => hasReason(details, 'failedprecondition'),
+    byMessage: (lower) => lower.includes('precondition check failed'),
+  },
+};
 
 /** Reasons Gmail gives for its per-user rate limit, in lower case. A 403 with either is never `scope`. */
 const RATE_LIMIT_REASONS: readonly string[] = ['ratelimitexceeded', 'userratelimitexceeded'];
@@ -43,18 +87,31 @@ type GmailErrorDetails = {
 /**
  * Returns the recognized failure for `error`, or throws
  * `UnexpectedResponseError`. Pass `notFound` where a 404 is an expected
- * outcome (`listHistory`: `history_expired`, `getThread`: `not_found`). A 404
- * from a call without it is unexpected.
+ * outcome (`listHistory`: `history_expired`, `getThread` and `modifyThread`:
+ * `not_found`), and `expected` for the method's own expected kinds. A 404, or
+ * an expected kind, from a call that doesn't name it is unexpected.
  */
-export function toGmailFailure(error: unknown, context: { method: string }): GmailFailure;
+export function toGmailFailure<K extends GmailNotFoundKind, E extends GmailExpectedKind>(
+  error: unknown,
+  context: { method: string; notFound: K; expected: readonly E[] },
+): GmailFailure | Fail<K> | Fail<E, { message: string }>;
 export function toGmailFailure<K extends GmailNotFoundKind>(
   error: unknown,
   context: { method: string; notFound: K },
 ): GmailFailure | Fail<K>;
+export function toGmailFailure<E extends GmailExpectedKind>(
+  error: unknown,
+  context: { method: string; expected: readonly E[] },
+): GmailFailure | Fail<E, { message: string }>;
+export function toGmailFailure(error: unknown, context: { method: string }): GmailFailure;
 export function toGmailFailure(
   error: unknown,
-  context: { method: string; notFound?: GmailNotFoundKind },
-): GmailFailure | Fail<GmailNotFoundKind> {
+  context: {
+    method: string;
+    notFound?: GmailNotFoundKind;
+    expected?: readonly GmailExpectedKind[];
+  },
+): GmailFailure | Fail<GmailNotFoundKind> | Fail<GmailExpectedKind, { message: string }> {
   const message = readMessage(error);
   const lower = message.toLowerCase();
   const details = readDetails(error);
@@ -80,6 +137,13 @@ export function toGmailFailure(
     return fail(context.notFound);
   }
 
+  for (const kind of context.expected ?? []) {
+    const matcher = EXPECTED_MATCHERS[kind];
+    if (details === undefined ? matcher.byMessage(lower) : matcher.withDetails(details, lower)) {
+      return fail(kind, { message });
+    }
+  }
+
   throw new UnexpectedResponseError(
     `Gmail ${context.method} failed: ${message}`,
     {
@@ -89,6 +153,16 @@ export function toGmailFailure(
     },
     { cause: error },
   );
+}
+
+/** Whether any of `details`' reasons is `lowerReason`, ignoring case. */
+function hasReason(details: GmailErrorDetails, lowerReason: string): boolean {
+  return details.reasons.some((reason) => reason.toLowerCase() === lowerReason);
+}
+
+/** "Invalid label: <x>" (a name or an unusable ID) or "labelId not found" (an unknown ID). */
+function isInvalidLabelText(lower: string): boolean {
+  return lower.includes('invalid label') || lower.includes('labelid not found');
 }
 
 /** The error's own message, or its string form for a thrown non-`Error`. */

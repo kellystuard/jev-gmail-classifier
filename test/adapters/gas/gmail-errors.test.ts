@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { UnexpectedResponseError } from '../../../src/core/errors.ts';
-import { toGmailFailure } from '../../../src/adapters/gas/gmail-errors.ts';
+import {
+  type GmailExpectedKind,
+  type GmailNotFoundKind,
+  toGmailFailure,
+} from '../../../src/adapters/gas/gmail-errors.ts';
 
 /** Builds what the Advanced Service throws: an `Error` with a `details` property. */
 function gmailException(message: string, details?: object): Error {
@@ -309,5 +313,269 @@ describe('toGmailFailure: searchThreadIds and getThread', () => {
     });
     // The mapping never receives `q`, so nothing it builds can hold it.
     expect(Object.keys(thrown.fields).sort()).toEqual(['reason', 'service', 'status']);
+  });
+});
+
+// ---- E6: the write half (spikes 25, 26 and 30) ----
+
+/** Any context. It matches the plain overload; the mapper reads every field at run time. */
+type Context = {
+  readonly method: string;
+  readonly notFound?: GmailNotFoundKind;
+  readonly expected?: readonly GmailExpectedKind[];
+};
+
+/** The contexts exactly as `GasGmailAdapter` passes them. */
+const LIST_LABELS = { method: 'listLabels' } as const;
+const CREATE_LABEL = {
+  method: 'createLabel',
+  expected: ['label_exists', 'invalid_label_name'],
+} as const;
+const MODIFY_THREAD = {
+  method: 'modifyThread',
+  notFound: 'not_found',
+  expected: ['invalid_label', 'failed_precondition'],
+} as const;
+
+const WRITE_CONTEXTS: readonly (readonly [string, Context])[] = [
+  ['listLabels', LIST_LABELS],
+  ['createLabel', CREATE_LABEL],
+  ['modifyThread', MODIFY_THREAD],
+];
+
+/** The spikes' message form: `API call to gmail.users.<call> failed with error: <text>`. */
+function spikeMessage(call: string, text: string): string {
+  return `API call to gmail.users.${call} failed with error: ${text}`;
+}
+
+/** A spike error with its `details` object. */
+function spikeError(call: string, text: string, code: number, reason: string): Error {
+  return gmailException(spikeMessage(call, text), {
+    code,
+    message: text,
+    errors: [{ domain: 'global', reason }],
+  });
+}
+
+// Exact texts from spike 25 (rows 5-7, 9, 13, 14) and spike 26 ("Errors").
+const LABEL_EXISTS = 'Label name exists or conflicts';
+const INVALID_LABEL_NAME = 'Invalid label name';
+const INVALID_LABEL = 'Invalid label: Finance/Bill';
+const LABEL_ID_NOT_FOUND = 'labelId not found';
+const PRECONDITION = 'Precondition check failed.';
+
+describe('toGmailFailure: scope and rate_limited on the write methods', () => {
+  const scopeCases = WRITE_CONTEXTS.flatMap(([name, context]) =>
+    SCOPE_FRAGMENTS.map((fragment) => [name, fragment, context] as const),
+  );
+
+  it.each(scopeCases)('%s maps "%s" to scope', (_name, fragment, context) => {
+    const message = spikeMessage('threads.modify', fragment);
+    expect(toGmailFailure(new Error(message), context)).toEqual({
+      ok: false,
+      kind: 'scope',
+      message,
+    });
+  });
+
+  it.each(WRITE_CONTEXTS)("%s maps spike 30's rate limit to rate_limited", (_name, context) => {
+    expect(toGmailFailure(new Error(SPIKE_30_RATE_LIMIT_MESSAGE), context)).toEqual({
+      ok: false,
+      kind: 'rate_limited',
+      message: SPIKE_30_RATE_LIMIT_MESSAGE,
+    });
+  });
+
+  it.each(WRITE_CONTEXTS)(
+    '%s maps a 403 rateLimitExceeded that names a scope fragment to rate_limited',
+    (_name, context) => {
+      const message = 'Rate Limit Exceeded. Request had insufficient authentication scopes.';
+      const error = gmailException(message, {
+        code: 403,
+        errors: [{ reason: 'rateLimitExceeded', domain: 'usageLimits' }],
+      });
+      expect(toGmailFailure(error, context)).toEqual({ ok: false, kind: 'rate_limited', message });
+    },
+  );
+});
+
+describe('toGmailFailure: createLabel', () => {
+  const cases: readonly (readonly [string, Error, string])[] = [
+    ['409 aborted', spikeError('labels.create', LABEL_EXISTS, 409, 'aborted'), 'label_exists'],
+    [
+      '"Label name exists or conflicts" with no details',
+      new Error(spikeMessage('labels.create', LABEL_EXISTS)),
+      'label_exists',
+    ],
+    ['a 409 with no reason', gmailException('conflict', { code: 409 }), 'label_exists'],
+    [
+      'reason ABORTED with no code',
+      gmailException('conflict', { errors: [{ reason: 'ABORTED' }] }),
+      'label_exists',
+    ],
+    [
+      '400 "Invalid label name"',
+      spikeError('labels.create', INVALID_LABEL_NAME, 400, 'invalidArgument'),
+      'invalid_label_name',
+    ],
+    [
+      '"Invalid label name" with no details',
+      new Error(spikeMessage('labels.create', INVALID_LABEL_NAME)),
+      'invalid_label_name',
+    ],
+  ];
+
+  it.each(cases)('maps %s to %s with the original message', (_name, error, kind) => {
+    expect(toGmailFailure(error, CREATE_LABEL)).toEqual({
+      ok: false,
+      kind,
+      message: error.message,
+    });
+  });
+});
+
+describe('toGmailFailure: modifyThread', () => {
+  const cases: readonly (readonly [string, Error, string])[] = [
+    [
+      '400 "Invalid label: Finance/Bill"',
+      spikeError('threads.modify', INVALID_LABEL, 400, 'invalidArgument'),
+      'invalid_label',
+    ],
+    [
+      '400 "labelId not found"',
+      spikeError('threads.modify', LABEL_ID_NOT_FOUND, 400, 'invalidArgument'),
+      'invalid_label',
+    ],
+    [
+      '"Invalid label: Finance/Bill" with no details',
+      new Error(spikeMessage('threads.modify', INVALID_LABEL)),
+      'invalid_label',
+    ],
+    [
+      '"labelId not found" with no details',
+      new Error(spikeMessage('threads.modify', LABEL_ID_NOT_FOUND)),
+      'invalid_label',
+    ],
+    [
+      '400 failedPrecondition',
+      spikeError('threads.modify', PRECONDITION, 400, 'failedPrecondition'),
+      'failed_precondition',
+    ],
+    [
+      '"Precondition check failed." with no details',
+      new Error(spikeMessage('threads.modify', PRECONDITION)),
+      'failed_precondition',
+    ],
+  ];
+
+  it.each(cases)('maps %s to %s with the original message', (_name, error, kind) => {
+    expect(toGmailFailure(error, MODIFY_THREAD)).toEqual({
+      ok: false,
+      kind,
+      message: error.message,
+    });
+  });
+
+  it('maps a 404 to not_found, with its details or by its message alone', () => {
+    const message = spikeMessage('threads.modify', 'Requested entity was not found.');
+    expect(toGmailFailure(gmailException(message, SPIKE_62_404_DETAILS), MODIFY_THREAD)).toEqual({
+      ok: false,
+      kind: 'not_found',
+    });
+    expect(toGmailFailure(new Error(message), MODIFY_THREAD)).toEqual({
+      ok: false,
+      kind: 'not_found',
+    });
+  });
+});
+
+describe('toGmailFailure: no leaks between methods', () => {
+  const conflict = (call: string): Error => spikeError(call, LABEL_EXISTS, 409, 'aborted');
+  const notFound = gmailException(SPIKE_62_404_MESSAGE, SPIKE_62_404_DETAILS);
+  const cases: readonly (readonly [string, Context, Error])[] = [
+    [
+      'createLabel given "Invalid label: X"',
+      CREATE_LABEL,
+      spikeError('labels.create', 'Invalid label: X', 400, 'invalidArgument'),
+    ],
+    [
+      'createLabel given "Precondition check failed."',
+      CREATE_LABEL,
+      spikeError('labels.create', PRECONDITION, 400, 'failedPrecondition'),
+    ],
+    [
+      'createLabel given "Precondition check failed." with no details',
+      CREATE_LABEL,
+      new Error(spikeMessage('labels.create', PRECONDITION)),
+    ],
+    ['createLabel given a 404', CREATE_LABEL, notFound],
+    ['modifyThread given a 409', MODIFY_THREAD, conflict('threads.modify')],
+    [
+      'modifyThread given "Label name exists or conflicts" with no details',
+      MODIFY_THREAD,
+      new Error(spikeMessage('threads.modify', LABEL_EXISTS)),
+    ],
+    ['listLabels given a 404', LIST_LABELS, notFound],
+    ['listLabels given a 409', LIST_LABELS, conflict('labels.list')],
+    [
+      'listLabels given "Invalid label: X"',
+      LIST_LABELS,
+      spikeError('labels.list', 'Invalid label: X', 400, 'invalidArgument'),
+    ],
+    ['getProfile given a 409', { method: 'getProfile' }, conflict('getProfile')],
+    [
+      'listHistory given a 409',
+      { method: 'listHistory', notFound: 'history_expired' },
+      conflict('history.list'),
+    ],
+    ['searchThreadIds given a 409', { method: 'searchThreadIds' }, conflict('threads.list')],
+    [
+      'getThread given a 409',
+      { method: 'getThread', notFound: 'not_found' },
+      conflict('threads.get'),
+    ],
+  ];
+
+  it.each(cases)('%s throws UnexpectedResponseError', (_name, context, error) => {
+    const thrown = caught(() => toGmailFailure(error, context));
+    expect(thrown).toBeInstanceOf(UnexpectedResponseError);
+    expect(thrown).toMatchObject({
+      service: 'gmail',
+      reason: `${context.method} failed`,
+      cause: error,
+    });
+  });
+});
+
+describe('toGmailFailure: still unexpected on the write methods', () => {
+  const cases: readonly (readonly [string, Context, Error, number])[] = [
+    [
+      'modifyThread, a 400 invalidArgument "Invalid id value"',
+      MODIFY_THREAD,
+      spikeError('threads.modify', 'Invalid id value', 400, 'invalidArgument'),
+      400,
+    ],
+    ...WRITE_CONTEXTS.map(
+      ([name, context]) =>
+        [
+          `${name}, a 500`,
+          context,
+          spikeError('labels.list', 'Backend Error', 500, 'backendError'),
+          500,
+        ] as const,
+    ),
+  ];
+
+  it.each(cases)('%s throws UnexpectedResponseError', (_name, context, error, status) => {
+    const thrown = caught(() => toGmailFailure(error, context));
+    expect(thrown).toBeInstanceOf(UnexpectedResponseError);
+    if (!(thrown instanceof UnexpectedResponseError)) {
+      return;
+    }
+    expect(thrown.service).toBe('gmail');
+    expect(thrown.status).toBe(status);
+    expect(thrown.reason).toBe(`${context.method} failed`);
+    expect(thrown.message).toBe(`Gmail ${context.method} failed: ${error.message}`);
+    expect(thrown.cause).toBe(error);
   });
 });

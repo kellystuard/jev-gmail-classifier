@@ -1,15 +1,17 @@
 /**
  * `GasGmailAdapter`: `GmailPort` over the Advanced Gmail Service (`Gmail.Users.*`)
- * (Solution Design §5.2, §9; ADR-0003). This is E3's reading half: `getProfile`,
- * `listHistory`, `searchThreadIds` and `getThread`. The label and move methods
- * are E6's.
+ * (Solution Design §5.2, §9; ADR-0003). E3's reading half: `getProfile`,
+ * `listHistory`, `searchThreadIds` and `getThread`. E6's labels and moves:
+ * `listLabels`, `createLabel` and `modifyThread` (spikes 25 and 26). A trash is
+ * `modifyThread` adding `TRASH`, so there is no `threads.trash` call.
  *
- * Every call is on the user `me`. The adapter does no retries, sleeps or call
- * counting: the rate limit is E7's. Errors go through `toGmailFailure`: a
- * recognized failure is returned, and anything else is thrown as
- * `UnexpectedResponseError`.
+ * Every call is on the user `me`. The adapter does no retries, sleeps, logging
+ * or call counting: the rate limit is E7's. It compares no label names and
+ * creates no parent labels: that is the label cache's (SD §6.5). Errors go
+ * through `toGmailFailure`: a recognized failure is returned, and anything
+ * else is thrown as `UnexpectedResponseError`.
  */
-import type { GmailHistoryRecord, GmailThread } from '../../core/gmail-types.ts';
+import type { GmailHistoryRecord, GmailLabel, GmailThread } from '../../core/gmail-types.ts';
 import { UnexpectedResponseError } from '../../core/errors.ts';
 import { ok } from '../../core/result.ts';
 import type {
@@ -17,6 +19,7 @@ import type {
   GmailPort,
   ListHistoryRequest,
   SearchThreadIdsRequest,
+  ThreadLabelChange,
 } from '../../ports/gmail-port.ts';
 
 import { toGmailFailure } from './gmail-errors.ts';
@@ -61,10 +64,30 @@ type GmailThreadsGetOptions =
   | { readonly format: 'full' | 'minimal' }
   | { readonly format: 'metadata'; readonly metadataHeaders: string[] };
 
+/** `Users.Labels.list`'s response. The entries are checked before use. */
+type GmailLabelsListResponse = { readonly labels?: unknown };
+
+/** `Users.Labels.create`'s resource: what spike 25 sent. */
+type GmailLabelCreateResource = {
+  readonly name: string;
+  readonly labelListVisibility: 'labelShow';
+  readonly messageListVisibility: 'show';
+};
+
+/** `Users.Labels.create`'s response, the fields this adapter reads. */
+type GmailLabelCreateResponse = { readonly id?: unknown; readonly name?: unknown };
+
+/** `Users.Threads.modify`'s resource. */
+type GmailThreadsModifyResource = {
+  readonly addLabelIds: string[];
+  readonly removeLabelIds: string[];
+};
+
 /**
  * The part of the Advanced Gmail Service this file uses. There is no Apps
  * Script type package (epic decision 15), and `declare const` emits nothing,
- * so the bundle calls the real global.
+ * so the bundle calls the real global. The write calls take the resource
+ * first, then the user (spike 27).
  */
 declare const Gmail: {
   Users: {
@@ -72,9 +95,14 @@ declare const Gmail: {
     History: {
       list(userId: 'me', options: GmailHistoryListOptions): GmailHistoryListResponse;
     };
+    Labels: {
+      list(userId: 'me'): GmailLabelsListResponse;
+      create(resource: GmailLabelCreateResource, userId: 'me'): GmailLabelCreateResponse;
+    };
     Threads: {
       list(userId: 'me', options: GmailThreadsListOptions): GmailThreadsListResponse;
       get(userId: 'me', threadId: string, options: GmailThreadsGetOptions): GmailThread;
+      modify(resource: GmailThreadsModifyResource, userId: 'me', threadId: string): unknown;
     };
   };
 };
@@ -186,20 +214,79 @@ export class GasGmailAdapter implements GmailPort {
     return ok({ thread });
   }
 
-  listLabels(): never {
-    throw new Error('listLabels is implemented in E6');
+  listLabels(): ReturnType<GmailPort['listLabels']> {
+    let response: GmailLabelsListResponse;
+    try {
+      // One response, with no paging (spike 25 row 11).
+      response = Gmail.Users.Labels.list('me');
+    } catch (error) {
+      return toGmailFailure(error, { method: 'listLabels' });
+    }
+    // Every mailbox has system labels, so an absent list is unusable.
+    const entries: unknown = response.labels;
+    if (!Array.isArray(entries)) {
+      throw malformed('labels.list response is malformed', 'listLabels');
+    }
+    const list: readonly unknown[] = entries;
+    const labels = list.map((entry): GmailLabel => {
+      if (typeof entry !== 'object' || entry === null) {
+        throw malformed('labels.list response is malformed', 'listLabels');
+      }
+      const id = 'id' in entry ? entry.id : undefined;
+      const name = 'name' in entry ? entry.name : undefined;
+      const type = 'type' in entry ? entry.type : undefined;
+      if (typeof id !== 'string' || id === '' || typeof name !== 'string' || name === '') {
+        throw malformed('labels.list response is malformed', 'listLabels');
+      }
+      return { id, name, ...(typeof type === 'string' ? { type } : {}) };
+    });
+    return ok({ labels });
   }
 
-  createLabel(): never {
-    throw new Error('createLabel is implemented in E6');
+  createLabel(name: string): ReturnType<GmailPort['createLabel']> {
+    let response: GmailLabelCreateResponse;
+    try {
+      // Exactly the leaf: Gmail creates no parents (spike 25).
+      response = Gmail.Users.Labels.create(
+        { name, labelListVisibility: 'labelShow', messageListVisibility: 'show' },
+        'me',
+      );
+    } catch (error) {
+      return toGmailFailure(error, {
+        method: 'createLabel',
+        expected: ['label_exists', 'invalid_label_name'],
+      });
+    }
+    const { id, name: createdName } = response;
+    if (
+      typeof id !== 'string' ||
+      id === '' ||
+      typeof createdName !== 'string' ||
+      createdName === ''
+    ) {
+      throw malformed('labels.create response is malformed', 'createLabel');
+    }
+    // `labels.create` returns no `type`.
+    return ok({ label: { id, name: createdName } });
   }
 
-  modifyThread(): never {
-    throw new Error('modifyThread is implemented in E6');
-  }
-
-  trashThread(): never {
-    throw new Error('trashThread is implemented in E6');
+  modifyThread(threadId: string, change: ThreadLabelChange): ReturnType<GmailPort['modifyThread']> {
+    try {
+      // The response body isn't read: success is all the caller needs.
+      Gmail.Users.Threads.modify(
+        { addLabelIds: [...change.addLabelIds], removeLabelIds: [...change.removeLabelIds] },
+        'me',
+        threadId,
+      );
+    } catch (error) {
+      // A 404 is a thread deleted since it was read.
+      return toGmailFailure(error, {
+        method: 'modifyThread',
+        notFound: 'not_found',
+        expected: ['invalid_label', 'failed_precondition'],
+      });
+    }
+    return ok({});
   }
 }
 
