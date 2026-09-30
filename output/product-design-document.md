@@ -104,7 +104,7 @@ Each thread is one request, containing every rule's question (keyed by rule `id`
 ### 4.6 Failures
 
 - **Temporary failures** (rate limits, overload, network errors) are retried with exponential backoff and jitter, within the time left in the run. A thread that still fails stays queued for the next run. Which responses count as temporary is decided per case during development; a generic server error is not assumed to be temporary.
-- **`Jev/Error`.** A thread that fails on 3 consecutive runs, or gets an invalid-request response, gets `Jev/Error` and is not retried automatically, not even when a new reply arrives. Removing the label retries it. Manual runs skip it.
+- **`Jev/Error`.** A thread that fails on 3 runs (a run that leaves it untouched, such as one cut short, neither counts nor resets the count), or gets an invalid-request response, gets `Jev/Error` and is not retried automatically, not even when a new reply arrives. Removing the label retries it. Manual runs skip it.
 - **A bad or missing API key** stops the run without marking anything.
 - **A missing permission** is logged and alerted, and the run continues with what still works. If only a move can't be made, the labels are applied and the skipped move is logged.
 
