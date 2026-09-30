@@ -57,10 +57,10 @@ Each rule either adds a **label** or **moves** the thread:
 
 Each request sends the thread as Jev's [`state`](https://docs.typesafe.ai/concepts/state), which is Jev's term for the input being classified. It is a list of the thread's emails, newest first. For each email it includes:
 
-- a fixed set of headers that help classification: `From`, `Sender`, `Reply-To`, `To`, `Cc`, `Subject`, `Date`, `List-Id`, `List-Unsubscribe`, `Precedence`, and `Auto-Submitted`. Headers an email doesn't have are left out;
+- a fixed set of headers that help classification: `From`, `Sender`, `Reply-To`, `To`, `Cc`, `Subject`, `Date`, `List-Id`, `List-Unsubscribe`, `Precedence`, and `Auto-Submitted`. Headers an email doesn't have are left out, and a header that appears twice is sent once with both values;
 - the body as plain text only. For HTML-only emails, the HTML is converted to plain text (see `plainTextMethod` in [Configuration](#configuration)).
 
-If the thread is too long for [Jev's request limit](#jev), the oldest content is cut first. Attachments and all other headers are never sent. Threads matching your exclusion query are never sent at all: if **any** email in a thread matches, the whole thread is kept back.
+If the thread is too long for [Jev's request limit](#jev), the oldest content is cut first. Attachments and all other headers are never sent, and neither are drafts or emails in Spam or Trash. Threads matching your exclusion query are never sent at all: if **any** email in a thread matches, the whole thread is kept back.
 
 ### Keeping track of new mail
 
