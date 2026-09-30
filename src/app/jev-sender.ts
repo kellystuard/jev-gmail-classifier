@@ -26,8 +26,19 @@
  * - **Logs** `jev.batch` (`info`) for each batch it started, and `jev.outage`
  *   (`warn`) for an outage round. Never an ID, a body, a header or the key.
  *
- * #100 adds the daily budget at the two per-batch seams: `beforeBatch` and
- * `afterBatch`.
+ * - **The daily budget** (SD §10.2; task #100). It's loaded once per call
+ *   (a corrupt value throws `StateError` before anything is sent). Before each
+ *   batch it's rolled over in memory to the current day, and if it's reached
+ *   the batch and all later ones are held back (`notSent: 'budget'`,
+ *   `stopped: 'budget'`, alert `budget_reached`, one `budget.reached` `warn`).
+ *   The check comes before the time check. After each batch (its last retry
+ *   round included) every 200's `usage.input_tokens` is added and, if any
+ *   tokens were used, saved at once, so a crash loses at most one batch's
+ *   count. The check isn't repeated inside a batch, so the overshoot is at
+ *   most one batch. A `StateError` from that save (only `store_full`, on a
+ *   store that's already full) propagates to the per-run boundary and the
+ *   answers of the batch just sent are lost for this run: the items are still
+ *   queued and are re-sent later.
  */
 import type { AlertCondition } from '../core/alert-condition.ts';
 import { InvalidArgumentError, UnexpectedResponseError } from '../core/errors.ts';
@@ -41,10 +52,19 @@ import {
   type JevRoundOutcome,
 } from '../core/jev-status.ts';
 import { MAX_ATTEMPTS, parseRetryAfter, retryDelay } from '../core/retry-delay.ts';
+import {
+  addInputTokens,
+  type Budget,
+  budgetForDay,
+  dayInTimeZone,
+  isBudgetReached,
+} from '../core/token-budget.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { HttpPort, HttpRequest, HttpResult } from '../ports/http-port.ts';
 import type { LogPort } from '../ports/log-port.ts';
 import type { RandomPort } from '../ports/random-port.ts';
+import type { StatePort } from '../ports/state-port.ts';
+import { loadBudget, saveBudget } from './budget-store.ts';
 
 /** SD §8.5: the most requests in one `sendAll` (`fetchAll`). A starting value; #97 settles it. */
 export const MAX_REQUESTS_PER_FETCHALL = 20;
@@ -68,14 +88,20 @@ export type JevSendDeps = {
   readonly clock: ClockPort;
   readonly random: RandomPort;
   readonly log: LogPort;
+  /** Holds `state.budget`. Read once per call, saved after each batch that used tokens. */
+  readonly state: StatePort;
   /** Non-blank. The caller read it from `SecretsPort` (decision 9). Only ever in the `Authorization` header. */
   readonly apiKey: string;
+  /** `dailyTokenBudget` from config: a positive safe integer. The day follows `clock.timeZone()`. */
+  readonly dailyTokenBudget: number;
   /** The time left for sending, in ms: E7's `Deadline`. */
   readonly remainingMs: () => number;
 };
 
 /**
  * Why the call stopped sending before the end:
+ * - `budget`: today's token budget is reached; the rest wasn't sent. E7 leaves
+ *   those items queued untouched; E9 sends the `budget_reached` alert;
  * - `deadline`: a batch or a retry round didn't fit in `remainingMs()`;
  * - `auth`: a 401, 402 or 403 (E7 throws `RunAbortError('auth')`);
  * - `config`: the unknown-model response (E7 throws `RunAbortError('config_invalid')`);
@@ -83,7 +109,7 @@ export type JevSendDeps = {
  * - `outage`: a round of at least 2 in which everything was a 5xx or a network
  *   error. Nothing is struck; E7 leaves the items queued.
  */
-export type JevSendStop = 'deadline' | 'auth' | 'config' | 'scope' | 'outage';
+export type JevSendStop = 'budget' | 'deadline' | 'auth' | 'config' | 'scope' | 'outage';
 
 /**
  * Why an entry that was still retryable, with attempts left, wasn't retried:
@@ -129,7 +155,7 @@ export type JevSendResult = {
   readonly stopped?: JevSendStop;
   /** The sum of `usageInputTokens` over every final 200: Jev billed them all. */
   readonly inputTokens: number;
-  /** Always empty here; #100 adds `budget_reached`. */
+  /** `['budget_reached']` when a batch was held back for the budget. */
   readonly alerts: readonly AlertCondition[];
 };
 
@@ -182,6 +208,9 @@ type Call = {
   /** The longest round timed in this call, or `undefined` before the first. */
   longestRoundMs: number | undefined;
   inputTokens: number;
+  /** The day's budget, rolled over and added to in memory. */
+  budget: Budget;
+  budgetLogged: boolean;
 };
 
 /**
@@ -202,6 +231,12 @@ export function sendJevRequests(
       reason: 'blank',
     });
   }
+  if (!Number.isSafeInteger(deps.dailyTokenBudget) || deps.dailyTokenBudget < 1) {
+    throw new InvalidArgumentError('dailyTokenBudget must be a positive safe integer', {
+      argument: 'dailyTokenBudget',
+      reason: 'invalid_number',
+    });
+  }
   if (new Set(requests.map((r) => r.id)).size !== requests.length) {
     throw new InvalidArgumentError('every request id must be unique', {
       argument: 'requests',
@@ -209,6 +244,7 @@ export function sendJevRequests(
     });
   }
 
+  const budget = loadBudget(deps.state, today(deps.clock));
   const call: Call = {
     deps,
     requests,
@@ -217,6 +253,8 @@ export function sendJevRequests(
     entries: requests.map(() => undefined),
     longestRoundMs: undefined,
     inputTokens: 0,
+    budget,
+    budgetLogged: false,
   };
 
   let stopped: JevSendStop | undefined;
@@ -246,15 +284,32 @@ export function sendJevRequests(
     entries: call.entries.map((entry, i) => entry ?? notSentEntry(call, i, stopped)),
     ...(stopped === undefined ? {} : { stopped }),
     inputTokens: call.inputTokens,
-    alerts: [],
+    alerts: stopped === 'budget' ? ['budget_reached'] : [],
   };
+}
+
+function today(clock: ClockPort): string {
+  return dayInTimeZone(clock.now(), clock.timeZone());
 }
 
 /**
  * The check before each batch: a stop reason, or `undefined` to send it.
- * Today only the time rule; #100 puts the budget check first.
+ * The budget comes first (rolled over to today, so a call can cross midnight),
+ * so a held-back batch is reported as `budget`, not `deadline`.
  */
 function beforeBatch(call: Call): JevSendStop | undefined {
+  call.budget = budgetForDay(call.budget, today(call.deps.clock));
+  if (isBudgetReached(call.budget, call.deps.dailyTokenBudget)) {
+    if (!call.budgetLogged) {
+      call.budgetLogged = true;
+      call.deps.log.warn('budget.reached', {
+        day: call.budget.day,
+        inputTokens: call.budget.inputTokens,
+        dailyTokenBudget: call.deps.dailyTokenBudget,
+      });
+    }
+    return 'budget';
+  }
   if (call.deps.remainingMs() < roundEstimate(call)) {
     return 'deadline';
   }
@@ -263,7 +318,7 @@ function beforeBatch(call: Call): JevSendStop | undefined {
 
 /**
  * After each batch that was started: adds its billed tokens and logs
- * `jev.batch`. #100 adds the batch's tokens to the budget and saves it here.
+ * `jev.batch`, adds them to the day's budget and saves it if any were used.
  */
 function afterBatch(call: Call, batch: number, indices: readonly number[], run: BatchRun): void {
   let batchTokens = 0;
@@ -304,6 +359,11 @@ function afterBatch(call: Call, batch: number, indices: readonly number[], run: 
     inputTokens: batchTokens,
     ...counts,
   });
+  // After the log, so a failing save still leaves `jev.batch` behind.
+  if (batchTokens > 0) {
+    call.budget = addInputTokens(call.budget, batchTokens);
+    saveBudget(call.deps.state, call.budget);
+  }
 }
 
 /** Runs one batch's rounds and sets its entries (all but an outage's). */

@@ -9,15 +9,17 @@ import {
   MAX_REQUESTS_PER_FETCHALL,
   sendJevRequests,
 } from '../../src/app/jev-sender.ts';
-import { InvalidArgumentError } from '../../src/core/errors.ts';
+import { InvalidArgumentError, StateError } from '../../src/core/errors.ts';
 import { JEV_ENDPOINT, type JevRequestBody } from '../../src/core/jev-request.ts';
 import { usageInputTokens } from '../../src/core/jev-response.ts';
 import { fail } from '../../src/core/result.ts';
 import { retryDelay } from '../../src/core/retry-delay.ts';
+import { BUDGET_KEY } from '../../src/core/token-budget.ts';
 import type { HttpRequest } from '../../src/ports/http-port.ts';
 import { FakeClock } from '../fakes/fake-clock.ts';
 import { FakeHttp, type FakeHttpResponse, jsonPayload } from '../fakes/fake-http.ts';
 import { FakeLog } from '../fakes/fake-log.ts';
+import { FakeState } from '../fakes/fake-state.ts';
 import { FakeRandom } from '../fakes/fake-random.ts';
 import ok200 from '../fixtures/jev/200-four-rules.json' with { type: 'json' };
 import okEdge200 from '../fixtures/jev/200-edge-rule-ids.json' with { type: 'json' };
@@ -44,25 +46,41 @@ type Setup = {
   readonly clock: FakeClock;
   readonly http: FakeHttp;
   readonly log: FakeLog;
+  readonly state: FakeState;
   readonly deps: JevSendDeps;
 };
 
 function setup(
-  options: { latencyMs?: number; remainingMs?: number; random?: FakeRandom; apiKey?: string } = {},
+  options: {
+    latencyMs?: number;
+    remainingMs?: number;
+    random?: FakeRandom;
+    apiKey?: string;
+    now?: number;
+    timeZone?: string;
+    dailyTokenBudget?: number;
+  } = {},
 ): Setup {
-  const clock = new FakeClock({ now: NOW });
+  const start = options.now ?? NOW;
+  const clock = new FakeClock({
+    now: start,
+    ...(options.timeZone === undefined ? {} : { timeZone: options.timeZone }),
+  });
+  const state = new FakeState();
   const http = new FakeHttp({ clock, latencyMs: options.latencyMs ?? 0 });
   const log = new FakeLog();
-  const deadlineAt = NOW + (options.remainingMs ?? 60_000);
+  const deadlineAt = start + (options.remainingMs ?? 60_000);
   const deps: JevSendDeps = {
     http,
     clock,
     random: options.random ?? FakeRandom.sequence([JITTER]),
     log,
+    state,
+    dailyTokenBudget: options.dailyTokenBudget ?? 20_000_000,
     apiKey: options.apiKey ?? KEY,
     remainingMs: () => deadlineAt - clock.now(),
   };
-  return { clock, http, log, deps };
+  return { clock, http, log, state, deps };
 }
 
 function body(id: string): JevRequestBody {
@@ -649,5 +667,226 @@ describe('sendJevRequests', () => {
     ]) {
       expect(logged).not.toContain(secret);
     }
+  });
+
+  describe('budget', () => {
+    const TODAY = '2026-09-30';
+    const okWith = (tokens: number): FakeHttpResponse => ({
+      status: 200,
+      headers: {},
+      body: JSON.stringify({ usage: { input_tokens: tokens } }),
+    });
+    const stored = (state: FakeState): unknown => state.get(BUDGET_KEY);
+    const seed = (state: FakeState, day: string, inputTokens: number): void => {
+      state.set(BUDGET_KEY, { v: 1, day, inputTokens });
+    };
+    const writes = (state: FakeState): number =>
+      state.calls.filter((c) => c.method === 'set').length;
+
+    it('saves today and the sum of the 200s when nothing is stored', () => {
+      const { http, state, deps } = setup();
+      routeRest(http, [okWith(100)]);
+
+      const result = sendJevRequests(ids(3).map(req), deps);
+
+      expect(result.inputTokens).toBe(300);
+      expect(stored(state)).toEqual({ v: 1, day: TODAY, inputTokens: 300 });
+      expect(result.stopped).toBeUndefined();
+      expect(result.alerts).toEqual([]);
+    });
+
+    it('holds everything back when the budget is already reached', () => {
+      const { http, state, log, deps } = setup({ dailyTokenBudget: 1000 });
+      seed(state, TODAY, 1000);
+      const before = writes(state);
+
+      const result = sendJevRequests(ids(3).map(req), deps);
+
+      expect(http.calls).toHaveLength(0);
+      expect(result.entries).toEqual(ids(3).map((id) => ({ id, notSent: 'budget' })));
+      expect(result.stopped).toBe('budget');
+      expect(result.alerts).toEqual(['budget_reached']);
+      expect(result.inputTokens).toBe(0);
+      expect(log.events).toEqual([
+        {
+          level: 'warn',
+          event: 'budget.reached',
+          fields: { day: TODAY, inputTokens: 1000, dailyTokenBudget: 1000 },
+        },
+      ]);
+      expect(writes(state)).toBe(before);
+      expect(stored(state)).toEqual({ v: 1, day: TODAY, inputTokens: 1000 });
+    });
+
+    it('rolls a stored count from yesterday over to 0 and sends', () => {
+      const { http, state, deps } = setup({ dailyTokenBudget: 1000 });
+      seed(state, '2026-09-29', 5000);
+      routeRest(http, [okWith(10)]);
+
+      const result = sendJevRequests(ids(2).map(req), deps);
+
+      expect(http.calls).toHaveLength(1);
+      expect(result.stopped).toBeUndefined();
+      expect(stored(state)).toEqual({ v: 1, day: TODAY, inputTokens: 20 });
+    });
+
+    it('stops after the batch that crosses the budget', () => {
+      const { http, state, log, deps } = setup({ dailyTokenBudget: 100 });
+      routeRest(http, [okWith(50)]);
+      const count = 2 * MAX_REQUESTS_PER_FETCHALL + 5;
+
+      const result = sendJevRequests(ids(count).map(req), deps);
+
+      expect(http.calls).toHaveLength(1);
+      expect(result.entries.slice(0, MAX_REQUESTS_PER_FETCHALL).every((e) => 'response' in e)).toBe(
+        true,
+      );
+      expect(
+        result.entries
+          .slice(MAX_REQUESTS_PER_FETCHALL)
+          .every((e) => 'notSent' in e && e.notSent === 'budget'),
+      ).toBe(true);
+      expect(result.stopped).toBe('budget');
+      expect(result.alerts).toEqual(['budget_reached']);
+      expect(writes(state)).toBe(1);
+      expect(stored(state)).toEqual({
+        v: 1,
+        day: TODAY,
+        inputTokens: 50 * MAX_REQUESTS_PER_FETCHALL,
+      });
+      expect(log.events.filter((e) => e.event === 'budget.reached')).toHaveLength(1);
+    });
+
+    it('does not stop or alert when the last batch crosses the budget', () => {
+      const { http, deps } = setup({ dailyTokenBudget: 100 });
+      routeRest(http, [okWith(50)]);
+
+      const result = sendJevRequests(ids(3).map(req), deps);
+
+      expect(result.stopped).toBeUndefined();
+      expect(result.alerts).toEqual([]);
+    });
+
+    it('saves after each batch that used tokens, and not after one with none', () => {
+      const { http, state, deps } = setup();
+      const first = ids(MAX_REQUESTS_PER_FETCHALL, 'a');
+      const second = ids(2, 'b');
+      for (const id of second) route(http, id, [r429]);
+      routeRest(http, [okWith(10)]);
+
+      sendJevRequests([...first, ...second].map(req), deps);
+      // Batch 1: 20 x 10 tokens, saved. Batch 2: only 429s (final after the attempts), no write.
+      expect(writes(state)).toBe(1);
+      expect(stored(state)).toEqual({ v: 1, day: TODAY, inputTokens: 200 });
+
+      const other = setup();
+      routeRest(other.http, [net]);
+      sendJevRequests(ids(2).map(req), other.deps);
+      expect(writes(other.state)).toBe(0);
+    });
+
+    it('counts input_tokens of a 200 with malformed answers, and 0 without usage', () => {
+      const { http, state, deps } = setup();
+      route(http, 'a', [
+        { status: 200, headers: {}, body: '{"usage":{"input_tokens":50},"answers":"x"}' },
+      ]);
+      route(http, 'b', [{ status: 200, headers: {}, body: '{}' }]);
+      route(http, 'c', [{ status: 200, headers: {}, body: 'not json' }]);
+
+      const result = sendJevRequests(['a', 'b', 'c'].map(req), deps);
+
+      expect(result.inputTokens).toBe(50);
+      expect(stored(state)).toEqual({ v: 1, day: TODAY, inputTokens: 50 });
+    });
+
+    it('keeps the day in the script time zone', () => {
+      // 2026-09-30 22:00 UTC: already Oct 1 in Kolkata, still Sep 30 in Chicago.
+      const now = Date.UTC(2026, 8, 30, 22);
+      for (const [timeZone, day] of [
+        ['America/Chicago', '2026-09-30'],
+        ['Asia/Kolkata', '2026-10-01'],
+      ] as const) {
+        const { http, state, deps } = setup({ now, timeZone });
+        routeRest(http, [okWith(7)]);
+        sendJevRequests([req('a')], deps);
+        expect(stored(state)).toEqual({ v: 1, day, inputTokens: 7 });
+      }
+    });
+
+    it('starts the new day from 0 when a call crosses midnight', () => {
+      const now = Date.UTC(2026, 8, 30, 23, 59, 59);
+      const { http, state, deps } = setup({ now, latencyMs: 2000 });
+      routeRest(http, [okWith(10)]);
+
+      const result = sendJevRequests(ids(MAX_REQUESTS_PER_FETCHALL + 1).map(req), deps);
+
+      expect(http.calls).toHaveLength(2);
+      expect(result.inputTokens).toBe(10 * (MAX_REQUESTS_PER_FETCHALL + 1));
+      expect(stored(state)).toEqual({ v: 1, day: '2026-10-01', inputTokens: 10 });
+    });
+
+    it('reports budget rather than deadline when both hold', () => {
+      const { http, state, deps } = setup({ dailyTokenBudget: 10, remainingMs: 0 });
+      seed(state, TODAY, 10);
+
+      const result = sendJevRequests([req('a')], deps);
+
+      expect(http.calls).toHaveLength(0);
+      expect(result.entries).toEqual([{ id: 'a', notSent: 'budget' }]);
+      expect(result.stopped).toBe('budget');
+    });
+
+    it('lets an auth round stop the call before the budget is checked again', () => {
+      const { http, deps } = setup({ dailyTokenBudget: 1 });
+      routeRest(http, [wrongKey401]);
+
+      const result = sendJevRequests(ids(MAX_REQUESTS_PER_FETCHALL + 1).map(req), deps);
+
+      expect(result.stopped).toBe('auth');
+      expect(result.alerts).toEqual([]);
+      expect(entry(result.entries, `t${String(MAX_REQUESTS_PER_FETCHALL + 1)}`)).toEqual({
+        id: `t${String(MAX_REQUESTS_PER_FETCHALL + 1)}`,
+        notSent: 'auth',
+      });
+    });
+
+    it('throws StateError for a corrupt stored budget before sending', () => {
+      const { http, state, deps } = setup();
+      state.seedRaw(BUDGET_KEY, '{"v":1,"day":"nope","inputTokens":1}');
+
+      expect(() => sendJevRequests([req('a')], deps)).toThrow(StateError);
+      expect(http.calls).toHaveLength(0);
+    });
+
+    it('propagates a StateError from the save', () => {
+      const { http, state, deps } = setup();
+      routeRest(http, [okWith(10)]);
+      state.failNext('set', new StateError('full', { key: BUDGET_KEY, reason: 'store_full' }), {
+        key: BUDGET_KEY,
+      });
+
+      expect(() => sendJevRequests([req('a')], deps)).toThrow(StateError);
+    });
+
+    it.each([0, 1.5, -1, Number.NaN])('rejects dailyTokenBudget %s before sending', (value) => {
+      const { http, state, deps } = setup();
+      expect(() => sendJevRequests([req('a')], { ...deps, dailyTokenBudget: value })).toThrow(
+        InvalidArgumentError,
+      );
+      expect(http.calls).toHaveLength(0);
+      expect(state.calls).toHaveLength(0);
+    });
+
+    it('logs no body, header or key', () => {
+      const { http, state, log, deps } = setup({ dailyTokenBudget: 20 });
+      routeRest(http, [okWith(10)]);
+      sendJevRequests(ids(MAX_REQUESTS_PER_FETCHALL + 1).map(req), deps);
+      sendJevRequests([req('z')], { ...deps, state });
+
+      const text = JSON.stringify(log.events);
+      expect(text).not.toContain(KEY);
+      expect(text).not.toContain('private body');
+      expect(text).not.toContain('Authorization');
+    });
   });
 });
