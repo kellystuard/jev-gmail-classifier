@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { countGmailCalls, loadGmailCalls, saveGmailCalls } from '../../src/app/counting-gmail.ts';
 import { StateError } from '../../src/core/errors.ts';
-import { GMAIL_CALLS_KEY, GMAIL_UNIT_COST } from '../../src/core/gmail-calls.ts';
+import { GMAIL_CALLS_KEY } from '../../src/core/gmail-calls.ts';
+import { GMAIL_UNIT_COST } from '../../src/core/run-limits.ts';
 import type { GmailPort } from '../../src/ports/gmail-port.ts';
 import { FakeGmail } from '../fakes/fake-gmail.ts';
 import { createFakePorts } from '../fakes/fake-ports.ts';
