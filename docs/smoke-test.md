@@ -42,3 +42,14 @@ These run in a real deployment once E7 wires `new GasStateAdapter()` into `src/e
 4. With a full queue (E7 or E8 makes one), each `state.queue.<n>` value is at most 9 KB, and the shard numbers have no gaps after a run that finished.
 5. Set `MANUAL_QUERY` by hand, then run `startManualRun` (E8). It reads the value and deletes the property afterwards.
 6. Set `RESET_POSITION=true` by hand, then run `install` (E7). `state.position` is reset, and `install` honors the input.
+
+## UTF-8 decoder (gasDecodeUtf8)
+
+These run from a scratch function in the throwaway test account (`spikes/README.md`) until E7 wires `gasDecodeUtf8` into `src/entry/`. Each check is a call and the expected result. Never write the test account's address anywhere (write `<test-account>`).
+
+1. `gasDecodeUtf8([])` returns `''`.
+2. `gasDecodeUtf8([72, 105])` returns `'Hi'`.
+3. `gasDecodeUtf8([-61, -87, -26, -105, -91, -16, -97, -103, -126])` returns `'é日🙂'` (length 4 in UTF-16: the emoji is a surrogate pair).
+4. `gasDecodeUtf8([-17, -69, -65, 65])` returns a string of length 2 starting with U+FEFF. If Apps Script drops the BOM instead, change `nodeDecodeUtf8` to match and record it here.
+5. `gasDecodeUtf8([-1])` returns `'\uFFFD'` (the replacement character) and doesn't throw.
+6. On a `getThread(id, { format: 'full' })` of a message with a non-UTF-8 declared charset (for example spike 29's scenario 05), decoding its part's `body.data` gives readable text (`café`, not `cafÃ©`).
