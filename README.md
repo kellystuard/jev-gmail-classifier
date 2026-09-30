@@ -73,7 +73,7 @@ If the classifier stops for so long that Gmail no longer has the history it need
 ### Failures
 
 - **Temporary errors** (rate limits, overload, network errors) are retried with exponential backoff: each wait doubles, with random jitter, up to a fixed number of attempts, as [TypeSafe recommends](https://docs.typesafe.ai/api#handling-rate-limits). If a thread still fails, it stays queued so the next run tries it again.
-- **Repeated failures:** a thread that fails on 3 consecutive runs gets a `Jev/Error` label and is no longer retried automatically.
+- **Repeated failures:** a thread that fails on 3 runs gets a `Jev/Error` label and is no longer retried automatically. A failure is a temporary error that outlasts the retries, or an unexpected response. A run cut short (by the time limit, the daily token budget, or a Jev outage) doesn't count against the thread: it just stays queued.
 - **Invalid request** (HTTP `422`, or a `400` saying the request is over Jev's token limit): the thread gets `Jev/Error` immediately, because retrying the same content will not help.
 - **Bad API key** (HTTP `401`, `402` or `403`): the run stops and logs the error, and no thread is marked. Once the key is fixed, the next run continues where it left off.
 - **Daily token budget reached:** no more requests are sent until the next day (see [Configuration](#configuration)). Queued threads wait.

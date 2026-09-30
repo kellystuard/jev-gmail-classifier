@@ -352,8 +352,12 @@ sequenceDiagram
 5. **Send** all the chunk's requests with `fetchAll`, retrying in rounds ([§8.5](#85-retries-in-rounds)). The sender checks the budget before each batch and records the tokens after it.
 6. **Per-thread outcome.** This is the per-thread error boundary ([§10.1](#101-error-model)).
    - **Success:** decide and apply outcomes ([§6.5](#65-applying-outcomes)), log `thread.classified`, and dequeue.
-   - **Retryable failure, retries exhausted:** add a strike and leave the item queued for the next run. On the third strike, add `Jev/Error`, dequeue, and queue an alert.
-   - **Invalid (a 422 or the 400 `max_tokens_exceeded`):** add `Jev/Error` immediately, dequeue, and queue an alert.
+   - **Strikes** (`strikeOrError` in `src/app/jev-error.ts`; epic #12 decision 6). A thread gets at most one strike per run. `settleThread` decides what earns one:
+     - **A strike:** a retryable response after every attempt was used (no `unretried`); a transport error after every attempt (no `unretried`); a `failed_precondition` from `modifyThread`; and any exception inside the per-thread boundary other than `RunAbortError` and `StateError` (an exceptional Jev response, a malformed 200, an unrecognized Gmail error).
+     - **No strike** (the item stays queued, unchanged): a request cut short (`unretried`: `deadline`, `retry_after` or `stopped`), a request never sent (`notSent`: time, budget or an outage), a missing `script.external_request` scope, and a Gmail `rate_limited`. None of these is the thread's fault.
+     - Strikes 1 and 2 are stored on the item, which stays queued for the next run. On the **third**, add `Jev/Error`, dequeue, and return the `errored` alert.
+   - **Invalid (a 422 or the 400 `max_tokens_exceeded`):** add `Jev/Error` immediately, whatever the strike count, dequeue, and return the `errored` alert.
+   - **Adding `Jev/Error`** (`markJevError`): resolve the label through the run's label cache (creating `Jev`, then `Jev/Error`, when missing), remember its ID in `state.jevErrorLabel` **before** the `modifyThread`, then add only that label. A stale ID gets one refresh and one retry, as in [§6.5](#65-applying-outcomes). If adding it fails with `rate_limited`, `scope` or `failed_precondition`, or throws, the item is kept **unchanged**: the strike isn't recorded and the item isn't removed, so the thread is sent again next run and no error goes unreported. `rate_limited` also stops Gmail work for the run, and `scope` returns the `scope_missing` alert. `not_found` dequeues the item (the thread is gone).
    - **Auth (401, 402 or 403) or missing key:** stop the whole run. Nothing is marked, items stay queued, and an alert is sent.
    - **Config (the unknown-model response):** stop the whole run like auth, and send the `config_invalid` alert.
    - **Outage (a round in which every request got a 5xx or a network error, [§8.5](#85-retries-in-rounds)):** stop sending. Nothing is struck and the items stay queued.
@@ -523,14 +527,28 @@ stateDiagram-v2
   Queued --> Excluded: matches excludeQuery
   Queued --> Skipped: deleted, Jev/Error, or no message outside Drafts, Spam and Trash
   Queued --> Classified: Jev ok + outcomes applied
-  Queued --> Queued: retryable failure (strike < 3)
+  Queued --> Queued: strike 1 or 2 (retryable or transport after all attempts, failed_precondition, unexpected error)
   Queued --> Errored: 422 or 400 max_tokens_exceeded, or 3rd strike (add Jev/Error)
-  Queued --> Queued: 401 / 402 / 403 / config / outage / budget / deadline (untouched)
+  Queued --> Queued: unretried / notSent / scope / Gmail rate_limited / auth / config (untouched)
+  Queued --> Gone: thread deleted (not_found)
   Excluded --> [*]
   Skipped --> [*]
   Classified --> [*]
+  Gone --> [*]
   Errored --> Queued: user removes Jev/Error
 ```
+
+| What happened to the thread this run | Item | Strike |
+|---|---|---|
+| Retryable response or transport error, every attempt used | stays queued | +1; the 3rd adds `Jev/Error` and removes it |
+| `failed_precondition` from `modifyThread` | stays queued | +1 |
+| Unexpected error inside the per-thread boundary (not `RunAbortError` or `StateError`) | stays queued | +1 |
+| 422, or the 400 `max_tokens_exceeded` | `Jev/Error`, removed | — (whatever the count) |
+| Cut short (`unretried`: `deadline`, `retry_after`, `stopped`) or never sent (`notSent`: time, budget, outage) | unchanged | none |
+| Missing scope, or a Gmail `rate_limited` | unchanged | none |
+| Auth (401, 402, 403, missing key) or config | unchanged, the run stops | none |
+| Adding `Jev/Error` fails (`rate_limited`, `scope`, `failed_precondition`, or an exception) | unchanged | not recorded |
+| The thread was deleted (`not_found`) | removed | — |
 
 ## 8. Jev Integration
 
