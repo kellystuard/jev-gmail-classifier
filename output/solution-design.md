@@ -362,9 +362,12 @@ sequenceDiagram
 ### 6.5 Applying outcomes
 
 - **Decide** (pure, in `core/`):
-  - A rule fires when `p ≥ (rule.threshold ?? defaultThreshold)`.
-  - Every firing label rule contributes its label.
-  - Moves are considered only if the item is a first classification, or a manual job with `applyMoves`. When they are, the **first** firing move rule in config order wins.
+  - Lives in `src/core/decide.ts` (`decideOutcome`, `movesAllowed`).
+  - A rule fires when `p ≥ (rule.threshold ?? defaultThreshold)`. A probability equal to the threshold fires.
+  - Every firing label rule contributes its label, de-duplicated by `labelKey` (the first spelling wins).
+  - Moves are considered only if the item is a first classification, or a manual job with `applyMoves`: `movesAllowed` is `firstClassification === true || applyMoves === true`, so unset counts as not first. When they are, the **first** firing move rule in config order wins.
+  - When moves aren't allowed, a move rule still fires (and is logged), but nothing of it applies, including a `label:<name>` destination's label.
+  - A missing or out-of-range answer is a bug (`InvalidArgumentError`): `interpretResponse` guarantees both.
 - **Apply** (`GmailPort`). Every label add and the move go into **one** `threads.modify` call. Confirmed by E1 ([`spikes/26-moves.md`](../spikes/26-moves.md)):
   - `archive` removes `INBOX`.
   - `spam` adds `SPAM` and removes `INBOX`. Adding `SPAM` alone also removes `INBOX`, so sending both is harmless. Gmail then shows the thread as reported by the user ([§14](#14-technical-risks-and-items-to-verify)).
