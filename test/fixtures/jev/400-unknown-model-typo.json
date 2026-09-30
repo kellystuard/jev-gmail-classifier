@@ -1,0 +1,8 @@
+{
+  "status": 400,
+  "headers": {
+    "content-type": "application/json",
+    "x-typesafe-request-id": "req_01a0f0a81a5b78a3925f04cce86b96ec"
+  },
+  "body": "{\"detail\":{\"error_type\":\"api_usage_error\",\"message\":\"Unknown model: jev-1.99.0\"}}"
+}
