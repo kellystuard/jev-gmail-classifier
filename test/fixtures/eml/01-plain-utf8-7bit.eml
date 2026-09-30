@@ -1,0 +1,11 @@
+From: Synthetic Sender <sender@example.com>
+To: Recipient <recipient@example.org>
+Subject: s29-01 plain utf8 7bit
+Date: Thu, 24 Sep 2026 12:00:00 +0000
+Message-ID: <s29-01@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: 7bit
+
+Scenario 1: text/plain only, UTF-8, 7bit.
+Second line, ASCII only.

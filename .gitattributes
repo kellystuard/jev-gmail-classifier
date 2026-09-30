@@ -1,0 +1,2 @@
+# Synthetic .eml fixtures: CRLF line endings and 8-bit bytes are part of the test.
+test/fixtures/eml/*.eml -text

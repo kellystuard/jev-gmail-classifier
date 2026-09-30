@@ -1,0 +1,11 @@
+From: Synthetic Sender <sender@example.com>
+To: Recipient <recipient@example.org>
+Subject: s29-05 plain iso-8859-1 quoted-printable
+Date: Thu, 24 Sep 2026 12:00:00 +0000
+Message-ID: <s29-05@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="ISO-8859-1"
+Content-Transfer-Encoding: quoted-printable
+
+Scenario 5: text/plain, ISO-8859-1, quoted-printable.
+Caf=E9, na=EFve, M=FCller, =A320, =FC =E9 =E0 =E7 =DF =B1.

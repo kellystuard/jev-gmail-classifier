@@ -1,0 +1,21 @@
+From: Synthetic Sender <sender@example.com>
+To: Recipient <recipient@example.org>
+Subject: s29-08 plain no charset 8bit
+Date: Thu, 24 Sep 2026 12:00:00 +0000
+Message-ID: <s29-08@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="s29b_mixed_6"
+
+--s29b_mixed_6
+Content-Type: text/plain
+Content-Transfer-Encoding: 8bit
+
+Scenario 8a: no charset parameter, UTF-8 bytes: cafÃ© GrÃ¼ÃŸe.
+
+--s29b_mixed_6
+Content-Type: text/plain
+Content-Transfer-Encoding: 8bit
+
+Scenario 8b: no charset parameter, ISO-8859-1 bytes: café Grüße.
+
+--s29b_mixed_6--

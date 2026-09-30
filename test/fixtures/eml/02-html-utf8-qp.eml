@@ -1,0 +1,14 @@
+From: Synthetic Sender <sender@example.com>
+To: Recipient <recipient@example.org>
+Subject: s29-02 html utf8 quoted-printable
+Date: Thu, 24 Sep 2026 12:00:00 +0000
+Message-ID: <s29-02@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<html><head><style>p { color: #333; }</style></head><body><p>Scenario 2:=
+ HTML only, UTF-8, quoted-printable. Caf=C3=A9, na=C3=AFve, =E2=80=9Cquo=
+tes=E2=80=9D, an equals sign a=3Db.</p><p>This paragraph is deliberately=
+ longer than seventy-six characters so that quoted-printable needs a sof=
+t line break.</p></body></html>
