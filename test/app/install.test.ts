@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { ingest } from '../../src/app/ingest.ts';
-import { install, type InstallAlerts } from '../../src/app/install.ts';
+import { type AlertCollector, createAlertCollector } from '../../src/app/alerts.ts';
+import { install } from '../../src/app/install.ts';
 import { loadQueue, saveQueue } from '../../src/app/queue-store.ts';
 import { loadConfig } from '../../src/config/loader.ts';
 import type { Config } from '../../src/config/schema.ts';
@@ -30,8 +31,9 @@ const CONFIG: Config = loadConfig({
 
 type Added = { condition: AlertCondition; scopes?: readonly string[] };
 
-/** A minimal collector with #120's `add` shape. */
-function collector(): InstallAlerts & { added: Added[] } {
+/** The real collector, plus a record of each `add` call. */
+function collector(): AlertCollector & { added: Added[] } {
+  const real = createAlertCollector();
   const added: Added[] = [];
   return {
     added,
@@ -40,7 +42,13 @@ function collector(): InstallAlerts & { added: Added[] } {
         condition,
         ...(details?.scopes === undefined ? {} : { scopes: [...details.scopes] }),
       });
+      real.add(condition, details);
     },
+    addAll: (conditions) => {
+      for (const condition of conditions) added.push({ condition });
+      real.addAll(conditions);
+    },
+    collected: () => real.collected(),
   };
 }
 
@@ -312,6 +320,10 @@ describe('install', () => {
       expect(p.trigger.triggers).toEqual([{ handler: HANDLER, minutes: 10 }]);
       expect(p.log.find('scope_missing')?.fields['scope']).toBe(SEND_MAIL);
       expect(alerts.added).toEqual([{ condition: 'scope_missing', scopes: [SEND_MAIL] }]);
+      expect(alerts.collected()).toMatchObject({
+        conditions: ['scope_missing'],
+        missingScopes: [SEND_MAIL],
+      });
       const end = p.log.find('run.end');
       expect(end?.level).toBe('warn');
       expect(end?.fields['missingScopes']).toEqual([SEND_MAIL]);

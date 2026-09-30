@@ -10,8 +10,6 @@
  * Re-running `install` never skips or duplicates mail: the position is kept
  * (unless `RESET_POSITION=true`), and the queue is never read or written.
  */
-import type { Config } from '../config/schema.ts';
-import type { AlertCondition } from '../core/alert-condition.ts';
 import type { DeclaredScope } from '../core/declared-scopes.ts';
 import { RunAbortError, UnexpectedResponseError } from '../core/errors.ts';
 import { FALLBACK_KEY } from '../core/history-fallback.ts';
@@ -26,6 +24,7 @@ import type { LogPort } from '../ports/log-port.ts';
 import type { SecretsPort } from '../ports/secrets-port.ts';
 import type { StatePort } from '../ports/state-port.ts';
 import type { TriggerIntervalMinutes, TriggerPort } from '../ports/trigger-port.ts';
+import type { RunContext } from './run-entry.ts';
 import { checkScopes } from './scope-preflight.ts';
 
 /** The Script Property that asks `install` to start from the current `historyId`. */
@@ -35,19 +34,11 @@ const GMAIL_MODIFY: DeclaredScope = 'https://www.googleapis.com/auth/gmail.modif
 const SCRIPTAPP: DeclaredScope = 'https://www.googleapis.com/auth/script.scriptapp';
 
 /**
- * The part of #120's `AlertCollector` that `install` uses (structural, so
- * `RunContext['alerts']` fits).
+ * What `install` uses of `runEntry`'s context, which the entry point passes
+ * straight through. `checkScopes` returns its alerts; `install` adds them to
+ * `alerts`.
  */
-export type InstallAlerts = {
-  add(condition: AlertCondition, details?: { readonly scopes?: readonly string[] }): void;
-};
-
-/** A `Pick` of #120's `RunContext`: `runEntry` passes its context straight through. */
-export type InstallContext = {
-  readonly config: Config;
-  /** `checkScopes` returns its alerts; `install` adds them here. */
-  readonly alerts: InstallAlerts;
-};
+export type InstallContext = Pick<RunContext, 'config' | 'alerts'>;
 
 export type InstallDeps = {
   readonly gmail: GmailPort;
