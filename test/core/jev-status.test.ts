@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
+import fx0 from '../fixtures/jev/200-four-rules.json' with { type: 'json' };
+import fx1 from '../fixtures/jev/200-edge-rule-ids.json' with { type: 'json' };
+import fx2 from '../fixtures/jev/400-max-tokens-exceeded.json' with { type: 'json' };
+import fx3 from '../fixtures/jev/400-unknown-model.json' with { type: 'json' };
+import fx4 from '../fixtures/jev/400-unknown-model-typo.json' with { type: 'json' };
+import fx5 from '../fixtures/jev/400-question-type-yesno.json' with { type: 'json' };
+import fx6 from '../fixtures/jev/401-wrong-key.json' with { type: 'json' };
+import fx7 from '../fixtures/jev/403-no-key.json' with { type: 'json' };
+import fx8 from '../fixtures/jev/422-empty-questions.json' with { type: 'json' };
+import fx9 from '../fixtures/jev/422-missing-state.json' with { type: 'json' };
+import fx10 from '../fixtures/jev/422-state-wrong-type.json' with { type: 'json' };
 import {
   classifyJevResponse,
   isJevOutageRound,
@@ -194,5 +205,23 @@ describe('isJevOutageRound', () => {
     ['three 5xx and one 200', [response(500), response(502), response(504), response(200)], false],
   ])('for %s returns %s', (_name, outcomes, expected) => {
     expect(isJevOutageRound(outcomes)).toBe(expected);
+  });
+});
+
+describe('the recorded Jev fixtures (#90)', () => {
+  it.each<[string, JevHttpResponse, JevResponseClass]>([
+    ['200-four-rules', fx0, 'success'],
+    ['200-edge-rule-ids', fx1, 'success'],
+    ['400-max-tokens-exceeded', fx2, 'invalid'],
+    ['400-unknown-model', fx3, 'config'],
+    ['400-unknown-model-typo', fx4, 'config'],
+    ['400-question-type-yesno', fx5, 'exceptional'],
+    ['401-wrong-key', fx6, 'auth'],
+    ['403-no-key', fx7, 'auth'],
+    ['422-empty-questions', fx8, 'invalid'],
+    ['422-missing-state', fx9, 'invalid'],
+    ['422-state-wrong-type', fx10, 'invalid'],
+  ])('classifies %s', (_name, recorded, expected) => {
+    expect(classifyJevResponse(recorded)).toBe(expected);
   });
 });
