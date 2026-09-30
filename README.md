@@ -272,6 +272,21 @@ The default 10-minute trigger fires 144 times a day. On a consumer account, that
 
 See the [Product Vision](output/product-vision.md#possible-future-directions) for context. These are possibilities, not commitments.
 
+## Development
+
+Use Node 24 (`.nvmrc`; `fnm use` or `nvm use`), then `npm ci`. The commands ([Engineering Standards §2](output/engineering-standards.md#2-toolchain)):
+
+- `npm run build`: validates `config.yaml`, then writes `dist/Code.js` and `dist/appsscript.json`. Without your own `config.yaml`, run `npm run build -- --config config.example.yaml`.
+- `npm run lint`: ESLint and a Prettier check. `npm run format` rewrites files with Prettier.
+- `npm run typecheck`: `tsc --noEmit`.
+- `npm test`: Vitest once, with coverage. `npm run test:watch` runs it in watch mode.
+- `npm run push`: `build` from `config.yaml`, then `clasp push` to the project in your `.clasp.json`.
+- `npm run probe -- [--config <file>] [--show-state] [--json] [--env <file>] <file.eml>...`: the local Jev probe.
+
+**The probe** is for checking your rules' question wording, and how well an email's body converts to text, before you deploy. Save an email as an `.eml` file (in Gmail: the message's ⋮ menu, "Download message") and run, for example, `npm run probe -- --config config.example.yaml message.eml`. For each file it builds the same `state` the script would send, calls Jev once (no retries), and prints each rule's probability, its threshold and whether it fires, with the model, the request ID, the input tokens and anything truncation cut. `--show-state` also prints the `state` sent, and `--json` prints one JSON object per file. The config defaults to `config.yaml`. The key is `JEV_API_KEY`: from the environment, else the file given by `--env`, else `.env` (copy `.env.example`). The probe never prints it.
+
+The probe **sends the email's content to Jev with your key**, and each request costs tokens. Use only mail you are happy to send.
+
 ## Documentation
 
 - [Product Vision](output/product-vision.md): who the product is for, its principles, success measures, and non-goals.

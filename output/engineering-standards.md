@@ -38,7 +38,7 @@
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Vitest, once. |
 | `npm run test:watch` | Vitest in watch mode. |
-| `npm run probe -- <file.eml>` | The local Jev probe. |
+| `npm run probe -- [--config <file>] [--show-state] [--json] [--env <file>] <file.eml>...` | The local Jev probe: sends each saved email to Jev through the same `state` and request code as the script, and prints each rule's probability and whether it fires. |
 | `npm run push` | `build`, then `clasp push`. |
 
 ## 3. Repository Layout and Module Rules
