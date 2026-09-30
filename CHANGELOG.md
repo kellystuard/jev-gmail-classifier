@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.5.0...v0.6.0) (2026-09-30)
+
+
+### Features
+
+* **outcomes:** settle each thread behind the per-thread error boundary ([#261](https://github.com/kellystuard/jev-gmail-classifier/issues/261)) ([444321e](https://github.com/kellystuard/jev-gmail-classifier/commit/444321ef03f0c836cd63ea3fc88d88587548ca17))
+
 ## [0.5.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.4.0...v0.5.0) (2026-09-30)
 
 
