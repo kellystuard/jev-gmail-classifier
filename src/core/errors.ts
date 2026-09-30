@@ -216,6 +216,33 @@ export class RunAbortError extends JevClassifierError {
   }
 }
 
+export type InvalidArgumentDetails = {
+  /** The parameter's name, such as `reservedTokens`. */
+  readonly argument: string;
+  /** What's wrong with it. Never the value itself, which could be mail content. */
+  readonly reason: string;
+};
+
+/**
+ * A caller passed an argument no valid input can have, such as a negative or
+ * non-finite `reservedTokens`. A bug in the caller, not a property of the mail.
+ */
+export class InvalidArgumentError extends JevClassifierError {
+  declare readonly argument: string;
+  declare readonly reason: string;
+
+  constructor(
+    message: string,
+    details: InvalidArgumentDetails,
+    options?: JevClassifierErrorOptions,
+  ) {
+    super(message, { argument: details.argument, reason: details.reason }, options);
+    this.name = 'InvalidArgumentError';
+    this.argument = details.argument;
+    this.reason = details.reason;
+  }
+}
+
 /** Copies the defined properties of a flat details object into log fields. */
 function withoutUndefined(details: Readonly<Record<string, LogValue | undefined>>): LogFields {
   const out: Record<string, LogValue> = {};

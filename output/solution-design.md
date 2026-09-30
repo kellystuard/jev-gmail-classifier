@@ -601,13 +601,33 @@ Truncation fits the request within Jev's two input limits, measured by E4 agains
   - `s + max(qᵢ) + 300 + 10 + 1000 ≤ 32768`
   - `s + Σ qᵢ + 300 + 10n + 2000 ≤ 65536`
 
-It works on the **structure**, never on serialized JSON, in this order:
+- **The constants** are in `core/token-estimate.ts`, one place each: `JEV_LIMIT_TOKENS` (32,768), `JEV_COMBINED_LIMIT_TOKENS` (65,536), `REQUEST_OVERHEAD_TOKENS` (300), `QUESTION_OVERHEAD_TOKENS` (10), `MARGIN_TOKENS` (1,000) and `COMBINED_MARGIN_TOKENS` (2,000).
+- **The reserve.** `reservedTokensForQuestions(questions)` turns both rules into one number to set beside `state`, so that `s + reserved ≤ 32768` holds exactly when both rules do: the larger of `max(qᵢ) + 10 + 300 + 1000` and `Σ qᵢ + 10n + 300 + 2000 − (65536 − 32768)`. The largest estimate counts, not the longest string (CJK costs more per character). With no questions it reserves 1,300 (overhead and margin only).
 
-1. Drop the bodies of the oldest messages, keeping their headers.
-2. Drop the oldest messages entirely.
-3. Cut the newest message's body from the end.
+`truncateState(state, reservedTokens)` (`core/truncation.ts`) works on the **structure**, but always measures the fit on the serialized JSON: `state` fits when `estimateTokens(JSON.stringify(state)) + reservedTokens ≤ 32768`. If the input fits, it comes back as a copy with no stats. Otherwise it cuts in this order, re-checking after each change and stopping as soon as it fits:
 
-Every truncation is logged as `truncated: {messagesDropped, bodiesDropped, charsDropped}`.
+1. Drop the `body` of the oldest message that has one, then the next oldest, keeping their headers. Never the newest message's in this step.
+2. Drop the oldest message entirely, then the next oldest, until only the newest is left.
+3. Cut the newest message's body from the end, to the longest prefix whose serialized JSON fits (escaping makes `"`, `\` and control characters longer). If no prefix fits, the `body` key is removed.
+4. Only if the newest message's headers alone don't fit: cut its longest header value from the end, just enough to fit or down to the length of the next longest, and repeat; ties go to the first key in the §8.3 order. A value cut to empty is removed with its key, never sent blank.
+
+The rules:
+
+- **Never drop the newest message.** If the reserve alone exceeds the limit, the result is `[{}]`. Jev then rejects the request as over the limit (the 400 `max_tokens_exceeded`), which E5 treats like a 422: the thread gets `Jev/Error` ([§14](#14-technical-risks-and-items-to-verify)).
+- **Never split a surrogate pair.** A cut that would end on a high surrogate (U+D800–U+DBFF) cuts one more code unit. No marker (such as `…`) is appended.
+- **Never throw for any thread content.** Only an invalid `reservedTokens` (negative, `NaN` or infinite) throws, an `InvalidArgumentError` ([§10.1](#101-error-model)).
+- **Pure.** The input isn't mutated, and the output keeps `buildState`'s key order (headers in the §8.3 order, `body` last).
+- **Linear enough.** Each message's estimate is cached, since the estimate of the array is the sum of its messages' plus the brackets and commas. Steps 3 and 4 binary-search the cut. A 1,000-message thread and a 1 MB newest body each take well under a second.
+
+**The stats** come back as `truncated: {messagesDropped, bodiesDropped, charsDropped}`, only when something was cut, measured against the input:
+
+- `messagesDropped`: input messages minus output messages.
+- `bodiesDropped`: kept messages that had a `body` in the input and have none in the output (the newest counts if step 3 removed its body).
+- `charsDropped`: the total length, in UTF-16 code units, of every body and header value removed or cut, each character counted once (a body removed in step 1 whose message step 2 then drops counts once).
+
+E7 logs them in `thread.classified` as `truncated` ([§10.5](#105-logging-and-alerts)).
+
+**`threadToState(thread, {plainTextMethod, questions}, decodeUtf8)`** (`core/thread-state.ts`) is the one entry point E5 and E7 call. It selects the converter (`selectBodyConverter`), builds `state` (`buildState`, [§8.3](#83-state-layout)), and returns `truncateState(state, reservedTokensForQuestions(questions))`. A thread with no message left gives `{state: []}`, which E7 skips as `no_messages`. It takes plain values, not `Config`, so the probe and tests can call it: E7 passes `config.plainTextMethod`, `config.rules.map((r) => r.question)` and `gasDecodeUtf8`.
 
 ### 8.5 Retries in rounds
 
@@ -687,6 +707,7 @@ Exceptions are for **invalid input or invalid state**. An expected failure is a 
   - `UnexpectedResponseError`: a response that no rule expects.
   - `ThreadProcessingError`: carries a failed result on purpose to the per-thread handler, the same handler that deals with an unexpected 500.
   - `RunAbortError`: the run stops without marking anything (a 401, a missing key, or an invalid config).
+  - `InvalidArgumentError`: a caller passed an argument no valid input can have, such as a negative `reservedTokens` for truncation ([§8.4](#84-truncation)). A bug, never a property of the mail.
 
   These exceptions may be thrown **on purpose** to bubble up to a shared handler.
 - **Three boundaries:**
@@ -731,7 +752,7 @@ Logs are **structured JSON only**, one object per event, through `LogPort`. `con
 - **`history.expired`** (`warn`) is logged by the call that starts a fallback. It carries `historyId` and `savedAt` (the old position), `resumeHistoryId` (from `getProfile`), `aheadOfMailbox` (the old position was ahead of the mailbox: corrupt, not expired) and `until` (epoch seconds, the last second the fallback searches).
 - **`history.fallback_missed`** (`warn`) is logged when a 60 s window has more new threads than an otherwise empty queue can hold. It carries `after` and `before` (the window, epoch seconds) and `missed` (a lower bound). No thread IDs, subjects or senders.
 - **`thread.skipped`** carries `threadId`, `source` and `reason` (`not_found`, `jev_error`, `no_messages`), at `info`. **`thread.excluded`** carries `threadId`, `source` and `reason` (`matched` at `info`, `search_capped` at `warn`), and never the subject or sender. Both are logged by chunk screening ([§6.4](#64-process-classify-a-chunk) step 2) once the whole chunk has been screened, never for a chunk that failed closed.
-- **`thread.classified`** carries `threadId`, `subject`, `from`, `probabilities {ruleId: p}`, `fired [ruleId]`, `actions`, `moveSkipped?`, `truncated?`, `requestId`, `model`, and `inputTokens`.
+- **`thread.classified`** carries `threadId`, `subject`, `from`, `probabilities {ruleId: p}`, `fired [ruleId]`, `actions`, `moveSkipped?`, `truncated?` (`{messagesDropped, bodiesDropped, charsDropped}`, present only when `state` was cut; [§8.4](#84-truncation)), `requestId`, `model`, and `inputTokens`.
 - **`run.end`** is the evidence for the Coverage measure. It carries counts of items ingested, classified, excluded, retried, errored, and left queued; labels applied per label; moves per destination; tokens used and remaining; and duration.
 - **Never logged:** message bodies, the API key, or the `Authorization` header. One `redact` helper in the log adapter scrubs known secret fields as a last line of defence.
 - **Alerts** use `MailPort`, go to the owner, and are limited to one per condition per day via `state.alerts`. The conditions:
@@ -818,7 +839,7 @@ This updates the PDD's [epic list](product-design-document.md#14-epics) with the
 | **E1 Gmail behavior spike** | Scripts in `spikes/`. | History API behavior: `messageAdded` for sent mail, drafts, and category labels; `labelRemoved` for `Jev/Error`; expiry. Gmail's handling of grouped and `OR` exclusion queries with `after:`/`before:` epochs. What adding `SPAM` via `threads.modify` does (whether it's reported to Google). Nested label creation. Whether Advanced Service calls count toward Apps Script's daily Gmail quota. How body data is encoded. The exact error text for a missing scope. |
 | **E2 Project foundation** | Layout, tooling, lint boundaries, config schema and generation, bundle and footer, manifest, fakes harness, CI, `.gitignore` entries, example files. | Final config field names and messages: **settled** ([§7.2](#72-configuration)). The esbuild target. The lint rules that enforce the layering: **settled** ([§4.1](#lint-rules)). |
 | **E3 History sync** (was *Thread discovery*) | Ingest, position, work queue, first-classification flag, exclusion filter, expiry fallback. | Queue cap and sharding: **settled** ([§5.2](#52-ports), [§7.3](#73-script-properties-state)). How exclusion is batched: **settled** ([§6.4](#64-process-classify-a-chunk)). The fallback window: **settled** ([§6.3](#63-ingest-gmail-history-to-work-queue), [§7.3](#73-script-properties-state)). |
-| **E4 Thread → `state`** | State builder, header keys, `BodyConverter` `basic`, truncation. | The chars-per-token ratio and safety margin: **settled** ([§8.4](#84-truncation)). The entity list. A `basic` quality check on real HTML-only mail using the probe. |
+| **E4 Thread → `state`** | State builder, header keys, `BodyConverter` `basic`, truncation. | The `basic` rules and the entity list: **settled** ([§8.3](#83-state-layout)). The token estimate (UTF-8 bytes, not a chars-per-token ratio), the limits, the overhead and the safety margin: **settled** ([§8.4](#84-truncation)). Truncation's step 4 and stats, and `threadToState`: **settled** ([§8.4](#84-truncation)). A `basic` quality check on real HTML-only mail using the probe: open, moved to E5 (#86). |
 | **E5 Jev client** | Pure request and response logic, the `fetchAll` transport, retry rounds, token accounting, daily budget. | Retry counts and delays. The per-status classification. Batch size per `fetchAll`. |
 | **E6 Outcomes** | Decide and apply, label ID cache and creation, `Jev/Error` and the 3-strike rule, the `scope` result. | Settled by E1 ([`spikes/26-moves.md`](../spikes/26-moves.md)): every label add plus the move go in one `threads.modify`, with `trash` as an added `TRASH` label ([§6.5](#65-applying-outcomes)). |
 | **E7 Scheduling and lifecycle** | Run controller, lock, `Deadline`, trigger, `install`/`uninstall`, scope preflight. | Chunk size, soft limits, reserve. Scope introspection: **API settled, error text not observed** by E1 ([`spikes/27-missing-scope.md`](../spikes/27-missing-scope.md)): `getAuthorizationInfo(FULL).getAuthorizedScopes()`. The per-scope errors are observed in a partly granted install (#125). Whether `install` calls `requireAllScopes` (#128). |
@@ -837,7 +858,7 @@ This updates the PDD's [epic list](product-design-document.md#14-epics) with the
 | `threads.get` returns Spam and Trash messages of a thread. | Mail the user trashed or that Gmail marked as spam could be sent to Jev. | Found by E1. Settled in E4: the state builder leaves out `DRAFT`, `SPAM` and `TRASH` messages ([§8.3](#83-state-layout)). |
 | The Gmail per-user, per-minute quota ("Total Query Cost", "Units per minute per user", 6,000 units/minute per user per Cloud project) is shared by everything using the account through that project, and is easy to hit: E1 hit it at about 2,900 units in 18 s of back-to-back calls ([`spikes/30-gmail-quota.md`](../spikes/30-gmail-quota.md)), and again while several spikes ran at once. | Runs fail mid-chunk with a quota exception (HTTP 403, `rateLimitExceeded`). | E7 sizes runs by quota units as well as time, and treats the error as retryable in a later run: it stops Gmail work for the run, not a per-thread failure and not the daily stop ([§9](#9-gmail-integration)). |
 | Adding `SPAM` via the API reports the thread to Google as spam. | A surprising side effect: Google receives a copy, and the sender's later mail may be filtered. | E1 ([`spikes/26-moves.md`](../spikes/26-moves.md)): treat it as a report. A thread spammed through the API shows the same banner as one the user reported with "Report spam" ("You reported this message as spam from your inbox"). Google's Help says that when you report spam "or move an email into Spam", Google receives a copy and may analyze it. The API docs are silent, and the test had no outside sender. The README Permissions section (#151) says to use `spam` only for mail the user would report themselves. |
-| How well `basic` HTML conversion works for classification. | Precision on HTML-only mail. | E4 probe check. `advanced` converter reserved. |
+| How well `basic` HTML conversion works for classification. | Precision on HTML-only mail. | A probe check on real mail, moved from E4 to E5 (#86), since it needs E5's probe. `advanced` converter reserved. |
 | Character-based token estimate. | A rejection from Jev because the request is too large. | Measured by E4 ([`spikes/84-token-ratio.md`](../spikes/84-token-ratio.md), [§8.4](#84-truncation)): the estimate is the UTF-8 byte count, which is above Jev's count for every kind of text measured, plus a fixed overhead and a margin under the 32,768 and 65,536 limits. An over-limit request gets a 400 `max_tokens_exceeded`, not a 422, so E5's per-status classification is to treat it like a 422 (`Jev/Error`), keeping it visible and never silent. |
 | Consumer trigger runtime of about 37 s per run. | Backlog. | Bounded chunks, concurrent `fetchAll`, configurable interval, back-pressure. |
 | Whether the Advanced Gmail Service counts toward the 20,000/day "Email read/write" quota is undocumented, and not tested by exhausting it ([E1](../spikes/30-gmail-quota.md)). | Unexpected daily quota errors. | Daily Gmail calls are tracked in `state.gmailCalls` and logged in `run.end` (`gmailCalls`, `gmailCallsToday`). E7 keeps the tally; E9 logs it. |

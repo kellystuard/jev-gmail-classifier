@@ -4,18 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-The tooling is in place (E2, #8), and history sync is done (E3, #9). `src/` has the layers, the ports, the config schema and loader, and placeholder entry points. Since E3 it also has the state codec and crash-safe sharding, the work queue, ingest (with the resumable expired-history fallback), chunk screening (`screenChunk`: it skips deleted and `Jev/Error` threads, fixes the first-classification flag and applies the exclusion filter), and the reading half of the Gmail adapter and the whole Script Properties adapter (`src/adapters/gas/`). `test/fakes/` has in-memory fakes of the ports. Nothing is wired into `src/entry/` until E7, so the entry points are still placeholders and the script does nothing when deployed. Use Node 24 (`.nvmrc`; `fnm use` or `nvm use`), then `npm ci`. The commands (`output/engineering-standards.md` §2):
+The tooling is in place (E2, #8), history sync is done (E3, #9), and so is Thread → `state` (E4, #10), except its `basic` quality check on real mail (#86), which moved to E5 because it needs E5's probe. `src/` has the layers, the ports, the config schema and loader, and placeholder entry points. Since E3 it also has the state codec and crash-safe sharding, the work queue, ingest (with the resumable expired-history fallback), chunk screening (`screenChunk`: it skips deleted and `Jev/Error` threads, fixes the first-classification flag and applies the exclusion filter), and the reading half of the Gmail adapter and the whole Script Properties adapter (`src/adapters/gas/`). Since E4, `src/core/` also has the `state` builder (`jev-state.ts`), the MIME body walker and the `basic` HTML converter (`src/core/body/`), the token estimate (`token-estimate.ts`), truncation (`truncation.ts`) and `threadToState` (`thread-state.ts`), the one entry point that turns a thread into Jev's `state`; `src/adapters/gas/gas-utf8.ts` decodes body bytes. `test/fakes/` has in-memory fakes of the ports. Nothing is wired into `src/entry/` until E7, so the entry points are still placeholders and the script does nothing when deployed. Use Node 24 (`.nvmrc`; `fnm use` or `nvm use`), then `npm ci`. The commands (`output/engineering-standards.md` §2):
 
 - `npm run build`: validates `config.yaml`, then writes `dist/Code.js` and `dist/appsscript.json` (and `src/generated/`, `config.schema.json`). Without your own `config.yaml`, run `npm run build -- --config config.example.yaml`.
 - `npm run lint`: ESLint (including the layer and V8 rules) and `prettier --check`. `npm run format` rewrites files with Prettier.
 - `npm run typecheck`: `tsc --noEmit`.
 - `npm test`: Vitest once, with coverage (reported, never enforced). `npm run test:watch` runs it in watch mode.
 - `npm run push`: `build` from `config.yaml`, then `clasp push` to the project in your `.clasp.json`. It's the only deploy, and it's manual.
-- `npm run probe` (the local Jev probe) arrives with E4 (#101, #102).
+- `npm run probe` (the local Jev probe) arrives with E5 (#101, #102).
 
 CI runs `npm ci`, lint, typecheck, test, the example-config build, and `git diff --exit-code` on Node 24 and 26 for every PR and push to `main`.
 
-**Next step.** E1's last task, the history-retention watch (#21), stays open until at least 2026-10-03. E4 (Thread → `state`, #10) is next in the order of PDD §14 and needs refinement before its tasks start. The later epics follow the order in PDD §14 and are tracked in the Project. Refine each epic the way E2 was refined: check scope, acceptance criteria, sizing, ordering, and dependencies. Put the merge order, the files to read, and the binding decisions in the epic body, and make each story and task self-contained for an independent agent, with a Read first list. Issues with open questions carry the `needs: maintainer` label; the rest go to the Project's Ready status.
+**Next step.** E1's last task, the history-retention watch (#21), stays open until at least 2026-10-03. E5 (Jev client, #11) is next in the order of PDD §14 and needs refinement before its tasks start. It includes the `basic` quality check moved from E4 (#85, #86), and it must treat Jev's over-limit 400 `max_tokens_exceeded` like a 422. The later epics follow the order in PDD §14 and are tracked in the Project. Refine each epic the way E2 was refined: check scope, acceptance criteria, sizing, ordering, and dependencies. Put the merge order, the files to read, and the binding decisions in the epic body, and make each story and task self-contained for an independent agent, with a Read first list. Issues with open questions carry the `needs: maintainer` label; the rest go to the Project's Ready status.
 
 ## Work tracking
 
@@ -73,7 +73,7 @@ A Google Apps Script project (TypeScript, bundled with esbuild, running in the u
 - **`state` contents:** an array of message objects, newest first, with descriptive keys (`from`, `sender`, `replyTo`, `to`, `cc`, `subject`, `date`, `listId`, `listUnsubscribe`, `precedence`, `autoSubmitted`, `body`).
   - The body is plain text: the `text/plain` part, or HTML converted by `plainTextMethod: basic`.
   - Never send attachments or other headers.
-  - Truncate the oldest content first, working on the structure, so `state` plus the longest question fits in 32k tokens.
+  - Truncate the oldest content first, working on the structure, so `state` plus the longest question fits in 32,768 tokens and `state` plus all questions in 65,536, estimated as UTF-8 bytes with a fixed overhead and a margin (SD §8.4).
 - **Outcomes:**
   - A rule fires when its probability ≥ its `threshold` (or `defaultThreshold`).
   - All firing label rules apply. Missing labels, including nested ones, are created.
@@ -83,7 +83,7 @@ A Google Apps Script project (TypeScript, bundled with esbuild, running in the u
 - **Failures:**
   - Results for expected failures, exceptions for invalid input or state. There are three error boundaries: per request, per thread, and per run.
   - The implementer classifies each response as retryable, a normal failure, or exceptional. A generic 500 is not assumed retryable.
-  - 422 → `Jev/Error`.
+  - 422 → `Jev/Error`, and so does the 400 `max_tokens_exceeded` for a request over Jev's token limit.
   - 401 or a missing key → stop the run and mark nothing.
   - Failing on 3 consecutive runs → `Jev/Error`.
   - Removing `Jev/Error` retries the thread. A new reply doesn't (it is queued, then skipped at its first read), and manual runs skip it.
