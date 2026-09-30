@@ -88,6 +88,18 @@ The "Jev request" below is `{ url: 'https://api.typesafe.ai/v1/systemone', metho
 6. `new GasSecretsAdapter().getJevApiKey()`: with `JEV_API_KEY` unset → `undefined`; set to `'   '` → `undefined`; set to `' test-key '` → `'test-key'`. Restore the real key afterwards.
 7. Not observed (accepted v1 risk, SD §14): with `script.external_request` unticked at consent, every result is `{ ok: false, kind: 'scope' }` and nothing throws.
 
+## Script lock adapter (GasLockAdapter)
+
+These run from a scratch function in the throwaway test account (`spikes/README.md`) until E7 wires `new GasLockAdapter()` into `src/entry/` (#121); after that, through the entry points. Each check is a call and the expected result. Checks 3 and 4 need two executions at the same time: start one from the editor and the other with `node spikes/run.mjs run`, or from two terminals. Never write the test account's address anywhere (write `<test-account>`).
+
+1. With no other execution running, `new GasLockAdapter().tryAcquire()` returns `true`.
+2. In the same execution, a second `tryAcquire()` on the same adapter returns `true` (re-entrant for the holder, as `FakeLock` models). If it returns `false`, change `FakeLock` to match and record it here.
+3. Execution A calls `tryAcquire()` (`true`), then `Utilities.sleep(60000)`, then `release()`. While A sleeps, execution B calls `tryAcquire()`: it returns `false` in well under a second (B's execution log shows no wait). After A finishes, B's next `tryAcquire()` returns `true`.
+4. While A holds the lock, B calls `release()` on its own adapter: nothing throws, and A still holds the lock (a third execution's `tryAcquire()` still returns `false`).
+5. Execution A calls `tryAcquire()` (`true`) and then throws without releasing. A following execution's `tryAcquire()` returns `true`: Apps Script freed the lock when A ended.
+6. `release()` on a fresh adapter (no `tryAcquire()` first), and a second `release()` after a release, don't throw.
+7. Once #121 has merged (entry points): run `install` from the editor while a scheduled `onTrigger` run is in progress (or run the check-3 sleeper first); the log shows `run.skipped` with `reason: busy` and nothing else for that execution.
+
 ## Auth adapter (GasAuthAdapter)
 
 This runs through `install` / `onTrigger` once E7 (#121) wires `new GasAuthAdapter()` into `src/entry/main.ts`; until then, from a scratch function in the throwaway test account. Write `<test-account>`, never the address.
