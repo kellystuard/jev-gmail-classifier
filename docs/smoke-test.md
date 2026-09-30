@@ -53,3 +53,17 @@ These run from a scratch function in the throwaway test account (`spikes/README.
 4. `gasDecodeUtf8([-17, -69, -65, 65])` returns a string of length 2 starting with U+FEFF. If Apps Script drops the BOM instead, change `nodeDecodeUtf8` to match and record it here.
 5. `gasDecodeUtf8([-1])` returns `'\uFFFD'` (the replacement character) and doesn't throw.
 6. On a `getThread(id, { format: 'full' })` of a message with a non-UTF-8 declared charset (for example spike 29's scenario 05), decoding its part's `body.data` gives readable text (`café`, not `cafÃ©`).
+
+## HTTP and secrets adapters (GasHttpAdapter, GasSecretsAdapter)
+
+These run from a scratch function in the throwaway test account (`spikes/README.md`) until E7 wires `new GasHttpAdapter()` and `new GasSecretsAdapter()` into `src/entry/`. Each check is a call and the expected result. `spikes/94-fetch-all.md` recorded what `UrlFetchApp` does underneath. Never write the test account's address anywhere (write `<test-account>`), and never paste the key, an `Authorization` header or a response body that echoes a request into an issue or a log.
+
+The "Jev request" below is `{ url: 'https://api.typesafe.ai/v1/systemone', method: 'post', headers: {}, contentType: 'application/json', payload: <a minimal synthetic JSON body with one noul question> }`.
+
+1. `sendAll([])` returns `[]`.
+2. `sendAll([<Jev request>])` (no `Authorization` header) returns `[{ ok: true, status: 403, … }]` (Jev's "no key" answer: spike #94 and `test/fixtures/jev/`), every header name is lower-case (`content-type`, `x-typesafe-request-id`, `set-cookie`), and `body` is the JSON text `{"detail":{"error_type":"authentication_error",…}}`.
+3. With the real key from Script Properties in `headers: { Authorization: 'Bearer ' + key }`, the same request returns status 200, an `x-typesafe-request-id` header, and a body with `usage.input_tokens`.
+4. `sendAll([<Jev request>, { url: 'https://jev-smoke.invalid/', method: 'get', headers: {} }, { url: 'https://www.google.com/generate_204', method: 'get', headers: {} }])` returns three `{ ok: false, kind: 'transport', message: 'DNS error: https://jev-smoke.invalid/' }` results and doesn't throw. No `message` contains `Bearer`, the key, or the payload.
+5. `sendAll([{ url: 'https://google.com/', method: 'get', headers: {} }])` returns status 301 with a `location` header, not the redirected page.
+6. `new GasSecretsAdapter().getJevApiKey()`: with `JEV_API_KEY` unset → `undefined`; set to `'   '` → `undefined`; set to `' test-key '` → `'test-key'`. Restore the real key afterwards.
+7. Not observed yet (#125): with `script.external_request` unticked at consent, every result is `{ ok: false, kind: 'scope' }` and nothing throws.

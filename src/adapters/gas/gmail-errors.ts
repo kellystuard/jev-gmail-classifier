@@ -22,16 +22,10 @@
 import { UnexpectedResponseError } from '../../core/errors.ts';
 import { fail, type Fail } from '../../core/result.ts';
 import type { GmailFailure } from '../../ports/gmail-port.ts';
+import { isScopeErrorMessage } from './scope-errors.ts';
 
 /** The failure a 404 becomes, chosen by the caller: a 404 means different things per call. */
 export type GmailNotFoundKind = 'history_expired' | 'not_found';
-
-/** Message fragments that mean a missing OAuth scope (SD §9), compared in lower case. */
-const SCOPE_FRAGMENTS: readonly string[] = [
-  'authorization is required to perform that action',
-  'insufficient authentication scopes',
-  'specified permissions are not sufficient',
-];
 
 /** Reasons Gmail gives for its per-user rate limit, in lower case. A 403 with either is never `scope`. */
 const RATE_LIMIT_REASONS: readonly string[] = ['ratelimitexceeded', 'userratelimitexceeded'];
@@ -74,7 +68,7 @@ export function toGmailFailure(
     return fail('rate_limited', { message });
   }
 
-  if (SCOPE_FRAGMENTS.some((fragment) => lower.includes(fragment))) {
+  if (isScopeErrorMessage(message)) {
     return fail('scope', { message });
   }
 
