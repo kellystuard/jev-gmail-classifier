@@ -5,7 +5,7 @@
  *
  * The fragments come from E1 (#27, `spikes/27-missing-scope.md`). Only the
  * all-granted state was run there, so the per-scope error text is **not
- * observed** yet (#268 confirms it). Anything unmatched follows the caller's
+ * observed** (#268 was skipped: an accepted v1 risk, SD §14; the preflight is the primary defense and these fragments the backstop). Anything unmatched follows the caller's
  * normal rules.
  */
 

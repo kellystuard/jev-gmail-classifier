@@ -95,6 +95,8 @@ Everything in the runbook above: this spike is maintainer-run by design. The age
 
 **Only B0 (all four scopes granted) was run.** The maintainer ran runbook step 2 on 2026-09-26 and declined steps 3–5 (the partial-consent states S1–S4, re-consent, and cleanup). So tables 3–6 and the S1–S4 rows of table 2 are **not observed**. The per-scope error signatures below are Google's documented behavior, not measurements. See the conclusion for what E7 can rely on, and the PR for how the Done-when is affected.
 
+**#268 was skipped too (maintainer, 2026-09-30).** The planned re-run in the product was declined as well, so the per-scope error text and the partial-consent behavior of `getAuthorizationInfo` stay unobserved. This is an accepted v1 risk (SD §14). The first real text, from E10's pilot or a user report, gets recorded here.
+
 - `s27_setup` failed in B0 with `Exception: Invalid argument: value` (`s27_setup @ Code.gs:51`). `Messages.import` returns only `{id}`, and the spike stored the undefined `threadId` (the bug #25 found; fixed since). So nothing was imported, and P4 returned the spike's own guard error (`s27_setup has not stored s27.labelId / s27.threadId`), not a Gmail result. P3 covers the same scope (`gmail.modify`) and passed.
 - The every-minute trigger from step 2.iii was left running; removing it has been requested on #27.
 
@@ -240,7 +242,7 @@ Not observed (the re-consent methods in table 6 weren't run). Facts for #151:
 
 ## Design changes
 
-**Scope decision (PM, 2026-09-26):** accept B0 plus Google's docs. The maintainer declined the partial-consent runs ([comment on #27](https://github.com/kellystuard/jev-gmail-classifier/issues/27#issuecomment-5848642753)). Observing the real per-scope errors moves to E7 as a checkbox on #125.
+**Scope decision (PM, 2026-09-26):** accept B0 plus Google's docs. The maintainer declined the partial-consent runs ([comment on #27](https://github.com/kellystuard/jev-gmail-classifier/issues/27#issuecomment-5848642753)). Observing the real per-scope errors moved to E7 (#268), which the maintainer then skipped too (2026-09-30): an accepted v1 risk, SD §14.
 
 - **SD §5.2, `AuthPort` row:** `getAuthorizationInfo(FULL).getAuthorizedScopes()`; `missingScopes()` is declared minus authorized, or "unknown" if the call throws.
 - **SD §9:**
