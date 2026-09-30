@@ -208,7 +208,7 @@ export async function accountGuard(token) {
 }
 
 /** Refreshes an access token, checks its scopes, and applies the account guard. */
-async function session({ needScript = true } = {}) {
+export async function session({ needScript = true } = {}) {
   requireEnv('GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'SPIKE_REFRESH_TOKEN', 'GMAIL_EMAIL');
   if (needScript) requireEnv('SPIKE_SCRIPT_ID');
   const r = await http('POST', TOKEN_URL, {
