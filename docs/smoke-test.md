@@ -94,3 +94,5 @@ This runs through `install` / `onTrigger` once E7 (#121) wires `new GasAuthAdapt
 
 1. With all four scopes granted, `new GasAuthAdapter().missingScopes()` returns `{ ok: true, missing: [] }` and doesn't throw.
 2. Not observed (accepted v1 risk, SD §14; partly granted states): with one scope unticked at consent, `missing` is exactly that scope. With `script.scriptapp` unticked, record whether it returns `missing: ['https://www.googleapis.com/auth/script.scriptapp']` or `{ ok: false, kind: 'unknown' }`. In no state does it throw.
+3. With all four scopes granted, `requireScopes(INSTALL_REQUIRED_SCOPES)` returns without throwing, and `install` goes on.
+4. Not observed (accepted v1 risk, SD §14; partly granted states): running `install` from the editor with `gmail.modify`, `script.external_request` or `script.scriptapp` unticked shows the consent screen again (or throws an authorization error with a link to it), and `install` writes nothing. With only `script.send_mail` unticked, `install` finishes and its report lists it in `missingScopes`.

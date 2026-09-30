@@ -1,10 +1,13 @@
 /**
  * `GasAuthAdapter`: `AuthPort` over
  * `ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL).getAuthorizedScopes()`
- * (Solution Design §5.2, §9; epic #13 decision 14; `spikes/27-missing-scope.md`).
+ * and `ScriptApp.requireScopes` (Solution Design §5.2, §6.7, §9; epic #13
+ * decisions 11 and 14; `spikes/27-missing-scope.md`).
  *
- * It asks Apps Script on every call, with no cache. It never throws and never
- * logs: the caller (`checkScopes`) logs and alerts.
+ * It asks Apps Script on every call, with no cache, and never logs.
+ * `missingScopes` never throws: the caller (`checkScopes`) logs and alerts.
+ * `requireScopes` lets Apps Script's error propagate: run from the editor, it
+ * brings the consent screen back.
  */
 import { DECLARED_SCOPES, type DeclaredScope } from '../../core/declared-scopes.ts';
 import { fail, ok, type Fail, type Result } from '../../core/result.ts';
@@ -17,6 +20,7 @@ import type { AuthPort } from '../../ports/auth-port.ts';
 declare const ScriptApp: {
   readonly AuthMode: { readonly FULL: unknown };
   getAuthorizationInfo(authMode: unknown): { getAuthorizedScopes(): unknown };
+  requireScopes(authMode: unknown, oAuthScopes: string[]): void;
 };
 
 type MissingScopesResult = Result<
@@ -48,5 +52,9 @@ export class GasAuthAdapter implements AuthPort {
     } catch (error) {
       return fail('unknown', { message: error instanceof Error ? error.message : String(error) });
     }
+  }
+
+  requireScopes(scopes: readonly DeclaredScope[]): void {
+    ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, [...scopes]);
   }
 }

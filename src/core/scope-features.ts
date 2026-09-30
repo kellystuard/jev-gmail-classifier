@@ -9,6 +9,18 @@ import type { DeclaredScope } from './declared-scopes.ts';
 export type ScopeFeature = 'gmail' | 'classify' | 'trigger' | 'alert_mail';
 
 /**
+ * The scopes `install` insists on with `AuthPort.requireScopes` (SD §6.7, §9;
+ * epic #13 decision 11, option A), in declared order: nothing useful works
+ * without reading Gmail, calling Jev and the trigger. `script.send_mail` stays
+ * optional: without it, alerts are only logged.
+ */
+export const INSTALL_REQUIRED_SCOPES: readonly DeclaredScope[] = [
+  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/script.external_request',
+  'https://www.googleapis.com/auth/script.scriptapp',
+];
+
+/**
  * A `Record<DeclaredScope, …>`: adding a scope to `DECLARED_SCOPES` without a
  * row fails the typecheck. `disables` is short and stable: it goes into the
  * `scope_missing` log event and E9's alert.

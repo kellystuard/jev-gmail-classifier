@@ -208,7 +208,7 @@ When you run `install`, Google asks you to grant the script these permissions ([
 
 **Moving to Trash needs only `gmail.modify`.** Permanent deletion would need the full-access scope `https://mail.google.com/`, which the classifier **never requests**, so it can't permanently delete mail even by mistake. The code uses Gmail's [Advanced Gmail Service](https://developers.google.com/apps-script/advanced/gmail) rather than `GmailApp` for exactly this reason: `GmailApp` requires the full-access scope.
 
-Google may let you untick individual permissions on the consent screen. The classifier checks which permissions were granted when you run `install` and at the start of every run. If a permission is missing, the script logs which one and what it disables, emails you (if it can), and keeps doing what it still can. To fix it, run `install` again and grant the missing permission.
+Google may let you untick individual permissions on the consent screen. `install` asks again until you grant the first three (`gmail.modify`, `script.external_request` and `script.scriptapp`): without them the classifier can't do its job. Alert email (`script.send_mail`) is optional. The classifier also checks which permissions were granted at the start of every run. If a permission is missing, the script logs which one and what it disables, emails you (if it can), and keeps doing what it still can. To fix it, run `install` again and grant the missing permission.
 
 ## Setup (planned)
 
@@ -218,10 +218,12 @@ Google may let you untick individual permissions on the consent screen. The clas
    - Turn on the Apps Script API for your account at <https://script.google.com/home/usersettings>, then run `npx clasp login`.
    - Create an Apps Script project, and copy `.clasp.json.example` to `.clasp.json` with the project's script ID (**Project Settings** in the editor).
    - Run `npm run push`. It builds from `config.yaml` and pushes `dist/` with clasp. If clasp asks whether to overwrite the manifest, answer yes.
-4. In the Apps Script editor, go to **Project Settings → Script Properties** and add `JEV_API_KEY` with the value from `.env`.
+4. In the Apps Script editor, go to **Project Settings → Script Properties** and add `JEV_API_KEY` with the value from `.env`. If it's missing, `install` stops and says so.
 5. In the editor, run the `install` function once. It asks for the [permissions](#permissions) above, saves its starting position in your mail's history, and creates the time-driven trigger. Only mail that arrives after this point is classified automatically.
 
 After changing `triggerIntervalMinutes`, build, push, and run `install` again to replace the trigger. Running `install` again keeps the saved position, so no mail is skipped or classified twice. To upgrade, pull, build, and push; labels and stored state carry over.
+
+To start from now instead, add the Script Property `RESET_POSITION` with the value `true` and run `install`. It saves a new starting position and deletes the property. Mail that arrived since the old position isn't classified automatically (use a [manual run](#manual-runs) for it), and threads already queued stay queued. Any other value is ignored, with a warning in the log.
 
 To stop the classifier, run the `uninstall` function. It removes the trigger and stored state, and leaves all labels and your API key in place, and also any `RESET_POSITION` and `MANUAL_*` properties. Running `uninstall` again is safe. If the `script.scriptapp` permission isn't granted, `uninstall` stops without changing anything. Mail that arrives while it is uninstalled is only classified with a [manual run](#manual-runs).
 

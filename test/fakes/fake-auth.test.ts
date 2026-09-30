@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { DECLARED_SCOPES } from '../../src/core/declared-scopes.ts';
 import { FakeAuth } from './fake-auth.ts';
-import { FakeScopes } from './fake-scopes.ts';
+import { FakeScopes, SCOPE_ERROR_MESSAGE } from './fake-scopes.ts';
 
 describe('FakeAuth', () => {
   it('reports nothing missing when every declared scope is granted', () => {
@@ -38,5 +38,36 @@ describe('FakeAuth', () => {
     });
     expect(auth.missingScopes().ok).toBe(true);
     expect(auth.calls).toHaveLength(2);
+  });
+});
+
+describe('FakeAuth.requireScopes', () => {
+  const [MODIFY, EXTERNAL, , SEND_MAIL] = DECLARED_SCOPES;
+
+  it('records the call and returns when every listed scope is granted', () => {
+    const scopes = new FakeScopes();
+    scopes.revoke(SEND_MAIL);
+    const auth = new FakeAuth({ scopes });
+    expect(() => {
+      auth.requireScopes([MODIFY, EXTERNAL]);
+    }).not.toThrow();
+    expect(auth.calls).toEqual([{ method: 'requireScopes', args: [[MODIFY, EXTERNAL]] }]);
+  });
+
+  it('throws the authorization error when a listed scope is revoked', () => {
+    const scopes = new FakeScopes();
+    scopes.revoke(EXTERNAL);
+    const auth = new FakeAuth({ scopes });
+    expect(() => {
+      auth.requireScopes([MODIFY, EXTERNAL]);
+    }).toThrow(new Error(SCOPE_ERROR_MESSAGE));
+    expect(auth.calls).toHaveLength(1);
+  });
+
+  it('is not affected by failWith', () => {
+    const auth = new FakeAuth();
+    auth.failWith('boom');
+    auth.requireScopes([MODIFY]);
+    expect(auth.missingScopes().ok).toBe(false);
   });
 });
