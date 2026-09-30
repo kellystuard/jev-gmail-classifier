@@ -49,7 +49,7 @@ Each rule either adds a **label** or **moves** the thread:
 
 - Every label rule that fires is applied. Missing labels, including nested names such as `Finance/Bill`, are created automatically. Missing parent labels are created too (`Finance` for `Finance/Bill`), so Gmail shows the label nested.
 - At most one move is applied. If several move rules fire, the first one in `config.yaml` wins.
-- Moves only happen for a **brand-new** thread, meaning all of its email arrived since the last check, or during a manual run with the `applyMoves` option. When a reply arrives on an existing thread, it is reclassified and only labels are added. That way the classifier never undoes your own correction, such as clicking "Not spam."
+- Moves only happen for a **brand-new** thread, meaning all of its email arrived since the last check, or during a manual run with the `applyMoves` option. When a reply arrives on an existing thread, it is reclassified and only labels are added (a move rule's `label:<name>` label isn't added either, because it is part of the move). That way the classifier never undoes your own correction, such as clicking "Not spam."
 - Labels are never removed.
 - The classifier adds only your classification labels, plus `Jev/Error` for threads that need your attention (see [Failures](#failures)).
 
