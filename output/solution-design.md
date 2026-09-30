@@ -402,7 +402,7 @@ sequenceDiagram
   - Reserved names such as `Inbox` or `Spam` give 400 "Invalid label name". The config schema rejects them.
   - A label can be created and applied in the same run.
 - **Never removed.** The classifier never removes a classification label, and it never removes `Jev/Error`.
-- **Missing scope.** If an action fails because a scope isn't granted, the per-action result is `scope`. Labels that could be applied are applied, the move is skipped, and `moveSkipped: "scope"` is logged. The thread counts as handled, so it isn't re-sent to Jev every run, and a `scope_missing` alert is queued. After the user fixes the scope, a manual run with `applyMoves` redoes the moves ([ADR-0003](adr/0003-advanced-gmail-service-and-scopes.md)).
+- **Missing scope.** A `scope` failure from the label cache (`listLabels`, `createLabel`) or from `modifyThread` never fails the thread. With a move and labels, the move is dropped and the labels get one more attempt on their own (one `modifyThread` with only the label IDs, never `INBOX`, `SPAM`, `TRASH` or a move label); the result has `moveSkipped: "scope"`, and also `labelsSkipped: "scope"` if that attempt lacks the scope too. With only a move or only labels, there is no retry and the matching field is set. Other failures in the retry (`rate_limited`, `not_found`, `failed_precondition`) are handled as usual. `settleThread` logs the fields in `thread.classified`, the thread counts as handled, so it isn't re-sent to Jev every run, and it returns `scope_missing` for E9's alert. After the user fixes the scope, a manual run with `applyMoves` redoes the moves ([ADR-0003](adr/0003-advanced-gmail-service-and-scopes.md)).
 
 ### 6.6 Manual runs
 
