@@ -522,6 +522,7 @@ The client is hand-written, because the official SDK needs `fetch`. It has two h
   - `buildRequest({model, rules}, state)`, with the `JEV_ENDPOINT` constant
   - `retryDelay(attempt, retryAfterMs, random) → ms | undefined` and `parseRetryAfter(headers, nowMs) → ms | undefined`
   - `interpretResponse(response, ruleIds) → JevResult`, with `response` a `{status, headers, body}` and `ruleIds` the config's rule ids, and `usageInputTokens(response)`, which reads the billed input tokens of a 200 and never throws (both in `src/core/jev-response.ts`)
+- **The sender in `app/`:** `sendJevRequests(requests, deps)` (`src/app/jev-sender.ts`) serializes each body once, adds the `Authorization` header, sends through `HttpPort` in batches and retries in rounds ([§8.5](#85-retries-in-rounds)). It returns each request's final response (or why it has none) and the billed input tokens, and never throws for a response.
 - **A transport:** the `HttpPort` and its `fetchAll` adapter.
 
 The local probe ([§12](#12-testing-architecture)) reuses the pure half with Node's `fetch`.
@@ -637,20 +638,37 @@ E7 logs them in `thread.classified` as `truncated` ([§10.5](#105-logging-and-al
 Apps Script has no timers, and `fetchAll` blocks until every request returns, so retries happen in **rounds**:
 
 ```text
-pending = all requests
-repeat:
-  responses = fetchAll(pending)
-  classify each: done | retryable | final
-  pending = retryable
-  if pending empty or attempts exhausted or deadline too close: stop
-  sleep(max backoff among pending, honouring Retry-After, capped by time left)
+estimate = INITIAL_ROUND_ESTIMATE_MS
+for each batch of at most MAX_REQUESTS_PER_FETCHALL requests, in input order:
+  if remainingMs() < estimate: stop (deadline); this and later batches are not sent
+  pending = the batch; attempt = 1
+  repeat:
+    responses = fetchAll(pending)                  # one round
+    estimate = the longest round seen in this call
+    classify each: final | retryable (a retryable status, or a network error)
+    if any auth, config or scope: stop (auth | config | scope) after this batch
+    if outage round: stop (outage); this round's requests are not final
+    retry = retryable ones with attempt < MAX_ATTEMPTS whose retryDelay isn't undefined
+    if retry empty: break
+    sleep = the largest retryDelay among them
+    if remainingMs() < sleep + estimate: break (deadline); they are final as they are
+    clock.sleep(sleep); pending = retry; attempt += 1
+  add the batch's billed tokens; log jev.batch
 ```
+
+- **The sender** (`sendJevRequests`, `src/app/jev-sender.ts`; E5 task #96):
+  - **Batches.** Requests are split in input order into batches of at most `MAX_REQUESTS_PER_FETCHALL = 20`, and each batch runs all its rounds before the next starts. Each body is serialized once; a retry re-sends the same request.
+  - **Rounds.** A round is one `fetchAll` of the batch's pending requests, all at the same attempt. `transport` (a network error) is retried like a retryable status, with no header delay. When `fetchAll` throws (a DNS error, say), the adapter reports every request of the batch as `transport`, although some may already have reached Jev ([spike 94](../spikes/94-fetch-all.md)), so a retry can send a request twice. That is accepted: a repeat costs tokens, never a wrong label. Everything else that isn't `retryable` is final after the round. There is one sleep per round, for the largest delay among the requests to retry ([ADR-0010](adr/0010-jev-request-shape-and-retries.md)).
+  - **Time.** A batch starts only if `remainingMs()` (E7's `Deadline`) is at least the round estimate, and a retry round only if it is at least the sleep plus the estimate. The estimate is `INITIAL_ROUND_ESTIMATE_MS = 5000` until a round of the call has been timed, then the longest round seen in the call. 5,000 ms is the floor over the slowest round measured (625 ms from Node in `test/fixtures/jev/README.md`; `fetchAll` itself took 255 to 435 ms for 5 cheap requests in [spike 94](../spikes/94-fetch-all.md)), doubled and rounded up to 2,000 ms. The first batch is the largest, so its round is a fair estimate for the rest.
+  - **Stops.** A round with an `auth`, `config` or `scope` result (in that order of precedence) ends the call after its batch: the round's retryable requests are final with their last result, and later batches aren't sent. An outage round ends it too, but its requests get no final result (`notSent: 'outage'`), so nothing is struck, and even retryable 5xx aren't retried. A batch that doesn't fit ends the call (`deadline`); a skipped retry round doesn't, and the next batch gets its own check.
+  - **The result.** One entry per request, in input order: `{id, response, attempts}` (its final HTTP response, a retryable one when the attempts ran out), `{id, transport: true, attempts}`, `{id, scope: true}`, or `{id, notSent: 'deadline' | 'auth' | 'config' | 'scope' | 'outage'}`. An entry still retryable with attempts left that wasn't retried carries `unretried`: `deadline` (the retry round didn't fit), `retry_after` (the header asked for over 60 s) or `stopped` (an `auth`, `config` or `scope` in the same round), so E6 and E7 can decline to strike it. Also `stopped` (the stop reason, and `deadline` when only a retry round was skipped), `inputTokens` (`usageInputTokens` summed over every final 200, since Jev billed them all) and `alerts`.
+  - It throws only for invalid input (`InvalidArgumentError`: a blank key, a repeated id) and, as `UnexpectedResponseError`, when `sendAll` returns a different number of results than requests. Whatever `sendAll` throws passes through to the per-run boundary.
 
 - **Retry policy** (`src/core/retry-delay.ts`; starting values copied from TypeSafe's SDK, [ADR-0010](adr/0010-jev-request-shape-and-retries.md)):
   - `MAX_ATTEMPTS = 3`: the first send plus two retries. The sender decides who is retried; `retryDelay` doesn't know the limit.
   - Backoff after failed attempt `n` (1-based): `min(5000, 500 × 2^(n−1))` ms times `1 − 0.25 × random`, with `random` in [0, 1) drawn once per call. With 3 attempts the waits are 375–500 ms (after attempt 1) and 750–1,000 ms (after attempt 2). The 5 s cap matters only if `MAX_ATTEMPTS` is raised.
   - `retry-after-ms` (milliseconds) is read first, else `retry-after` (seconds, or an HTTP date, where a past date is 0). A value that is empty, negative or unparseable is ignored. Header names are lower-case (the `HttpPort` contract).
-  - The wait is the larger of the backoff and the header's value, rounded up to whole ms. A header asking for more than 60,000 ms (exactly 60,000 is retried) means "don't retry in this run": `retryDelay` returns `undefined` and the request is final as retryable. The time left in the run also caps the wait (the sender, below).
+  - The wait is the larger of the backoff and the header's value, rounded up to whole ms. A header asking for more than 60,000 ms (exactly 60,000 is retried) means "don't retry in this run": `retryDelay` returns `undefined` and the request is final as retryable. The time left in the run also decides whether a retry round happens at all (the sender, above).
 - **What counts as retryable, a normal failure, or exceptional is decided by the implementer for each case** ([§10.1](#101-error-model)). The guideline:
   - Retryable: 429, 529, other overload or unavailable statuses, and network or timeout errors.
   - Normal failures: 422 and 401.
@@ -778,11 +796,14 @@ Logs are **structured JSON only**, one object per event, through `LogPort`. `con
   - `run.start`, `run.skipped`, `run.end` (summary), `run.failed`
   - `ingest.done`, `history.expired`, `history.fallback_missed`
   - `thread.classified`, `thread.excluded`, `thread.skipped`, `thread.failed`, `thread.errored`
+  - `jev.batch`, `jev.outage`
   - `scope_missing`, `budget.reached`, `alert.sent`
   - `manual.started`, `manual.progress`, `manual.completed`, `config.invalid`
 - **`ingest.done`** is logged once per ingest call that returns (not when it throws), at `info`, or `warn` when `stopped` is `rate_limited` or `scope`, or `fallbackMissed` is above 0. It carries `pages` (`history.list` calls that succeeded), `records` (records read, bare ones included), `queued` (new work items, the fallback's included), `merged` (enqueues merged into an existing item, including a thread queued earlier in the same call), `ignored` (`messagesAdded` entries left out for `DRAFT`, `SPAM` or `TRASH`), `jevErrorRetries` (distinct threads queued or merged because the user removed `Jev/Error`; other removals aren't counted or logged), `queueSize` (items in the returned queue), `startHistoryId` and `historyId` (the position before and after; the same when it didn't move. A call that continues a fallback doesn't read the position, so it has no `startHistoryId`, and `historyId` only when it finishes the fallback), and `stopped` (`cap`, `deadline`, `rate_limited` or `scope`) only when set. When a fallback ran or started ([§6.3](#63-ingest-gmail-history-to-work-queue) "Expired position"), it also carries `fallback: true`, `fallbackStarted` (this call created the cursor), `fallbackDone` (this call finished it), `fallbackWindows` (windows completed in this call), `fallbackMissed` (new threads with no room, a lower bound), `fallbackNextAfter` and `fallbackUntil` (epoch seconds). Never a subject, sender or body: ingest reads no thread.
 - **`history.expired`** (`warn`) is logged by the call that starts a fallback. It carries `historyId` and `savedAt` (the old position), `resumeHistoryId` (from `getProfile`), `aheadOfMailbox` (the old position was ahead of the mailbox: corrupt, not expired) and `until` (epoch seconds, the last second the fallback searches).
 - **`history.fallback_missed`** (`warn`) is logged when a 60 s window has more new threads than an otherwise empty queue can hold. It carries `after` and `before` (the window, epoch seconds) and `missed` (a lower bound). No thread IDs, subjects or senders.
+- **`jev.batch`** (`info`) is logged by the sender ([§8.5](#85-retries-in-rounds)) once per batch it started. Its fields are flat numbers: `batch` (1-based), `requests`, `rounds`, `attempts` (sends in all), `sleptMs`, `inputTokens` (this batch's), and the batch's final outcomes by class: `success`, `invalid`, `auth`, `config`, `exceptional`, `retryable` (final while still retryable), `transport`, `scope` and `outage` (not final because of an outage round). No thread IDs, bodies, headers or statuses: `thread.classified` covers each thread.
+- **`jev.outage`** (`warn`) is logged once when a round is an outage ([§8.5](#85-retries-in-rounds)). It carries `batch`, `requests` (the round's), `serverErrors` (5xx responses) and `transport` (network errors).
 - **`thread.skipped`** carries `threadId`, `source` and `reason` (`not_found`, `jev_error`, `no_messages`), at `info`. **`thread.excluded`** carries `threadId`, `source` and `reason` (`matched` at `info`, `search_capped` at `warn`), and never the subject or sender. Both are logged by chunk screening ([§6.4](#64-process-classify-a-chunk) step 2) once the whole chunk has been screened, never for a chunk that failed closed.
 - **`thread.classified`** carries `threadId`, `subject`, `from`, `probabilities {ruleId: p}`, `fired [ruleId]`, `actions`, `moveSkipped?`, `truncated?` (`{messagesDropped, bodiesDropped, charsDropped}`, present only when `state` was cut; [§8.4](#84-truncation)), `requestId`, `model`, and `inputTokens`.
 - **`run.end`** is the evidence for the Coverage measure. It carries counts of items ingested, classified, excluded, retried, errored, and left queued; labels applied per label; moves per destination; tokens used and remaining; and duration.
