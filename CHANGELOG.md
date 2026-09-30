@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.2.0...v0.3.0) (2026-09-30)
+
+
+### Features
+
+* **body:** add the basic HTML-to-text converter and BodyConverter ([#234](https://github.com/kellystuard/jev-gmail-classifier/issues/234)) ([f8088f0](https://github.com/kellystuard/jev-gmail-classifier/commit/f8088f089c9c7385dcd61ab31f2eec379f442127))
+* **body:** choose and normalize each message's body text in a MIME walk ([#236](https://github.com/kellystuard/jev-gmail-classifier/issues/236)) ([3855d5c](https://github.com/kellystuard/jev-gmail-classifier/commit/3855d5c020528deed3c3effdb588f0cc40b111ed))
+* **body:** decode part data as UTF-8 through an injected decoder ([#231](https://github.com/kellystuard/jev-gmail-classifier/issues/231)) ([6672e00](https://github.com/kellystuard/jev-gmail-classifier/commit/6672e00995124fe8bf5dd88c7283f47d592c60f0))
+* **body:** exclude attachments and forwarded messages from the body walk ([#232](https://github.com/kellystuard/jev-gmail-classifier/issues/232)) ([eab0786](https://github.com/kellystuard/jev-gmail-classifier/commit/eab0786a0f7da356819b7b134d590b77cdd12ad3))
+* **state:** build state from a thread with the header allowlist ([#237](https://github.com/kellystuard/jev-gmail-classifier/issues/237)) ([798b698](https://github.com/kellystuard/jev-gmail-classifier/commit/798b698576d89a2589c31732611aa10f3b24e815))
+* **state:** fit state to Jev's token limits and add threadToState ([#238](https://github.com/kellystuard/jev-gmail-classifier/issues/238)) ([f4e1e2b](https://github.com/kellystuard/jev-gmail-classifier/commit/f4e1e2b4ce37b74c9cbbc0e08090adde73179508))
+
 ## [0.2.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.1.0...v0.2.0) (2026-09-29)
 
 
