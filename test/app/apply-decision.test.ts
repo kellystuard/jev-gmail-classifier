@@ -264,7 +264,7 @@ describe('applyDecision: failures', () => {
   });
 
   it.each([
-    ['failed_precondition', fail('failed_precondition', { message: 'Precondition check failed.' })],
+    ['failed_precondition', FakeGmail.failedPrecondition()],
     ['rate_limited', FakeGmail.rateLimited()],
     ['scope', noScope],
   ] as const)('returns modifyThread %s as is, with no retry', (_name, failure) => {
