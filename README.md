@@ -229,11 +229,11 @@ To stop the classifier, run the `uninstall` function. It removes the trigger and
 
 ### Jev
 
-Figures below are for the Jev model version `jev-1.13.0` (the current [`jev-latest`](https://docs.typesafe.ai/models)), retrieved on 2026-09-24. Jev measures input size in **tokens**, small chunks of text of roughly four characters of English each. Limits and billing are both counted in tokens.
+Figures below are for the Jev model version `jev-1.13.0` (the current [`jev-latest`](https://docs.typesafe.ai/models)), retrieved on 2026-09-24; the limits and the token rate were measured on 2026-09-29 ([`spikes/84-token-ratio.md`](spikes/84-token-ratio.md)). Jev measures input size in **tokens**, small chunks of text of roughly six characters of English each (fewer for URLs, and often one or more per character in other scripts). Limits and billing are both counted in tokens.
 
 | Item                | Value                                                                                                   |
 | ------------------- | ------------------------------------------------------------------------------------------------------- |
-| Context per request | 32k tokens for `state` plus the longest single question; 64k tokens for `state` plus all questions combined |
+| Context per request | 32k (32,768) tokens for `state` plus the longest single question; 64k (65,536) tokens for `state` plus all questions combined |
 | Rate limits         | 1,200 requests/minute and 250,000 tokens/second (subject to change)                                     |
 | Price               | $0.042 per million input tokens; output is free                                                        |
 
