@@ -445,7 +445,15 @@ sequenceDiagram
   - Logs a summary.
 
   Re-running `install`, for example to change the interval, never skips or duplicates mail.
-- **`uninstall`:** deletes triggers for `onTrigger` and every `state.*` key. It leaves labels, `JEV_API_KEY`, and any `MANUAL_*` inputs. Mail that arrives while the classifier is uninstalled is classified only through a manual run.
+- **`uninstall`** (`src/app/uninstall.ts`):
+  - Deletes the `onTrigger` triggers **first**. A missing `script.scriptapp` stops it with `RunAbortError` (`scope_missing`) before any state is touched, because a trigger with no state would fail every run.
+  - Then deletes every `state.*` key found by `keys('state.')`, without reading any value, so corrupt values and every queue shard are deleted too.
+  - It is idempotent: running it again after a failure finishes the job.
+  - It leaves labels, `JEV_API_KEY`, any `MANUAL_*` inputs and `RESET_POSITION`.
+  - It runs under the lock with no heartbeat and no Gmail tally (#120), so nothing writes `state.*` after it.
+  - It logs `run.end` with `triggersDeleted` and `keysDeleted`.
+
+  Mail that arrives while the classifier is uninstalled is classified only through a manual run.
 
 ## 7. Data Design
 
@@ -816,7 +824,7 @@ Exceptions are for **invalid input or invalid state**. An expected failure is a 
   - `StateError`: a stored `state.*` value is invalid, a required key is missing (reason `missing`, such as `state.position` before `install`), or a write goes over the Script Properties limits (§11).
   - `UnexpectedResponseError`: a response that no rule expects.
   - `ThreadProcessingError`: carries a failed result on purpose to the per-thread handler, the same handler that deals with an unexpected 500.
-  - `RunAbortError`: the run stops without marking anything (a 401, a missing key, or an invalid config).
+  - `RunAbortError`: the run stops without marking anything (a 401, a missing key, an invalid config, or a permission `install` or `uninstall` can't work without: `scope_missing`).
   - `InvalidArgumentError`: a caller passed an argument no valid input can have, such as a negative `reservedTokens` for truncation ([§8.4](#84-truncation)). A bug, never a property of the mail.
 
   These exceptions may be thrown **on purpose** to bubble up to a shared handler.
@@ -892,6 +900,7 @@ Logs are **structured JSON only**, one object per event, through `LogPort`. `con
   - **`thread.skipped`** (`info`) with `reason: 'not_found'` when Gmail says the thread no longer exists: `threadId`, `source` and `reason` only.
 - **`thread.skipped` at the full read** (`info`) is logged by `processChunk` ([§6.4](#64-process-classify-a-chunk) step 3) with `threadId`, `source` and `reason`: `not_found` (deleted since screening) or `no_messages` (its `state` is empty: every message moved to Drafts, Spam or Trash since screening).
 - **`run.end`** is the evidence for the Coverage measure. It carries counts of items ingested, classified, excluded, retried, errored, and left queued; labels applied per label; moves per destination; tokens used and remaining; and duration.
+- For `uninstall`, `run.end` carries `triggersDeleted` and `keysDeleted`.
 - **Never logged:** message bodies, the API key, or the `Authorization` header. One `redact` helper in the log adapter scrubs known secret fields as a last line of defence.
 - **Alerts** use `MailPort`, go to the owner, and are limited to one per condition per day via `state.alerts`. The conditions:
   - `auth`: 401, or the key is missing.

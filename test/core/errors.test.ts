@@ -210,4 +210,9 @@ describe('RunAbortError', () => {
       errorMessage: 'No API key',
     });
   });
+
+  it('logs the scope_missing reason', () => {
+    const error = new RunAbortError('no scope', { reason: 'scope_missing' });
+    expect(error.toLogFields().reason).toBe('scope_missing');
+  });
 });
