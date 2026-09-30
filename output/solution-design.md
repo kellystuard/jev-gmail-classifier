@@ -521,7 +521,7 @@ The client is hand-written, because the official SDK needs `fetch`. It has two h
 - **Pure functions in `core/`:**
   - `buildRequest({model, rules}, state)`, with the `JEV_ENDPOINT` constant
   - `interpretResponse(status, headers, body) → JevResult`
-  - `retryDelay(attempt, retryAfter, random)`
+  - `retryDelay(attempt, retryAfterMs, random) → ms | undefined` and `parseRetryAfter(headers, nowMs) → ms | undefined`
 - **A transport:** the `HttpPort` and its `fetchAll` adapter.
 
 The local probe ([§12](#12-testing-architecture)) reuses the pure half with Node's `fetch`.
@@ -646,7 +646,15 @@ repeat:
   sleep(max backoff among pending, honouring Retry-After, capped by time left)
 ```
 
-- **Starting policy** (tuned in E5), copied from TypeSafe's SDK: exponential backoff from 500 ms, doubling to 5 s, with jitter, and about 3 attempts. `Retry-After` / `retry-after-ms` is honoured, capped by the time left in the run.
+- **Retry policy** (`src/core/retry-delay.ts`; starting values copied from TypeSafe's SDK, [ADR-0010](adr/0010-jev-request-shape-and-retries.md)):
+  - `MAX_ATTEMPTS = 3`: the first send plus two retries. The sender decides who is retried; `retryDelay` doesn't know the limit.
+  - Backoff after failed attempt `n` (1-based): `min(5000, 500 × 2^(n−1))` ms times `1 − 0.25 × random`, with `random` in [0, 1) drawn once per call. With 3 attempts the waits are 375–500 ms (after attempt 1) and 750–1,000 ms (after attempt 2). The 5 s cap matters only if `MAX_ATTEMPTS` is raised.
+  - `retry-after-ms` (milliseconds) is read first, else `retry-after` (seconds, or an HTTP date, where a past date is 0). A value that is empty, negative or unparseable is ignored. Header names are lower-case (the `HttpPort` contract).
+  - The wait is the larger of the backoff and the header's value, rounded up to whole ms. A header asking for more than 60,000 ms (exactly 60,000 is retried) means "don't retry in this run": `retryDelay` returns `undefined` and the request is final as retryable. The time left in the run also caps the wait (the sender, below).
+- **What counts as retryable, a normal failure, or exceptional is decided by the implementer for each case** ([§10.1](#101-error-model)). The guideline:
+  - Retryable: 429, 529, other overload or unavailable statuses, and network or timeout errors.
+  - Normal failures: 422 and 401.
+  - Exceptional: a generic 500 and anything unexpected.
 - **Classification.** `classifyJevResponse` (`core/jev-status.ts`) decides from the status (and, for two rows, the error body). It never throws: `interpretResponse` throws for the exceptional class, per thread. The table:
 
   | Status | Class | Why |
