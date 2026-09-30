@@ -1,0 +1,8 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-typesafe-request-id": "req_01a0f0a845087249b12f788b13cd9c55"
+  },
+  "body": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"state\"],\"msg\":\"Field required\",\"input\":{\"questions\":{\"q1\":{\"type\":\"noul\",\"instructions\":\"Is this email a newsletter or marketing message?\",\"criteria\":null}},\"model\":\"jev-latest\"}}]}"
+}

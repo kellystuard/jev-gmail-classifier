@@ -1,0 +1,8 @@
+{
+  "status": 400,
+  "headers": {
+    "content-type": "application/json",
+    "x-typesafe-request-id": "req_01a0f0a8196e7958a29be52e8c4c46cc"
+  },
+  "body": "{\"detail\":{\"error_type\":\"api_usage_error\",\"message\":\"Invalid request.\"}}"
+}

@@ -1,0 +1,8 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-typesafe-request-id": "req_01a0f0a817707d35a24d604207bb0e52"
+  },
+  "body": "{\"model\":\"jev-1.13.0\",\"answers\":{\"approval\":{\"type\":\"noul\",\"noul\":0.06},\"bill\":{\"type\":\"noul\",\"noul\":0.01},\"newsletter\":{\"type\":\"noul\",\"noul\":0.93},\"shipping\":{\"type\":\"noul\",\"noul\":0.02}},\"usage\":{\"input_tokens\":580,\"output_tokens\":68}}"
+}

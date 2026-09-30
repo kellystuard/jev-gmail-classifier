@@ -1,0 +1,8 @@
+{
+  "status": 400,
+  "headers": {
+    "content-type": "application/json",
+    "x-typesafe-request-id": "req_01a0f0a81a0d74488ce22a823bb73dfe"
+  },
+  "body": "{\"detail\":{\"error_type\":\"api_usage_error\",\"message\":\"Unknown model: jev-does-not-exist\"}}"
+}
