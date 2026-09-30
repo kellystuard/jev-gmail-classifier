@@ -100,6 +100,19 @@ These run from a scratch function in the throwaway test account (`spikes/README.
 6. `release()` on a fresh adapter (no `tryAcquire()` first), and a second `release()` after a release, don't throw.
 7. Once #121 has merged (entry points): run `install` from the editor while a scheduled `onTrigger` run is in progress (or run the check-3 sleeper first); the log shows `run.skipped` with `reason: busy` and nothing else for that execution.
 
+## Trigger adapter (GasTriggerAdapter)
+
+This runs from a scratch function in the throwaway test account (`spikes/README.md`) until E7 (#121) wires `install` and `uninstall`. Check the results on the editor's **Triggers** page. Never write the test account's address anywhere (write `<test-account>`).
+
+1. With no triggers, `new GasTriggerAdapter().replaceRecurringTrigger('onTrigger', 10)` returns `{ ok: true }`, and the Triggers page shows exactly one time-driven `onTrigger` trigger, every 10 minutes.
+2. `replaceRecurringTrigger('onTrigger', 5)` returns `{ ok: true }`; there is still exactly one `onTrigger` trigger, now every 5 minutes.
+3. Create a second `onTrigger` trigger and one for `smokeOther` by hand (`ScriptApp.newTrigger(...).timeBased().everyHours(1).create()`). `replaceRecurringTrigger('onTrigger', 10)` leaves exactly one `onTrigger` trigger (every 10 minutes) and the `smokeOther` one untouched.
+4. `deleteTriggers('onTrigger')` returns `{ ok: true, deleted: 1 }`, and `smokeOther` is still there. A second call returns `{ ok: true, deleted: 0 }`.
+5. In **one** execution, `replaceRecurringTrigger('onTrigger', 10)` then `deleteTriggers('onTrigger')` returns `{ ok: true, deleted: 1 }` with no HTTP 500 (the pitfall from E1 #163 is avoided).
+6. Not observed (accepted v1 risk, SD §14): with `script.scriptapp` unticked at consent, both methods return `{ ok: false, kind: 'scope' }` and don't throw.
+
+Afterwards, delete the `smokeOther` trigger.
+
 ## Auth adapter (GasAuthAdapter)
 
 This runs through `install` / `onTrigger` once E7 (#121) wires `new GasAuthAdapter()` into `src/entry/main.ts`; until then, from a scratch function in the throwaway test account. Write `<test-account>`, never the address.
