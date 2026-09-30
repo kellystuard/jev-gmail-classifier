@@ -32,6 +32,26 @@ Same setup. Use a mailbox with at least 3 threads in the inbox, and keep the IDs
 10. `getThread('not-a-thread-id', { format: 'minimal' })` throws `UnexpectedResponseError` (`service: 'gmail'`, `status: 400`; note the status if it differs), and the error holds no header text.
 11. Not run until #125: with `gmail.modify` unticked at consent, both methods return `{ ok: false, kind: 'scope' }` and don't throw.
 
+### Labels and moves (`listLabels`, `createLabel`, `modifyThread`)
+
+Same setup. Import synthetic threads first (for example with `Gmail.Users.Messages.import`, from a made-up sender at `example.test`), and make sure no label named `JevSmoke` or starting with `JevSmoke/` exists. Keep the IDs from one check for the next.
+
+1. `listLabels()` returns `{ ok: true, labels }` in one response (no paging): system labels (IDs such as `INBOX`, `SPAM`) and user labels (`Label_<n>`), each with an `id` and a `name`.
+2. `createLabel('JevSmoke/A/B')` returns `{ ok: true, label }` with a `Label_<n>` ID and the name `JevSmoke/A/B`. `listLabels()` then shows only that leaf: no `JevSmoke` or `JevSmoke/A` was created.
+3. `createLabel('JevSmoke/A/B')` again, and `createLabel('jevsmoke / a / b')`, each return `{ ok: false, kind: 'label_exists', message }` and don't throw.
+4. `createLabel('Inbox')` returns `{ ok: false, kind: 'invalid_label_name', message }` and doesn't throw.
+5. `modifyThread(id, { addLabelIds: [<step 2's ID>], removeLabelIds: [] })` returns `{ ok: true }`, and every message of the thread has the label. Repeating it returns `{ ok: true }` and changes nothing.
+6. `modifyThread` with a label **name** (`'JevSmoke/A/B'`) in `addLabelIds`, and with `'Label_999999999'`, each return `{ ok: false, kind: 'invalid_label', message }`, and the thread is unchanged.
+7. On four fresh synthetic threads, each call returns `{ ok: true }` and the labels match SD §6.5:
+   - archive: `removeLabelIds: ['INBOX']`; the thread leaves the inbox and keeps its other labels;
+   - label move: add step 2's ID and remove `INBOX`;
+   - spam: add `SPAM` and remove `INBOX`; user labels are kept;
+   - trash: add `TRASH` only; `INBOX` goes too, and user labels are kept.
+8. `modifyThread` on a thread deleted forever in the Gmail UI returns `{ ok: false, kind: 'not_found' }` and doesn't throw.
+9. Not run until #125: with `gmail.modify` unticked at consent, each of the three methods returns `{ ok: false, kind: 'scope' }` and doesn't throw.
+
+Afterwards, delete the `JevSmoke` labels and the synthetic threads.
+
 ## Script Properties adapter (GasStateAdapter)
 
 These run in a real deployment once E7 wires `new GasStateAdapter()` into `src/entry/`. Until then nothing calls the adapter. Each check is a step and the expected result. Use Project Settings → Script Properties to look at and edit properties, and the execution log to see the errors. Never write the test account's address anywhere (write `<test-account>`).

@@ -578,12 +578,19 @@ describe('FakeGmail modifyThread', () => {
     });
   });
 
-  it('trashes a thread like adding TRASH', () => {
+  it('returns an injected failed_precondition once and leaves the labels unchanged', () => {
     const gmail = new FakeGmail();
     const { threadId } = gmail.deliver();
-    expect(gmail.trashThread(threadId)).toEqual({ ok: true });
+    const change = { addLabelIds: ['TRASH'], removeLabelIds: [] };
+    gmail.failNext('modifyThread', FakeGmail.failedPrecondition(), { threadId });
+    expect(gmail.modifyThread(threadId, change)).toEqual({
+      ok: false,
+      kind: 'failed_precondition',
+      message: 'Precondition check failed.',
+    });
+    expect(gmail.threadLabels(threadId)).toEqual([['INBOX', 'UNREAD']]);
+    expect(gmail.modifyThread(threadId, change)).toEqual({ ok: true });
     expect(gmail.threadLabels(threadId)).toEqual([['UNREAD', 'TRASH']]);
-    expect(gmail.trashThread('gone')).toEqual({ ok: false, kind: 'not_found' });
   });
 });
 
@@ -599,8 +606,7 @@ describe('FakeGmail quota, latency and failures', () => {
     gmail.getThread(threadId, { format: 'minimal' });
     gmail.createLabel('A');
     gmail.modifyThread(threadId, { addLabelIds: [], removeLabelIds: ['UNREAD'] });
-    gmail.trashThread(threadId);
-    expect(gmail.unitsUsed).toBe(1 + 1 + 2 + 10 + 40 + 5 + 10 + 20);
+    expect(gmail.unitsUsed).toBe(1 + 1 + 2 + 10 + 40 + 5 + 10);
   });
 
   it('advances the clock on every call', () => {

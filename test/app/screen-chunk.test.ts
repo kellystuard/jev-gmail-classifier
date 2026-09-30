@@ -401,7 +401,6 @@ describe('screenChunk: what is logged and returned', () => {
     const before = ports.state.snapshot();
     const { calls } = screen(ports, config(), queueOf([item(hit), item(draft), item(ok1)]));
     expect(calls.map((c) => c.method)).not.toContain('modifyThread');
-    expect(calls.map((c) => c.method)).not.toContain('trashThread');
     expect(calls.map((c) => c.method)).not.toContain('createLabel');
     expect(ports.state.snapshot()).toEqual(before);
   });

@@ -52,8 +52,8 @@ export type ThreadLabelChange = {
 
 /**
  * The Advanced Gmail Service, `Gmail.Users.*` (SD §5.2, §9). Every call is on
- * the user `me`. Owned by E3 (reading) and E6 (labels and moves), which refine
- * it.
+ * the user `me`. Owned by E3 (reading) and E6 (labels and moves). There is
+ * no `trashThread`: a trash is `modifyThread` adding `TRASH` (SD §6.5).
  *
  * Expected failures are results. Anything the adapter doesn't recognize is
  * thrown as `UnexpectedResponseError` (`src/core/errors.ts`) and reaches the
@@ -127,22 +127,26 @@ export interface GmailPort {
   /**
    * `Users.Threads.modify`: every label add and the move in one call (SD §6.5,
    * `spikes/26-moves.md`). It applies to every message in the thread.
-   * Repeating it is safe.
+   * Repeating it is safe. Trash is this call adding `TRASH`: the same labels
+   * as `threads.trash`, for 10 units instead of 20.
    *
-   * `invalid_label`: a name in place of an ID (400 "Invalid label") or an
-   * unknown ID (400 "labelId not found"). Nothing changes.
+   * - `not_found`: 404, the thread was deleted.
+   * - `invalid_label`: a name in place of an ID (400 "Invalid label") or an
+   *   unknown ID (400 "labelId not found"). Nothing changes.
+   * - `failed_precondition`: 400 with `reason: failedPrecondition`,
+   *   "Precondition check failed.". Transient: E1 saw it once, on
+   *   `threads.trash` for a thread imported about 3 minutes earlier, and it
+   *   was gone on a retry a minute later (spike 26). It is mapped here too,
+   *   since a trash is now a `modify`.
    */
   modifyThread(
     threadId: string,
     change: ThreadLabelChange,
   ): Result<
     NoFields,
-    GmailFailure | Fail<'not_found'> | Fail<'invalid_label', { message: string }>
+    | GmailFailure
+    | Fail<'not_found'>
+    | Fail<'invalid_label', { message: string }>
+    | Fail<'failed_precondition', { message: string }>
   >;
-
-  /**
-   * `Users.Threads.trash`. Gives the same labels as `modifyThread` adding
-   * `TRASH`. E6 decides which one to use (SD §6.5).
-   */
-  trashThread(threadId: string): Result<NoFields, GmailFailure | Fail<'not_found'>>;
 }
