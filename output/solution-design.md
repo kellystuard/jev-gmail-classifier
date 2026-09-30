@@ -827,8 +827,9 @@ Exceptions are for **invalid input or invalid state**. An expected failure is a 
 
 ### 10.3 Time budget
 
-- Every entry point creates one `Deadline` from `ClockPort`, with a **soft limit** (stop starting new work) and a **reserve** (time kept for applying outcomes and saving state for anything already sent). Paying for a classification and then losing it is the worst case.
-- Retries, ingest paging, and chunk loops all ask `deadline.remaining()`.
+- Every entry point creates one `Deadline`: `createDeadline(now, { softLimitMs, reserveMs })` in `src/core/deadline.ts`. `now` is `() => clock.now()`, because `core/` can't read the clock. It has `startedAt`, `elapsed()`, `remaining()` (to the soft limit), `remainingWithReserve()` and `pastSoftLimit()`. Both remainders are never below 0, and the methods work detached.
+- **New work (ingest pages, chunks, Jev batches, retry rounds) starts only while `remaining()` > 0.** A chunk also needs `minChunkStartMs` ([#122](https://github.com/kellystuard/jev-gmail-classifier/issues/122)).
+- The **reserve** is a planning figure for applying outcomes and saving state for anything already sent, not a check: nothing enforces it. Paying for a classification and then losing it is the worst case.
 - Starting values (E7): scheduled soft limit 30 s, manual soft limit 4.5 min, reserve 10 s.
 
 ### 10.4 Concurrency
