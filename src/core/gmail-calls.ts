@@ -1,8 +1,8 @@
 /**
  * The daily Gmail call tally (Solution Design §7.3, §9; epic #13 decisions 4
- * and 17): the `state.gmailCalls` codec, the pure day rollover, and the quota
- * unit cost of each `GmailPort` method. The counting wrapper and the store
- * are in `src/app/counting-gmail.ts`.
+ * and 17): the `state.gmailCalls` codec, and the pure day rollover. The unit
+ * cost of each `GmailPort` method is `GMAIL_UNIT_COST` in `./run-limits.ts`.
+ * The counting wrapper and the store are in `src/app/counting-gmail.ts`.
  *
  * Stored as `{"v": 1, "day": "YYYY-MM-DD", "count": <int>}`.
  */
@@ -22,20 +22,6 @@ export type GmailCallTally = {
   /** Gmail calls made that day. A non-negative safe integer. */
   readonly count: number;
 };
-
-/**
- * Quota units per `GmailPort` method (SD §9). Defined here until #122 moves
- * it to `src/core/run-limits.ts` (epic #13 decision 4).
- */
-export const GMAIL_UNIT_COST = {
-  getProfile: 1,
-  listLabels: 1,
-  listHistory: 2,
-  searchThreadIds: 10,
-  modifyThread: 10,
-  getThread: 40,
-  createLabel: 5,
-} as const;
 
 /**
  * `decode(GMAIL_CALLS_KEY, raw)` throws `StateError` `version` for an unknown

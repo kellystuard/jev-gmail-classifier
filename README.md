@@ -159,7 +159,7 @@ rules:
 | Field                    | Required        | Description                                                        |
 | ------------------------ | --------------- | ------------------------------------------------------------------ |
 | `defaultThreshold`       | Yes             | Minimum probability, from 0 to 1, for any rule without its own `threshold`. |
-| `triggerIntervalMinutes` | No              | How often scheduled runs happen. Defaults to `10`. Accounts with more quota (such as Workspace) can run more often. |
+| `triggerIntervalMinutes` | No              | How often scheduled runs happen. Defaults to `10`. 1 and 5 minutes are for light mail or accounts with more quota (such as Workspace): with a backlog they can use more than a consumer account's 90 minutes a day of trigger time. |
 | `jevModel`               | No              | Jev model version. Defaults to `jev-latest`. Pin a version if you want thresholds to stay stable across model releases. |
 | `dailyTokenBudget`       | No              | Maximum Jev input tokens per day, across all runs: a whole number, at least 1. Defaults to `20000000`. |
 | `excludeQuery`           | No              | A Gmail search describing mail that must never be sent to Jev. If any email in a thread matches, the whole thread is skipped, including emails in Spam or Trash. Applied to every run. Each email is checked on its own: `from:lawyer.example subject:contract` needs one email that matches both, so use `OR` to exclude either. To exclude nothing, delete the line: an empty `excludeQuery:` fails the build. |
@@ -258,6 +258,8 @@ Published [quotas](https://developers.google.com/apps-script/guides/services/quo
 | Email recipients      | See quota page        | See quota page      |
 
 The default 10-minute trigger fires 144 times a day. On a consumer account, that leaves an average of about 37 seconds per run within the 90-minute daily runtime budget. Only one execution runs at a time; a run that starts while another is still going exits immediately.
+
+Each scheduled run stops starting new work after a soft limit (8 s at 1 minute, 15 s at 5 minutes, 30 s at 10, 15 or 30 minutes) and plans at most 1,000 to 3,000 Gmail quota units, so it stays under Gmail's per-minute limit. Runs you start yourself from the editor work for up to 4.5 minutes. Under a constant backlog the 10, 15 and 30 minute intervals fit the consumer 90 minutes a day; 1 and 5 minutes may not. A quiet mailbox uses only a second or two per run.
 
 ## Roadmap
 

@@ -8,11 +8,11 @@
 import {
   type GmailCallTally,
   GMAIL_CALLS_KEY,
-  GMAIL_UNIT_COST,
   decodeGmailCalls,
   encodeGmailCalls,
   gmailCallsForDay,
 } from '../core/gmail-calls.ts';
+import { GMAIL_UNIT_COST } from '../core/run-limits.ts';
 import type { GmailPort } from '../ports/gmail-port.ts';
 import type { StatePort } from '../ports/state-port.ts';
 
