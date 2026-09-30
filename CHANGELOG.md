@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.3.0...v0.4.0) (2026-09-30)
+
+
+### Features
+
+* **budget:** add the daily token budget codec and day rollover ([#244](https://github.com/kellystuard/jev-gmail-classifier/issues/244)) ([d2bccc7](https://github.com/kellystuard/jev-gmail-classifier/commit/d2bccc72344ccd7d57545f39fc83369529d7cd9b))
+* **budget:** persist the daily token budget and stop sending when it's reached ([#249](https://github.com/kellystuard/jev-gmail-classifier/issues/249)) ([834d2b0](https://github.com/kellystuard/jev-gmail-classifier/commit/834d2b09ef3c4be8a9f64842223cd17043dfe046))
+* **jev-client:** add retryDelay and parseRetryAfter ([#243](https://github.com/kellystuard/jev-gmail-classifier/issues/243)) ([1ed205e](https://github.com/kellystuard/jev-gmail-classifier/commit/1ed205ea6d5453c6c840d1e130e357b0bf432d18))
+* **jev-client:** add the fetchAll HTTP adapter and the secrets adapter ([#246](https://github.com/kellystuard/jev-gmail-classifier/issues/246)) ([a95b2bc](https://github.com/kellystuard/jev-gmail-classifier/commit/a95b2bc845139492cb07fc7e2bffd8e908473567))
+* **jev-client:** build the Jev request body from the rules and state ([#239](https://github.com/kellystuard/jev-gmail-classifier/issues/239)) ([1dd6db4](https://github.com/kellystuard/jev-gmail-classifier/commit/1dd6db45b6f2f2271b002cb073195a34a6b1703e))
+* **jev-client:** classify Jev responses by status ([#240](https://github.com/kellystuard/jev-gmail-classifier/issues/240)) ([979c025](https://github.com/kellystuard/jev-gmail-classifier/commit/979c025c50c8159c51b73134f223dea7abe987f0))
+* **jev-client:** interpret Jev responses into JevResult ([#245](https://github.com/kellystuard/jev-gmail-classifier/issues/245)) ([2082183](https://github.com/kellystuard/jev-gmail-classifier/commit/2082183c6ffc5982daec425ccb000fc29dc9f51b))
+* **jev-client:** send Jev requests in batches and retry in rounds ([#247](https://github.com/kellystuard/jev-gmail-classifier/issues/247)) ([4323e2d](https://github.com/kellystuard/jev-gmail-classifier/commit/4323e2d4115704384268522604f121290cb2ae24))
+* **outcomes:** cache label IDs and create missing labels ([#254](https://github.com/kellystuard/jev-gmail-classifier/issues/254)) ([8d21deb](https://github.com/kellystuard/jev-gmail-classifier/commit/8d21debc0417144886f69d7ba75fb5c297bd5357))
+* **outcomes:** decide labels and at most one move ([#255](https://github.com/kellystuard/jev-gmail-classifier/issues/255)) ([0b9a2ec](https://github.com/kellystuard/jev-gmail-classifier/commit/0b9a2ec93f0d005ce2627d8202a6ff10add50ede))
+* **probe:** probe Jev locally with saved .eml files ([#248](https://github.com/kellystuard/jev-gmail-classifier/issues/248)) ([867f476](https://github.com/kellystuard/jev-gmail-classifier/commit/867f476fcf979bac633aab3ec1f16b45f7167bf0))
+
 ## [0.3.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.2.0...v0.3.0) (2026-09-30)
 
 
