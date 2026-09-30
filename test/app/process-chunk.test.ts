@@ -14,6 +14,7 @@ import {
   UnexpectedResponseError,
 } from '../../src/core/errors.ts';
 import { JEV_ERROR_LABEL } from '../../src/core/label-path.ts';
+import { SCOPE_FEATURES } from '../../src/core/scope-features.ts';
 import { BUDGET_KEY, encodeBudget } from '../../src/core/token-budget.ts';
 import { enqueue, type WorkItem, type WorkQueue } from '../../src/core/work-queue.ts';
 import type { HttpRequest } from '../../src/ports/http-port.ts';
@@ -28,6 +29,9 @@ import invalid422 from '../fixtures/jev/422-empty-questions.json' with { type: '
 
 const GMAIL_MODIFY = 'https://www.googleapis.com/auth/gmail.modify';
 const EXTERNAL_REQUEST = 'https://www.googleapis.com/auth/script.external_request';
+/** `scope_missing`'s `feature` and `disables`, as the scope preflight logs them. */
+const GMAIL_FEATURE = SCOPE_FEATURES[GMAIL_MODIFY];
+const CLASSIFY_FEATURE = SCOPE_FEATURES[EXTERNAL_REQUEST];
 /** `createFakePorts()`'s default clock. */
 const NOW = Date.parse('2026-09-26T12:00:00Z');
 const HOUR_MS = 3_600_000;
@@ -320,7 +324,7 @@ describe('processChunk: screening fails', () => {
     const logged = s.ports.log.all('scope_missing');
     if (name === 'scope') {
       expect(logged.map((e) => [e.level, e.fields])).toEqual([
-        ['warn', { scope: GMAIL_MODIFY, step: 'screen', disables: 'gmail' }],
+        ['warn', { scope: GMAIL_MODIFY, step: 'screen', ...GMAIL_FEATURE }],
       ]);
     } else {
       expect(logged).toEqual([]);
@@ -419,7 +423,7 @@ describe('processChunk: the full read', () => {
       expect(result.alerts).toEqual(['scope_missing']);
       expect(result.missingScopes).toEqual([GMAIL_MODIFY]);
       expect(s.ports.log.all('scope_missing').map((e) => e.fields)).toEqual([
-        { scope: GMAIL_MODIFY, step: 'read', disables: 'gmail' },
+        { scope: GMAIL_MODIFY, step: 'read', ...GMAIL_FEATURE },
       ]);
     } else {
       expect(result.alerts).toEqual([]);
@@ -588,7 +592,7 @@ describe('processChunk: the sender stops', () => {
       'untouched',
     ]);
     expect(s.ports.log.all('scope_missing').map((e) => [e.level, e.fields])).toEqual([
-      ['warn', { scope: EXTERNAL_REQUEST, step: 'send', disables: 'classify' }],
+      ['warn', { scope: EXTERNAL_REQUEST, step: 'send', ...CLASSIFY_FEATURE }],
     ]);
     expect(result.queue).toEqual(s.queue);
     expect(queueSaves(s)).toBe(1);

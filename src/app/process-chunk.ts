@@ -18,6 +18,7 @@ import type { Utf8Decoder } from '../core/body/utf8.ts';
 import { DECLARED_SCOPES, type DeclaredScope } from '../core/declared-scopes.ts';
 import { InvalidArgumentError } from '../core/errors.ts';
 import { buildRequest } from '../core/jev-request.ts';
+import { SCOPE_FEATURES } from '../core/scope-features.ts';
 import { threadToState } from '../core/thread-state.ts';
 import type { TruncationStats } from '../core/truncation.ts';
 import { dequeue, type WorkItem, type WorkItemSource, type WorkQueue } from '../core/work-queue.ts';
@@ -419,11 +420,8 @@ function scopeMissing(tally: Tally, log: LogPort, scope: DeclaredScope, step: Sc
 }
 
 function logScopeMissing(log: LogPort, scope: DeclaredScope, step: ScopeStep): void {
-  log.warn('scope_missing', {
-    scope,
-    step,
-    disables: scope === GMAIL_MODIFY ? 'gmail' : 'classify',
-  });
+  const { feature, disables } = SCOPE_FEATURES[scope];
+  log.warn('scope_missing', { scope, step, feature, disables });
 }
 
 function addAlerts(tally: Tally, alerts: readonly AlertCondition[]): void {
