@@ -196,15 +196,16 @@ export class ThreadProcessingError extends JevClassifierError {
   }
 }
 
-export type RunAbortReason = 'auth' | 'missing_key' | 'config_invalid';
+export type RunAbortReason = 'auth' | 'missing_key' | 'config_invalid' | 'scope_missing';
 
 export type RunAbortDetails = {
   readonly reason: RunAbortReason;
 };
 
 /**
- * The run must stop without marking anything: a 401, a missing key, or an
- * invalid config at load. Only the per-run boundary catches it.
+ * The run must stop without marking anything: a 401, a missing key, an
+ * invalid config at load, or a scope `install`/`uninstall` can't work without.
+ * Only the per-run boundary catches it.
  */
 export class RunAbortError extends JevClassifierError {
   declare readonly reason: RunAbortReason;

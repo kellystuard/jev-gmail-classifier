@@ -223,7 +223,7 @@ Google may let you untick individual permissions on the consent screen. The clas
 
 After changing `triggerIntervalMinutes`, build, push, and run `install` again to replace the trigger. Running `install` again keeps the saved position, so no mail is skipped or classified twice. To upgrade, pull, build, and push; labels and stored state carry over.
 
-To stop the classifier, run the `uninstall` function. It removes the trigger and stored state, and leaves all labels and your API key in place. Mail that arrives while it is uninstalled is only classified with a [manual run](#manual-runs).
+To stop the classifier, run the `uninstall` function. It removes the trigger and stored state, and leaves all labels and your API key in place, and also any `RESET_POSITION` and `MANUAL_*` properties. Running `uninstall` again is safe. If the `script.scriptapp` permission isn't granted, `uninstall` stops without changing anything. Mail that arrives while it is uninstalled is only classified with a [manual run](#manual-runs).
 
 ## Limits and Cost
 
