@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ConfigError,
+  InvalidArgumentError,
   JevClassifierError,
   RunAbortError,
   StateError,
@@ -31,6 +32,11 @@ const cases: readonly [string, () => JevClassifierError, ErrorClass][] = [
     ThreadProcessingError,
   ],
   ['RunAbortError', () => new RunAbortError('401', { reason: 'auth' }), RunAbortError],
+  [
+    'InvalidArgumentError',
+    () => new InvalidArgumentError('bad', { argument: 'reservedTokens', reason: 'negative' }),
+    InvalidArgumentError,
+  ],
 ];
 
 describe.each(cases)('%s', (name, make, cls) => {
