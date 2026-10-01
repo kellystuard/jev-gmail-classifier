@@ -31,7 +31,7 @@ The steps are in order. The maintainer does 3.1 to 3.4, an agent does 3.5, and 3
 
 ### 3.1 The README walk-through (maintainer)
 
-It starts when #150, #151, #152, #155 and #315 are closed.
+It starts when #150, #151, #152, #155 and #315 are closed, and so is every README bug under #153 and #156 (#325 was the first).
 
 1. Take a fresh clone of `main`.
 2. Follow README "Setup" exactly, steps 1 to 10, and nothing else. Stay on the default Cloud project: don't open the Cloud console. Note every step that was wrong, unclear or missing.
@@ -133,7 +133,7 @@ Never in this record: a rule's question, a label name, the exclusion query, the 
 - **The clock does not restart** for a config-only push (a threshold, a question, a rule), or for changes to docs, tests, CI, dev dependencies or the reducer. Those are not part of what runs.
 - **The deploy checkout stays at the pilot commit** for the whole window, so `npm run push` for a config change never carries new code. Before each push, run `git rev-parse HEAD` in the deploy checkout: it must print the start record's commit.
 - **Every push after T0 is noted** by the maintainer on #158: the time (UTC), the kind of change, and the rule IDs it touched. Never the question or the label.
-- **Precision after a config change.** Precision for a changed rule counts only the actions after the change. A change of `defaultThreshold`, `jevModel`, `plainTextMethod` or `excludeQuery` counts as a change to every rule. If a late change leaves a rule with too few checked actions, the maintainer chooses: run a few days longer, or judge it.
+- **Precision after a config change.** Precision for a changed rule counts only the actions after the change. A change of `defaultThreshold`, `jevModel`, `plainTextMethod` or `excludeQuery` counts as a change to every rule. The reducer does this with `--rule-from <ruleId>=<time of the push>`, once per changed rule (section 8, "After a config change"). Every other measure still counts the whole window. If a late change leaves a rule with too few checked actions, the maintainer chooses: run a few days longer, or judge it.
 - **A model change needs no push.** A new `jev-latest` can change probabilities by itself (PDD §9). `rules.models` in the reducer's output shows which models answered, and the report records a change.
 - **A restart is not a failure.** The same report carries on with a new window (`w2`, then `w3`), each with its own start record in `docs/pilot-report.md`.
 
@@ -186,8 +186,15 @@ node scripts/pilot-measures.ts --from <T0> --to <checkpoint> --interval 10 \
 ```
 
 - `--interval` is `triggerIntervalMinutes` from the start record.
-- At C2 and C3, `--worksheet <file>`, `--checked <file>` (once per worksheet) and `--crosscheck <file>` are added (section 8). `--worksheet` and `--checked` need `--config`.
-- It prints one JSON object with the sections `window`, `events`, `runs`, `latency`, `coverage`, `cost`, `jev`, `quota`, `alerts` and `rules`, plus `worksheet`, `precision` and `crosscheck` when asked. That output is what is posted.
+- At C2 and C3, `--worksheet <file>`, `--checked <file>` (once per worksheet) and `--crosscheck <file>` are added, and `--rule-from <ruleId>=<ISO>` (once per rule) after a config change (section 8). `--worksheet`, `--checked` and `--rule-from` need `--config`. `--sample`, `--min-per-rule` and `--seed` belong to `--worksheet` and stay at their defaults (40, 5, and the `--from` text).
+- It prints one JSON object. Its sections, in this order:
+  - always: `window`, `events`, `runs`, `latency`, `coverage`, `cost`, `jev`, `quota`, `alerts`. `cost.usdPer30Days` is there only with `--usd-per-million`.
+  - `rules`: with `--config`.
+  - `ruleFrom`: with `--rule-from`. A list of `id` and `from`: the instants that were used.
+  - `worksheet`: with `--worksheet`. The counts `rows`, `moves` and `labels`.
+  - `precision`: with `--checked`.
+  - `crosscheck`: with `--crosscheck`. It needs no `--config`.
+- That output is what is posted.
 - A wrong argument or an unreadable file prints one line and exits 1.
 
 File names in `~/.local/share/jev-pilot/`, each with `<window>-<checkpoint>` (for example `w1-c2`): `export-w1-c2.json`, `config-w1-c2.yaml`, `worksheet-w1-c2.csv`, `crosscheck-w1-c2.txt`.
@@ -200,7 +207,8 @@ Every event and field below is in SD §10.5 and `src/core/log-events.ts`. Every 
 - **Data.** `thread.classified` lines with a non-empty `actions`. An applied action is one (thread, rule) pair: the rule is in `fired` and its label or move is in `actions`. A move rule that fired while moves weren't allowed is in `fired` and not in `actions`, so it is not an applied action. The maintainer checks every applied move and a sample of the applied labels in Gmail (section 8).
 - **Formula.** `precision.estimate` = (correct moves + applied labels × correct labels ÷ checked labels) ÷ (applied moves + applied labels). Moves are counted, because all are checked. Labels are estimated from the sample.
 - **Passes when** `precision.estimate` is at least 0.95, with at least 60 actions checked in the window (`precision.moves.checked` + `precision.labels.checked`) and every applied move checked (`precision.moves.checked` equals `precision.moves.applied`). Below 60 the number is reported as "low volume" and the maintainer judges. A wrong `spam` or `trash` move is always listed by rule ID.
-- **The reducer prints** `rules` (per rule `id`, `kind`, `fired`, `applied`; `appliedLabels`, `appliedMoves`, `models`) and `precision` (per rule `checked` and `correct`; `moves` and `labels`, each with `applied`, `checked` and `correct`; `estimate`).
+- **No `estimate` is not a pass.** The reducer leaves `precision.estimate` out when nothing was checked, when labels were applied and none of them was checked, and when nothing was applied at all. In the first two cases the measure can't be read yet: the worksheet is finished first. With nothing applied in 14 days there is nothing to measure, and the maintainer judges on #158.
+- **The reducer prints** `rules` (`rules.rules`: per rule `id`, `kind`, `fired`, `applied`; then `appliedLabels`, `appliedMoves`, `models`) and `precision` (`precision.rules`: per rule `id`, `applied`, `checked`, `correct`; `moves` and `labels`, each with `applied`, `checked` and `correct`; `estimate`). Without `--rule-from`, the `applied` figures of `precision` equal those of `rules`. With it they differ for the changed rules: `rules` always counts the whole window.
 - **Also reported:** the counts per rule ID, the counts for moves alone, `rules.models`, and `coverage.moveSkipped` and `coverage.labelsSkipped`.
 
 ### 6.3 Latency
@@ -291,15 +299,15 @@ At C2 and at C3 the agent runs the reducer over the days since the last checkpoi
 --worksheet ~/.local/share/jev-pilot/worksheet-<window>-<checkpoint>.csv
 ```
 
-- The worksheet lists every applied move and a random sample of applied labels: 40, with at least 5 per rule or all the rule has (the reducer's `--sample` and `--min-per-rule` defaults). The sample is the same each time for the same `--from` and input.
-- Its columns are `id`, `ts`, `threadId`, `ruleId`, `kind`, `action`, `subject`, `from`, `correct`. It holds mail content, so the reducer refuses to write it inside a git work tree.
+- The worksheet lists every applied move and a random sample of applied labels: 40, with at least 5 per rule or all the rule has (the reducer's `--sample` and `--min-per-rule` defaults). The label rows are picked with a seeded generator, and the seed is the `--from` text unless `--seed` is given, so the same command over the same exports gives the same rows. With many rules, 5 per rule can add up to more than 40.
+- Its columns are `id`, `ts`, `threadId`, `ruleId`, `kind`, `action`, `subject`, `from`, `correct`. Each row is one applied action, and its `kind` is `label`, `move:archive`, `move:spam`, `move:trash` or `move:label`. It holds mail content, so the reducer refuses to write it inside a git work tree.
 - The agent posts only the file's name and the row counts (`worksheet.rows`, `worksheet.moves`, `worksheet.labels`).
 
 ### The maintainer's part
 
 Do it within 2 days of the checkpoint: Gmail deletes mail in Spam and Trash after 30 days, and memory fades.
 
-1. Open the worksheet in a spreadsheet or an editor. Keep it in `~/.local/share/jev-pilot/`, as CSV, with the same columns.
+1. Open the worksheet in a spreadsheet or an editor. Keep it in `~/.local/share/jev-pilot/`, as CSV, with the same columns. Change only the `correct` column: the reducer reads `id`, `ruleId`, `kind` and `ts` back, and a spreadsheet that rewrites the `ts` column as a date makes a row uncountable after a config change.
 2. For each row, open the thread in Gmail. Search for its subject and sender. The address `https://mail.google.com/mail/#all/<threadId>` should also open it (the same form as the alert email's link, which SD §14 lists as not yet verified live).
 3. Answer one question: reading this thread as it is now, is the answer to the rule's question yes? Write `y` or `n` in the `correct` column. Unsure is `n`.
 4. A thread that no longer exists can't be judged: leave its cell empty and tell the agent how many there were (a count only). An unchecked move means "every applied move checked" is not met, so the maintainer judges it on #158.
@@ -318,7 +326,25 @@ No subject, sender or thread ID is ever written on an issue: line numbers, count
 
 ### After a config change
 
-Precision for a changed rule counts only the actions after the change (section 5). The reducer must then count that rule's applied actions and its checked rows from the time of the push only. **This is open on #315:** the reducer has no flag for it yet. Nothing is lost meanwhile: the push is noted on #158 with its time and rule IDs (section 5), each worksheet row has its own `ts`, and the config copies keep the rules as they were. The counting waits for the flag. This paragraph is replaced by the exact command before the start.
+Precision for a changed rule counts only the actions after the change (section 5). The reducer's `--rule-from <ruleId>=<ISO>` does it. For that rule, `precision` counts only the actions applied at or after that instant, and only the worksheet rows whose own `ts` is at or after it. A worksheet written with the flag leaves the rule's earlier rows out.
+
+1. **The instant** is the time of the push, in UTC, as the maintainer noted it on #158. For a rule changed more than once, it is the last push that touched it: the reducer refuses the same rule twice.
+2. **Which rules.** One `--rule-from` for each rule ID the push touched. A change of `defaultThreshold`, `jevModel`, `plainTextMethod` or `excludeQuery` is a change to every rule: give one `--rule-from` per rule ID of the config, all with the same instant. The rule IDs are in `rules.rules` of an earlier output.
+3. **The measures run** (C2 and C3) carries every `--rule-from` of the window so far, here with one changed rule and C2's worksheet:
+
+   ```sh
+   node scripts/pilot-measures.ts --from <T0> --to <checkpoint> --interval 10 \
+     --config "$PILOT_CONFIG" --usd-per-million 0.042 \
+     --checked ~/.local/share/jev-pilot/worksheet-<window>-c2.csv \
+     --rule-from <ruleId>=<time of the push> \
+     --crosscheck ~/.local/share/jev-pilot/crosscheck-<window>-<checkpoint>.txt \
+     ~/.local/share/jev-pilot/export-<window>-*.json
+   ```
+
+4. **The worksheet run** carries a `--rule-from` only for a push inside its own days. The reducer refuses an instant outside `[--from, --to)`, and a push before `--from` needs no flag there: every row is already after it.
+5. **What to check in the output.** `ruleFrom` lists each rule and the instant that was used. `precision.rules` gives the changed rule's `applied`, `checked` and `correct` from the instant on, and `precision.moves`, `precision.labels` and `precision.estimate` are built from those figures. `rules.rules`, and every other section, still count the whole window.
+6. **What the reducer refuses** (one line, exit 1): a rule ID that is not in the config, a value that is not `<ruleId>=<ISO>`, an instant outside the window, the same rule twice, and `--rule-from` without `--config`.
+7. **A rule that was removed or given a new ID** is not in the current config, so its earlier actions are in no figure of that run. The agent runs the reducer once more with the last config copy that still had the rule (`--config ~/.local/share/jev-pilot/config-<window>-<checkpoint>.yaml`) and reports that rule's `precision.rules` figures beside the main output.
 
 ## 9. When a measure is missed
 
