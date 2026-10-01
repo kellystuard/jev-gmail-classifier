@@ -9,7 +9,7 @@ To decide what a conversation is about, the script asks **[Jev](https://docs.typ
 
 > **Privacy:** The content of your email (selected headers and the plain-text body) is sent to TypeSafe AI's API for classification. Attachments are never sent, and you can keep any mail from being sent at all with an [exclusion query](#configuration). See [What is sent to Jev](#what-is-sent-to-jev).
 
-> **Status:** Design phase. No code has been written yet. This README describes the intended result. See the [Product Vision](output/product-vision.md) and [Product Design Document](output/product-design-document.md) for why and what, and the [Solution Design](output/solution-design.md) for how.
+> **Status:** Pre-release (version 0.9.0). The classifier is built and works end to end. It is in a pilot on the maintainer's own mailbox before v1.0.0, so expect changes until then. See the [Product Vision](output/product-vision.md) and [Product Design Document](output/product-design-document.md) for why and what, and the [Solution Design](output/solution-design.md) for how.
 
 ## Why
 
@@ -208,19 +208,13 @@ Unknown fields fail the build, so a typo such as `treshold` is caught instead of
 - Each part between `/` must be non-empty, with no spaces around the `/`: write `Finance/Bill`, not `Finance / Bill` or `Finance//Bill`.
 - Several rules can add the same label, but they must spell it the same way. Gmail treats `Finance/Bill` and `finance/bill` as one label, so the build rejects the pair.
 
-Apps Script cannot read YAML files, so a build step validates `config.yaml` and converts it into a script file before [deployment](#setup-planned). An invalid config fails the build. The script checks the configuration again each time it runs, and stops with an alert if the configuration is invalid.
+Apps Script cannot read YAML files, so a build step validates `config.yaml` and converts it into a script file before [deployment](#setup). An invalid config fails the build. The script checks the configuration again each time it runs, and stops with an alert if the configuration is invalid.
 
 **Time zone.** "A day" for the token budget and for alert limits follows the script's time zone, set by `timeZone` in `appsscript.json`. It defaults to `Etc/UTC`. Change it to your own zone, such as `America/New_York`, if you prefer.
 
 ### API Key
 
-The Jev API key is kept in a `.env` file at the repository root. The file is git-ignored:
-
-```dotenv
-JEV_API_KEY=your-key-here
-```
-
-A deployed Apps Script cannot read `.env`. You copy the key into the script's [Script Properties](https://developers.google.com/apps-script/guides/properties), Apps Script's built-in key-value store, once during [setup](#setup-planned).
+The Jev API key lives in two places, for two jobs. The `.env` file at the repository root (git-ignored; copy `.env.example`) holds `JEV_API_KEY` for the local [probe](#development) only. The deployed script cannot read `.env`: it reads `JEV_API_KEY` from its [Script Properties](https://developers.google.com/apps-script/guides/properties), Apps Script's built-in key-value store, which you set once during [setup](#setup). The script never logs the key, and every log line is scrubbed of it.
 
 ## Permissions
 
@@ -237,22 +231,107 @@ When you run `install`, Google asks you to grant the script these permissions ([
 
 Google may let you untick individual permissions on the consent screen. `install` asks again until you grant the first three (`gmail.modify`, `script.external_request` and `script.scriptapp`): without them the classifier can't do its job. Alert email (`script.send_mail`) is optional. The classifier also checks which permissions were granted at the start of every run. If a permission is missing, the script logs which one and what it disables, emails you (if it can), and keeps doing what it still can. To fix it, run `install` again and grant the missing permission.
 
-## Setup (planned)
+## Setup
 
-1. Copy `config.example.yaml` to `config.yaml` and write your rules.
-2. Build: `npm run build` validates `config.yaml` and converts it into a script file. To try the build before writing your own config, run `npm run build -- --config config.example.yaml`.
-3. Push the code with [clasp](https://developers.google.com/apps-script/guides/clasp), Google's command-line tool for Apps Script projects:
-   - Turn on the Apps Script API for your account at <https://script.google.com/home/usersettings>, then run `npx clasp login`.
-   - Create an Apps Script project, and copy `.clasp.json.example` to `.clasp.json` with the project's script ID (**Project Settings** in the editor).
-   - Run `npm run push`. It builds from `config.yaml` and pushes `dist/` with clasp. If clasp asks whether to overwrite the manifest, answer yes.
-4. In the Apps Script editor, go to **Project Settings → Script Properties** and add `JEV_API_KEY` with the value from `.env`. If it's missing, `install` stops and says so.
-5. In the editor, run the `install` function once. It asks for the [permissions](#permissions) above, saves its starting position in your mail's history, and creates the time-driven trigger. Only mail that arrives after this point is classified automatically.
+Follow these steps from top to bottom. Each one says what to do and what you should then see. They take about half an hour, most of it in Google's pages.
 
-After changing `triggerIntervalMinutes`, build, push, and run `install` again to replace the trigger. Running `install` again keeps the saved position, so no mail is skipped or classified twice. To upgrade, pull, build, and push; labels and stored state carry over.
+1. **Before you start.** You need:
+   - Node 24 (the repository's `.nvmrc`; run `fnm use` or `nvm use`), npm and git. `clasp` needs no separate install: it comes with `npm ci` and you run it as `npx clasp`.
+   - The Google account whose mail is to be classified.
+   - A Jev API key from [TypeSafe AI](https://typesafe.ai/). Jev is a paid service: see [Limits and Cost](#limits-and-cost).
+
+   Your mail's content is sent to TypeSafe AI to be classified: read [What is sent to Jev](#what-is-sent-to-jev) first.
+
+2. **Get the code.**
+
+   ```sh
+   git clone https://github.com/kellystuard/jev-gmail-classifier.git
+   cd jev-gmail-classifier
+   npm ci
+   ```
+
+   `npm ci` ends without errors.
+
+3. **Write your config.** Copy the example and edit it:
+
+   ```sh
+   cp config.example.yaml config.yaml
+   ```
+
+   The rules in the example are starting points, not tested recommendations. Replace them with your own questions: see [Configuration](#configuration) for every field. A cautious start is label rules only. Read the log for a while, then add move rules (see [Tuning](#tuning)).
+
+4. **Build.**
+
+   ```sh
+   npm run build
+   ```
+
+   The build checks `config.yaml` and typechecks the code. On success it writes `dist/Code.js` and `dist/appsscript.json`. An invalid config fails the build with one line per problem, each naming the field (such as `rules[2].destination`), and writes nothing. Without a `config.yaml` the build stops and tells you to copy the example. To try the build before you write your own config, run `npm run build -- --config config.example.yaml`.
+
+5. **Create the Apps Script project and connect `clasp`.**
+   1. Turn on the Apps Script API for your account at <https://script.google.com/home/usersettings>.
+   2. Run `npx clasp login`. It opens a browser: sign in with the account whose mail is to be classified.
+   3. At <https://script.google.com>, create a standalone project and give it a name. Google shows that name later, on the consent screen.
+   4. In the editor, open **Project Settings** and copy the **Script ID**.
+   5. Copy the example and put the ID in `scriptId`. Leave `rootDir` as `dist`:
+
+      ```sh
+      cp .clasp.json.example .clasp.json
+      ```
+
+      `.clasp.json` is git-ignored.
+
+6. **Set the time zone (optional, before the first push).** "A day" for the [daily token budget](#limits-and-cost) and for the once-a-day alert limit follows the script's time zone. It is `Etc/UTC` unless you change it. To change it, edit `timeZone` in `appsscript.json` at the repository root, for example `"timeZone": "America/New_York"`. The build copies that file into `dist/`, and each push overwrites the project's manifest, so a change made in the Apps Script editor is lost at the next push. Two side effects matter only if you also develop the classifier: `appsscript.json` is a tracked file, so `git status` shows your change, and `npm test` then fails one manifest test that expects `Etc/UTC`.
+
+7. **Push.**
+
+   ```sh
+   npm run push
+   ```
+
+   It builds from `config.yaml` and pushes `dist/` with `clasp`. If `clasp` asks "Manifest file has been updated. Do you want to push and overwrite?", answer yes. Reload the project in the editor. [`clasp` documents that](https://github.com/google/clasp) it pushes a `.js` file as a `.gs` file, so the editor lists two files: `Code.gs` and `appsscript.json`.
+
+8. **Add the Jev key.** In the editor, open **Project Settings → Script Properties**, add a property named `JEV_API_KEY` and paste your key as its value. The script never logs the key.
+
+9. **Run `install`.** In the editor, choose `install` in the function list and click **Run**. Google then asks for permission:
+   1. The screen says "Google hasn't verified this app". This is expected: the project is your own copy of the code and has not been through Google's app verification, and only your own code runs in it. Click **Advanced**, then **Go to** your project's name **(unsafe)**.
+   2. The screen lists four permissions as checkboxes. **None of the four boxes is pre-ticked: tick all four,** then click **Allow**. [Permissions](#permissions) says what each one is for.
+
+   `install` then saves the starting position in your mail's history and creates the time-driven trigger, which runs `onTrigger` every `triggerIntervalMinutes` minutes. Only mail that arrives after this point is classified automatically; use a [manual run](#manual-runs) for older mail. Running `install` again is always safe.
+
+   If something is wrong, `install` says so and goes no further:
+   - If a permission box was left unticked, `install` asks for the missing permissions again, or stops with an error that names the permission. See [Permissions](#permissions).
+   - If the `JEV_API_KEY` property is missing, `install` stops with "JEV_API_KEY is missing: set JEV_API_KEY in Script Properties, then run install again" and writes nothing. Add the property and run `install` again. See [Troubleshooting and recovery](#troubleshooting-and-recovery).
+
+10. **Check that it works.**
+    1. Open the execution log of the `install` run. It ends with a `run.end` line that has `position` (`set` on a first install), `historyId` and `triggerMinutes`. A `missingScopes` field means a permission is missing: see [Permissions](#permissions).
+    2. Open the editor's **Triggers** page. It lists one time-driven trigger for `onTrigger`.
+    3. After one interval, open the **Executions** page (<https://script.google.com/home/executions>). It shows an `onTrigger` execution that completed. Its log ends with a `run.end` line; when there was nothing to do, its `stopped` is `drained`. A failed run logs `run.failed` and the execution shows as Failed.
+    4. Send yourself a test mail that one of your rules should match. After about two intervals, the label is on the thread in Gmail, and the log has a `thread.classified` line with the rule's probability.
+
+    [Monitoring](#monitoring) lists the log events and the alert emails.
+
+### Changing the config or the interval
+
+Edit `config.yaml` and run `npm run push`. After changing `triggerIntervalMinutes`, also run `install` again to replace the trigger. `install` keeps the saved position, so no mail is skipped or classified twice.
+
+### Upgrading
+
+Run `git pull`, `npm ci` and `npm run push`. Labels and stored state carry over. A release may change the permissions the script asks for: if it does, run `install` again and tick every box. If you changed `appsscript.json` (the time zone), `git pull` can conflict with an upstream change to that file: keep your `timeZone`.
+
+### Starting from now
 
 To start from now instead, add the Script Property `RESET_POSITION` with the value `true` and run `install`. It saves a new starting position and deletes the property. Mail that arrived since the old position isn't classified automatically (use a [manual run](#manual-runs) for it), and threads already queued stay queued. Any other value is ignored, with a warning in the log.
 
-To stop the classifier, run the `uninstall` function. It removes the trigger and stored state (including an unfinished manual job), and leaves all labels and your API key in place, and also any `RESET_POSITION` and `MANUAL_*` properties. Running `uninstall` again is safe. If the `script.scriptapp` permission isn't granted, `uninstall` stops without changing anything. Mail that arrives while it is uninstalled is only classified with a [manual run](#manual-runs).
+### Stopping and removing
+
+To stop the classifier, run the `uninstall` function. It removes the trigger and stored state (including an unfinished manual job), and leaves all labels and your API key in place, and also any `RESET_POSITION` and `MANUAL_*` properties. Its log ends with a `run.end` line with `triggersDeleted` and `keysDeleted`. Running `uninstall` again is safe. If the `script.scriptapp` permission isn't granted, `uninstall` stops without changing anything. Mail that arrives while it is uninstalled is only classified with a [manual run](#manual-runs).
+
+`uninstall` does not remove the permissions you granted or the Apps Script project. To remove the rest:
+
+- **The permissions.** Open <https://myaccount.google.com/connections>, find the project by its name and delete all its connections.
+- **The project.** If you no longer want it, delete the Apps Script project from <https://script.google.com>. This step has not been observed for this project: see [Google's Apps Script documentation](https://developers.google.com/apps-script) if the dashboard differs.
+- **The labels.** Delete them in Gmail if you want to: the classifier never removes a label.
 
 ## Tuning
 
