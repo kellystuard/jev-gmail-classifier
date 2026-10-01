@@ -1,0 +1,27 @@
+[
+  {
+    "insertId": "a1",
+    "severity": "INFO",
+    "timestamp": "2026-10-02T00:00:00.000Z",
+    "resource": { "type": "app_script_function" },
+    "jsonPayload": {
+      "message": "{\"event\":\"run.start\",\"runId\":\"run-a\",\"entry\":\"onTrigger\",\"ts\":\"2026-10-02T00:00:00.000Z\",\"kind\":\"scheduled\"}"
+    }
+  },
+  {
+    "insertId": "a2",
+    "severity": "INFO",
+    "timestamp": "2026-10-02T00:00:20.000Z",
+    "resource": { "type": "app_script_function" },
+    "jsonPayload": {
+      "message": "{\"event\":\"run.end\",\"runId\":\"run-a\",\"entry\":\"onTrigger\",\"ts\":\"2026-10-02T00:00:20.000Z\",\"stopped\":\"drained\",\"queueSize\":0,\"durationMs\":20000}"
+    }
+  },
+  {
+    "insertId": "a3",
+    "severity": "ERROR",
+    "timestamp": "2026-10-02T00:05:00.000Z",
+    "resource": { "type": "app_script_function" },
+    "textPayload": "Exceeded maximum execution time"
+  }
+]

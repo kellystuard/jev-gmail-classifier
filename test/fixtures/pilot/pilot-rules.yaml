@@ -1,0 +1,21 @@
+# Synthetic pilot config for scripts/pilot-measures tests. Not a real config.
+defaultThreshold: 0.8
+triggerIntervalMinutes: 10
+rules:
+  - id: newsletter
+    question: Is it a newsletter?
+    label: Synthetic/News
+  - id: promo
+    question: Is it a promotion?
+    label: Synthetic/News
+  - id: bill
+    question: Is it a bill?
+    label: Synthetic/Bill
+  - id: shipping
+    question: Is it a shipping notice?
+    action: move
+    destination: archive
+  - id: junk
+    question: Is it junk?
+    action: move
+    destination: spam
