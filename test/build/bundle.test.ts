@@ -17,7 +17,8 @@ import {
   resolveOutDir,
 } from '../../scripts/bundle.ts';
 import { ENTRY_POINTS } from '../../src/entry/entry-points.ts';
-import * as main from '../../src/entry/main.ts';
+import { encodeManualJob, MANUAL_KEY, newManualJob } from '../../src/core/manual-job.ts';
+import { workQueueShardCodec } from '../../src/core/work-queue.ts';
 import { encodePosition, POSITION_KEY } from '../../src/core/position.ts';
 import { createGasGlobals, type GasGlobalsStub, STUB_UUID } from './gas-globals-stub.ts';
 
@@ -26,10 +27,8 @@ const FIXTURE_RULE_IDS = ['fixture-approval', 'fixture-bill', 'fixture-newslette
 
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
-/** The entry points E7 wires; they need Apps Script's globals. */
-const WIRED = ['onTrigger', 'install', 'uninstall'] as const;
-/** Placeholders until E8: they only load the config. */
-const PLACEHOLDERS = ['startManualRun', 'continueManualRun', 'cancelManualRun'] as const;
+/** Every entry point is wired; they need Apps Script's globals. */
+const WIRED = ENTRY_POINTS;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -141,22 +140,6 @@ describe('bundle()', () => {
     }
   });
 
-  it('loads and validates the embedded config with the bundled Zod, with no module system', () => {
-    const scope = evaluate(code);
-    for (const name of PLACEHOLDERS) {
-      expect(callGlobal(scope, name), name).toMatchObject({
-        ruleCount: FIXTURE_RULE_IDS.length,
-      });
-    }
-  });
-
-  it('calls each placeholder in main.ts through the footer', () => {
-    const scope = evaluate(code);
-    for (const name of PLACEHOLDERS) {
-      expect(callGlobal(scope, name), name).toEqual(main[name]());
-    }
-  });
-
   it('builds no adapter at load: the bundle evaluates with no Apps Script globals', () => {
     expect(() => evaluate(code)).not.toThrow();
   });
@@ -219,6 +202,141 @@ describe('bundle()', () => {
       expect(stub.properties.has('state.runs')).toBe(true);
       expect(stub.properties.has('state.gmailCalls')).toBe(true);
       expect(stub.lockHeld()).toBe(false);
+    });
+
+    function seededJob(): Record<string, string> {
+      const job = newManualJob({ query: 'label:Receipts', applyMoves: false, startedAt: 1000 });
+      return { [MANUAL_KEY]: JSON.stringify(encodeManualJob(job)) };
+    }
+
+    it('startManualRun with no input is rejected: a normal return, not a failed run', () => {
+      const stub = createGasGlobals({ properties: installed() });
+
+      expect(run(stub, 'startManualRun')).toEqual({
+        entry: 'startManualRun',
+        status: 'rejected',
+        reason: 'no_input',
+      });
+      const [line, ...more] = stub.events('manual.rejected');
+      expect(more).toEqual([]);
+      expect(line?.level).toBe('warn');
+      expect(stub.properties.has(MANUAL_KEY)).toBe(false);
+      expect(stub.events('run.failed')).toEqual([]);
+      expect(stub.lockHeld()).toBe(false);
+    });
+
+    it('startManualRun starts a job and completes it on an empty mailbox', () => {
+      const stub = createGasGlobals({
+        properties: {
+          ...installed(),
+          MANUAL_QUERY: 'label:Receipts',
+          MANUAL_APPLY_MOVES: 'true',
+          MANUAL_REPLACE: 'false',
+        },
+      });
+
+      const result = run(stub, 'startManualRun');
+      expect(result).toMatchObject({
+        entry: 'startManualRun',
+        status: 'ok',
+        query: 'label:Receipts',
+        applyMoves: true,
+        job: 'completed',
+      });
+      expect(isRecord(result) && isRecord(result['summary'])).toBe(true);
+
+      for (const event of [
+        'run.start',
+        'manual.started',
+        'manual.progress',
+        'manual.completed',
+        'run.end',
+      ]) {
+        const [line, ...more] = stub.events(event);
+        expect(more, event).toEqual([]);
+        expect(line?.json, event).toMatchObject({ entry: 'startManualRun', runId: STUB_UUID });
+      }
+      for (const key of [
+        'MANUAL_QUERY',
+        'MANUAL_TIMESPAN',
+        'MANUAL_APPLY_MOVES',
+        'MANUAL_REPLACE',
+        MANUAL_KEY,
+      ]) {
+        expect(stub.properties.has(key), key).toBe(false);
+      }
+      expect(stub.properties.has('state.runs')).toBe(true);
+      expect(stub.properties.has('state.gmailCalls')).toBe(true);
+      expect(stub.searches).toEqual([
+        { q: 'label:Receipts', includeSpamTrash: false, maxResults: 100 },
+      ]);
+      expect(stub.lockHeld()).toBe(false);
+    });
+
+    it('continueManualRun with no job returns job none and stopped no_job', () => {
+      const stub = createGasGlobals({ properties: installed() });
+
+      expect(run(stub, 'continueManualRun')).toMatchObject({
+        entry: 'continueManualRun',
+        status: 'ok',
+        job: 'none',
+        stopped: 'no_job',
+      });
+      const [line, ...more] = stub.events('run.end');
+      expect(more).toEqual([]);
+      expect(line?.json).toMatchObject({ stopped: 'no_job' });
+    });
+
+    it('continueManualRun with no key throws RunAbortError before any search', () => {
+      const { JEV_API_KEY: _key, ...properties } = installed();
+      const stub = createGasGlobals({ properties: { ...properties, ...seededJob() } });
+
+      let thrown: unknown;
+      try {
+        run(stub, 'continueManualRun');
+      } catch (error) {
+        thrown = error;
+      }
+      expect(isRecord(thrown) ? thrown['name'] : thrown).toBe('RunAbortError');
+      expect(stub.events('run.failed')[0]?.json).toMatchObject({ reason: 'missing_key' });
+      expect(stub.searches).toEqual([]);
+      expect(stub.properties.has(MANUAL_KEY)).toBe(true);
+    });
+
+    it('cancelManualRun removes the job and its queued work, with no heartbeat or tally', () => {
+      const queue = workQueueShardCodec.encode({
+        items: [{ threadId: 'abc123', source: 'manual', enqueuedAt: 1000, strikes: 0 }],
+      });
+      const stub = createGasGlobals({
+        properties: { ...installed(), ...seededJob(), 'state.queue.0': JSON.stringify(queue) },
+      });
+
+      expect(run(stub, 'cancelManualRun')).toEqual({
+        entry: 'cancelManualRun',
+        status: 'ok',
+        cancelled: true,
+        removed: 1,
+      });
+      expect(stub.events('manual.cancelled')).toHaveLength(1);
+      expect(stub.properties.has(MANUAL_KEY)).toBe(false);
+      expect(stub.properties.has('state.queue.0')).toBe(false);
+      expect(stub.properties.has('state.runs')).toBe(false);
+      expect(stub.properties.has('state.gmailCalls')).toBe(false);
+
+      expect(run(stub, 'cancelManualRun')).toMatchObject({ cancelled: false, removed: 0 });
+    });
+
+    it('onTrigger continues a manual job in its spare time', () => {
+      const stub = createGasGlobals({ properties: { ...installed(), ...seededJob() } });
+
+      expect(run(stub, 'onTrigger')).toMatchObject({
+        entry: 'onTrigger',
+        status: 'ok',
+        stopped: 'drained',
+      });
+      expect(stub.events('manual.completed')).toHaveLength(1);
+      expect(isRecord(stub.events('run.end')[0]?.json['spare'])).toBe(true);
+      expect(stub.properties.has(MANUAL_KEY)).toBe(false);
     });
 
     it('install sets the position and the trigger, then uninstall removes them', () => {
@@ -295,7 +413,7 @@ describe('bundle() with an embedded config that fails validation', () => {
         ].join('\n'),
       );
     }
-    expect(stub.events('run.failed').map((line) => line.json['entry'])).toEqual([...WIRED]);
+    expect(stub.events('run.failed').map((line) => line.json['entry'])).toEqual([...ENTRY_POINTS]);
     expect(stub.events('run.failed').map((line) => line.json['error'])).toEqual(
       WIRED.map(() => 'ConfigError'),
     );
