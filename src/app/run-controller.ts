@@ -316,8 +316,14 @@ function processQueue(
   return { stopped, queue, ...(abort === undefined ? {} : { abort }) };
 }
 
+/** The reasons a processed chunk can stop a loop: its `abort`, `stopGmail` or `stopSending`. */
+export type ChunkStop = Extract<
+  RunStop,
+  'abort' | 'rate_limited' | 'scope' | 'budget' | 'send_deadline' | 'send_scope' | 'outage'
+>;
+
 /** Why the loop stops after this chunk, or `undefined` to go on. The abort wins. */
-export function chunkStop(result: ChunkResult): RunStop | undefined {
+export function chunkStop(result: ChunkResult): ChunkStop | undefined {
   if (result.abort !== undefined) return 'abort';
   if (result.stopGmail !== undefined) return result.stopGmail;
   switch (result.stopSending) {
