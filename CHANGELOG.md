@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.7.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.6.0...v0.7.0) (2026-10-01)
+
+
+### Features
+
+* **entry:** wire onTrigger, install and uninstall ([#284](https://github.com/kellystuard/jev-gmail-classifier/issues/284)) ([341d2db](https://github.com/kellystuard/jev-gmail-classifier/commit/341d2db18211696dc4e11cf42a8bd166c1935768))
+* **gas:** add the auth adapter for the scope preflight ([#274](https://github.com/kellystuard/jev-gmail-classifier/issues/274)) ([be4f983](https://github.com/kellystuard/jev-gmail-classifier/commit/be4f983898458dc5e58e0ff38c925c49377af200))
+* **gas:** add the script lock adapter ([#281](https://github.com/kellystuard/jev-gmail-classifier/issues/281)) ([e6813a2](https://github.com/kellystuard/jev-gmail-classifier/commit/e6813a2b3bf47f96c6ac5b9a054682d0cb92b47f))
+* **gas:** add the ScriptApp trigger adapter ([#282](https://github.com/kellystuard/jev-gmail-classifier/issues/282)) ([d61c7ef](https://github.com/kellystuard/jev-gmail-classifier/commit/d61c7ef463162a20fa228292ef98a934c781e04f))
+* **lifecycle:** add the install use case ([#279](https://github.com/kellystuard/jev-gmail-classifier/issues/279)) ([160a267](https://github.com/kellystuard/jev-gmail-classifier/commit/160a267b41af71a339ca0ed31b35fbb58aa35c1d))
+* **lifecycle:** add the uninstall use case ([#277](https://github.com/kellystuard/jev-gmail-classifier/issues/277)) ([29760ae](https://github.com/kellystuard/jev-gmail-classifier/commit/29760ae19a84267415dfc7c5882f93385451faf1))
+* **run:** add the Deadline ([#269](https://github.com/kellystuard/jev-gmail-classifier/issues/269)) ([6ab00ed](https://github.com/kellystuard/jev-gmail-classifier/commit/6ab00ed561852dcf31b650189bfc5979ad78ae19))
+* **run:** add the per-run boundary with lock, deadline and heartbeat ([#276](https://github.com/kellystuard/jev-gmail-classifier/issues/276)) ([70dea4f](https://github.com/kellystuard/jev-gmail-classifier/commit/70dea4fabcac21ffab4d09040a782d5fb399cf94)), closes [#120](https://github.com/kellystuard/jev-gmail-classifier/issues/120)
+* **run:** add the run limits per trigger interval ([#271](https://github.com/kellystuard/jev-gmail-classifier/issues/271)) ([e1f3a69](https://github.com/kellystuard/jev-gmail-classifier/commit/e1f3a692ca19db9094ae04d16a4a9ecfdae4f8a5))
+* **run:** add the scheduled run controller ([#283](https://github.com/kellystuard/jev-gmail-classifier/issues/283)) ([7250235](https://github.com/kellystuard/jev-gmail-classifier/commit/72502355bd2029e8a0a813d12a745acba2ddaea2)), closes [#118](https://github.com/kellystuard/jev-gmail-classifier/issues/118)
+* **run:** add the scope preflight ([#273](https://github.com/kellystuard/jev-gmail-classifier/issues/273)) ([fea7aec](https://github.com/kellystuard/jev-gmail-classifier/commit/fea7aec91e9db41e4020c00d23cd584badf58fd1))
+* **run:** count Gmail calls and quota units per run and per day ([#270](https://github.com/kellystuard/jev-gmail-classifier/issues/270)) ([d8cd8bc](https://github.com/kellystuard/jev-gmail-classifier/commit/d8cd8bca4ca982bc716d4a4b38f7c703b00d1349))
+* **run:** preflight the run: API key, scopes and budget ([#280](https://github.com/kellystuard/jev-gmail-classifier/issues/280)) ([ddc7b3c](https://github.com/kellystuard/jev-gmail-classifier/commit/ddc7b3c92831faa20ace9a92fc7f4f0e319cec68))
+* **run:** process one chunk from screening to saving the queue ([#275](https://github.com/kellystuard/jev-gmail-classifier/issues/275)) ([c780a29](https://github.com/kellystuard/jev-gmail-classifier/commit/c780a29b8984f7071e146d3c1b84bd467ba4ed46))
+
 ## [0.6.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.5.0...v0.6.0) (2026-09-30)
 
 
