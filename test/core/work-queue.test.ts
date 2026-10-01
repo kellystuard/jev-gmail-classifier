@@ -7,6 +7,7 @@ import {
   addStrike,
   canonicalOrder,
   dequeue,
+  dropManualWork,
   enqueue,
   type EnqueueRequest,
   QUEUE_MAX_ITEMS,
@@ -696,5 +697,69 @@ describe('the shard proof', () => {
       const text = JSON.stringify(workQueueShardCodec.encode({ items: shard }));
       expect(utf8ByteLength(text)).toBeLessThanOrEqual(STATE_VALUE_MAX_BYTES);
     }
+  });
+});
+
+describe('dropManualWork', () => {
+  it('removes every manual item and keeps the scheduled ones in order', () => {
+    const queue = canonicalOrder([
+      item('s1', { enqueuedAt: T0 + 1 }),
+      item('m1', { source: 'manual', enqueuedAt: T0, strikes: 2 }),
+      item('s2', { enqueuedAt: T0 + 2 }),
+      item('m2', { source: 'manual', enqueuedAt: T0 + 3, applyMoves: true }),
+    ]);
+    const result = dropManualWork(queue);
+    expect(ids(result.queue)).toEqual(['s1', 's2']);
+    expect(result.removed).toBe(2);
+    expect(result.queue[0]).toBe(queue[0]);
+  });
+
+  it('clears applyMoves on a kept item and changes nothing else', () => {
+    const merged = item('s1', {
+      applyMoves: true,
+      firstClassification: true,
+      positionSavedAt: T0 - 5,
+      strikes: 1,
+      enqueuedAt: T0 - 1,
+    });
+    const other = item('s2');
+    const result = dropManualWork([merged, other]);
+    expect(result.removed).toBe(0);
+    expect(result.queue[0]).toEqual({
+      threadId: 's1',
+      source: 'scheduled',
+      enqueuedAt: T0 - 1,
+      strikes: 1,
+      positionSavedAt: T0 - 5,
+      firstClassification: true,
+    });
+    expect('applyMoves' in (result.queue[0] ?? {})).toBe(false);
+    expect(result.queue[1]).toBe(other);
+    expect(merged.applyMoves).toBe(true);
+  });
+
+  it('returns the same queue when there is nothing to change', () => {
+    const empty: WorkQueue = [];
+    expect(dropManualWork(empty).queue).toBe(empty);
+    expect(dropManualWork(empty).removed).toBe(0);
+    const queue = [item('s1'), item('s2', { firstClassification: false })];
+    const result = dropManualWork(queue);
+    expect(result.queue).toBe(queue);
+    expect(result.removed).toBe(0);
+  });
+
+  it('does not change its input and round-trips through the codec without applyMoves', () => {
+    const queue = canonicalOrder([
+      item('s1', { applyMoves: true }),
+      item('m1', { source: 'manual' }),
+    ]);
+    const copy = JSON.stringify(queue);
+    const result = dropManualWork(queue);
+    expect(JSON.stringify(queue)).toBe(copy);
+    const text = JSON.stringify(workQueueShardCodec.encode({ items: [...result.queue] }));
+    expect(text).not.toContain('applyMoves');
+    expect(workQueueShardCodec.decode('state.queue.0', JSON.parse(text)).items).toEqual(
+      result.queue,
+    );
   });
 });
