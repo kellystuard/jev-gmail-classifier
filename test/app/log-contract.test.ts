@@ -377,12 +377,12 @@ describe('thread.classified through a scheduled run', () => {
       'charsDropped',
       'messagesDropped',
     ]);
-    expect(truncated).toEqual({
-      messagesDropped: 0,
-      bodiesDropped: 0,
-      charsDropped: expect.any(Number),
-    });
-    expect(truncated).not.toMatchObject({ charsDropped: 0 });
+    // One message, its body cut: nothing dropped whole.
+    expect(truncated).toMatchObject({ messagesDropped: 0, bodiesDropped: 0 });
+    const charsDropped: unknown = Object.entries(truncated ?? {}).find(
+      ([key]) => key === 'charsDropped',
+    )?.[1];
+    expect(typeof charsDropped === 'number' && charsDropped > 0).toBe(true);
   });
 
   it('a plain and a truncated thread in one run are logged at their own levels', () => {
