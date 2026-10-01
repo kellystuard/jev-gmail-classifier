@@ -43,20 +43,46 @@ describe('FakeLog', () => {
     },
   );
 
-  it.each(['body', 'state', 'authorization', 'apiKey', 'Body', 'APIKEY'])(
-    'throws on a "%s" field',
-    (name) => {
-      const log = new FakeLog();
-      expect(() => {
-        log.info('thread.classified', { [name]: 'x' });
-      }).toThrow(/forbidden field/);
-      expect(log.events).toEqual([]);
-    },
-  );
+  it.each([
+    'body',
+    'state',
+    'authorization',
+    'apiKey',
+    'Body',
+    'APIKEY',
+    'secret',
+    'password',
+    'token',
+    'pageToken',
+    'page_token',
+    'JEV_API_KEY',
+    'api-key',
+  ])('throws on a "%s" field', (name) => {
+    const log = new FakeLog();
+    expect(() => {
+      log.info('thread.classified', { [name]: 'x' });
+    }).toThrow(/forbidden field/);
+    expect(log.events).toEqual([]);
+  });
 
   it('allows field names that only contain a forbidden word', () => {
     const log = new FakeLog();
-    log.info('thread.classified', { bodyLength: 10, stateKey: 'state.queue.0' });
+    log.info('thread.classified', {
+      bodyLength: 10,
+      stateKey: 'state.queue.0',
+      key: 'state.queue.0',
+      inputTokens: 5,
+      tokens: 7,
+    });
+    expect(log.events).toHaveLength(1);
+  });
+
+  it('throws on a forbidden record key with a string value, and allows a number', () => {
+    const log = new FakeLog();
+    expect(() => {
+      log.info('thread.classified', { headers: { authorization: 'x' } });
+    }).toThrow(/forbidden field "authorization"/);
+    log.info('thread.classified', { probabilities: { password: 0.9 } });
     expect(log.events).toHaveLength(1);
   });
 });
