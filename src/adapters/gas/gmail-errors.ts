@@ -19,8 +19,10 @@
  *   - when the caller lists them, its own expected kinds
  *     (`spikes/25-nested-labels.md`, `spikes/26-moves.md`): `label_exists`
  *     and `invalid_label_name` (`createLabel`), `invalid_label` and
- *     `failed_precondition` (`modifyThread`). Each is recognized only for a
- *     method that lists it;
+ *     `failed_precondition` (`modifyThread`), and `invalid_page_token`
+ *     (`searchThreadIds`, only for a request that has a `pageToken`;
+ *     `spikes/287-page-token.md`). Each is recognized only for a method that
+ *     lists it;
  * - **exceptional** (thrown as `UnexpectedResponseError`): everything else,
  *   including any other 400 (a malformed `startHistoryId` or thread ID is
  *   invalid state) and a 500.
@@ -38,7 +40,11 @@ export type GmailNotFoundKind = 'history_expired' | 'not_found';
  * it. Each carries the error's original `message`.
  */
 export type GmailExpectedKind =
-  'label_exists' | 'invalid_label_name' | 'invalid_label' | 'failed_precondition';
+  | 'label_exists'
+  | 'invalid_label_name'
+  | 'invalid_label'
+  | 'failed_precondition'
+  | 'invalid_page_token';
 
 /** Recognizes one expected kind, given the lower-case message. */
 type ExpectedMatcher = {
@@ -68,6 +74,12 @@ const EXPECTED_MATCHERS: Readonly<Record<GmailExpectedKind, ExpectedMatcher>> = 
   failed_precondition: {
     withDetails: (details) => hasReason(details, 'failedprecondition'),
     byMessage: (lower) => lower.includes('precondition check failed'),
+  },
+  // 400 "Invalid pageToken", `reason: invalidArgument` (spike 287, `threads.list`). The
+  // text never carries `q`. Gmail also accepts some foreign tokens without an error.
+  invalid_page_token: {
+    withDetails: (details, lower) => details.code === 400 && lower.includes('invalid pagetoken'),
+    byMessage: (lower) => lower.includes('invalid pagetoken'),
   },
 };
 

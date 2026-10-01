@@ -50,6 +50,7 @@ import type { LogPort } from '../ports/log-port.ts';
 import type { StatePort } from '../ports/state-port.ts';
 import { readJevErrorLabelIds } from './jev-error-label-store.ts';
 import { saveQueue } from './queue-store.ts';
+import { rejectedPageTokenError } from './rejected-page-token.ts';
 
 /** The history types ingest asks for, in one call (SD §6.3). */
 export const INGEST_HISTORY_TYPES: readonly GmailHistoryType[] = ['messageAdded', 'labelRemoved'];
@@ -583,6 +584,11 @@ function searchWindow(
       ...(pageToken === undefined ? {} : { pageToken }),
     });
     if (!result.ok) {
+      if (result.kind === 'invalid_page_token') {
+        // A token from this same window search: invalid state. Nothing is queued
+        // and the cursor stays, so the next run searches the window again.
+        throw rejectedPageTokenError();
+      }
       return result;
     }
     for (const id of result.threadIds) {

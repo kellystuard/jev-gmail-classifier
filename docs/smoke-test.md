@@ -31,6 +31,7 @@ Same setup. Use a mailbox with at least 3 threads in the inbox, and keep the IDs
 9. `getThread` on a thread deleted forever in the Gmail UI returns `{ ok: false, kind: 'not_found' }` and doesn't throw.
 10. `getThread('not-a-thread-id', { format: 'minimal' })` throws `UnexpectedResponseError` (`service: 'gmail'`, `status: 400`; note the status if it differs), and the error holds no header text.
 11. Not observed (accepted v1 risk, SD §14): with `gmail.modify` unticked at consent, both methods return `{ ok: false, kind: 'scope' }` and don't throw.
+12. `searchThreadIds({ q: 'in:inbox', includeSpamTrash: false, pageToken: 'not-a-token' })` returns `{ ok: false, kind: 'invalid_page_token', message }` (Gmail's text is "Invalid pageToken") and doesn't throw (spike 287). The same call with no `pageToken` is a normal search.
 
 ### Labels and moves (`listLabels`, `createLabel`, `modifyThread`)
 

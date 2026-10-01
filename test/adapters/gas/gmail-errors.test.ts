@@ -489,6 +489,61 @@ describe('toGmailFailure: modifyThread', () => {
   });
 });
 
+// Exact text and shape from spike 287 (`s287_garbage`, `threads.list`).
+const INVALID_PAGE_TOKEN = 'Invalid pageToken';
+const SEARCH_WITH_TOKEN = {
+  method: 'searchThreadIds',
+  expected: ['invalid_page_token'],
+} as const;
+
+describe('toGmailFailure: searchThreadIds with a pageToken', () => {
+  const withDetails = spikeError('threads.list', INVALID_PAGE_TOKEN, 400, 'invalidArgument');
+  const byMessage = new Error(spikeMessage('threads.list', INVALID_PAGE_TOKEN));
+
+  it.each([
+    ['400 invalidArgument with details', withDetails],
+    ['the message alone', byMessage],
+  ])('maps %s to invalid_page_token with the original message', (_name, error) => {
+    expect(toGmailFailure(error, SEARCH_WITH_TOKEN)).toEqual({
+      ok: false,
+      kind: 'invalid_page_token',
+      message: error.message,
+    });
+  });
+
+  it('throws with the status when the caller does not list the kind (a request with no token)', () => {
+    const thrown = caught(() => toGmailFailure(withDetails, { method: 'searchThreadIds' }));
+    expect(thrown).toBeInstanceOf(UnexpectedResponseError);
+    expect(thrown).toMatchObject({ service: 'gmail', status: 400, cause: withDetails });
+    expect(caught(() => toGmailFailure(byMessage, { method: 'searchThreadIds' }))).toBeInstanceOf(
+      UnexpectedResponseError,
+    );
+  });
+
+  it('lets a rate limit or a scope error win', () => {
+    expect(
+      toGmailFailure(gmailException(SPIKE_30_RATE_LIMIT_MESSAGE), SEARCH_WITH_TOKEN),
+    ).toMatchObject({ kind: 'rate_limited' });
+    expect(
+      toGmailFailure(new Error(`${SCOPE_FRAGMENTS[0] ?? ''} Invalid pageToken`), SEARCH_WITH_TOKEN),
+    ).toMatchObject({ kind: 'scope' });
+  });
+
+  it('still throws for another 400 on a search', () => {
+    const other = spikeError('threads.list', 'Invalid query', 400, 'invalidArgument');
+    expect(caught(() => toGmailFailure(other, SEARCH_WITH_TOKEN))).toBeInstanceOf(
+      UnexpectedResponseError,
+    );
+  });
+
+  it('does not match a non-400 with the same text', () => {
+    const other = spikeError('threads.list', INVALID_PAGE_TOKEN, 500, 'backendError');
+    expect(caught(() => toGmailFailure(other, SEARCH_WITH_TOKEN))).toBeInstanceOf(
+      UnexpectedResponseError,
+    );
+  });
+});
+
 describe('toGmailFailure: no leaks between methods', () => {
   const conflict = (call: string): Error => spikeError(call, LABEL_EXISTS, 409, 'aborted');
   const notFound = gmailException(SPIKE_62_404_MESSAGE, SPIKE_62_404_DETAILS);
@@ -529,6 +584,21 @@ describe('toGmailFailure: no leaks between methods', () => {
       conflict('history.list'),
     ],
     ['searchThreadIds given a 409', { method: 'searchThreadIds' }, conflict('threads.list')],
+    [
+      'getThread given "Invalid pageToken"',
+      { method: 'getThread', notFound: 'not_found' },
+      spikeError('threads.get', INVALID_PAGE_TOKEN, 400, 'invalidArgument'),
+    ],
+    [
+      'listHistory given "Invalid pageToken"',
+      { method: 'listHistory', notFound: 'history_expired' },
+      spikeError('history.list', INVALID_PAGE_TOKEN, 400, 'invalidArgument'),
+    ],
+    [
+      'modifyThread given "Invalid pageToken"',
+      MODIFY_THREAD,
+      spikeError('threads.modify', INVALID_PAGE_TOKEN, 400, 'invalidArgument'),
+    ],
     [
       'getThread given a 409',
       { method: 'getThread', notFound: 'not_found' },

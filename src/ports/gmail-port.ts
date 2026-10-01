@@ -87,10 +87,17 @@ export interface GmailPort {
    * exclusion filter pages until there is no `nextPageToken`, with
    * `includeSpamTrash: true` (SD §6.4, `spikes/23-exclusion-query.md`). One
    * page per call also lets E8 keep a page-token cursor.
+   *
+   * `invalid_page_token`: Gmail rejected `request.pageToken`. The caller
+   * decides whether that is expected (a token kept from an earlier execution)
+   * or not (a token from the same paging loop). `message` is Gmail's own text.
    */
   searchThreadIds(
     request: SearchThreadIdsRequest,
-  ): Result<{ threadIds: readonly string[]; nextPageToken?: string }, GmailFailure>;
+  ): Result<
+    { threadIds: readonly string[]; nextPageToken?: string },
+    GmailFailure | Fail<'invalid_page_token', { message: string }>
+  >;
 
   /**
    * `Users.Threads.get` in the given format. It returns Spam and Trash
