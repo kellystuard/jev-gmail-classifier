@@ -4,6 +4,9 @@
  * the six entry points call on an empty mailbox is here;
  * anything else throws, so an unexpected call fails the test loudly.
  *
+ * `MailApp.sendEmail` records each message in `mail` (or throws `mailError`
+ * and records nothing), so a test can prove what the alert mailer sent.
+ *
  * Not a fake of a port: the app layer's tests use `test/fakes/`. This checks
  * the wiring and the adapters' use of the globals, through the bundle.
  */
@@ -28,6 +31,15 @@ export type StubSearch = {
   readonly pageToken?: string;
 };
 
+/** One `MailApp.sendEmail` call's argument: the adapter's four keys, and any other key it passed. */
+export type StubMail = {
+  readonly to?: unknown;
+  readonly subject?: unknown;
+  readonly body?: unknown;
+  readonly name?: unknown;
+  readonly [key: string]: unknown;
+};
+
 export type GasGlobalsOptions = {
   /** Another execution holds the script lock: `tryLock` returns false. */
   readonly lockBusy?: boolean;
@@ -35,6 +47,8 @@ export type GasGlobalsOptions = {
   readonly properties?: Readonly<Record<string, string>>;
   /** The mailbox's current `historyId`. */
   readonly historyId?: string;
+  /** `MailApp.sendEmail` throws an `Error` with this message, and records nothing. */
+  readonly mailError?: string;
 };
 
 export type GasGlobalsStub = {
@@ -46,6 +60,8 @@ export type GasGlobalsStub = {
   readonly triggers: StubTrigger[];
   /** Every `Threads.list` call's options, in order. */
   readonly searches: StubSearch[];
+  /** Every message `MailApp.sendEmail` accepted, in order. */
+  readonly mail: StubMail[];
   /** Every `console.*` line, in order. */
   readonly lines: ConsoleLine[];
   /** The lines whose `event` is `event`. */
@@ -74,6 +90,7 @@ export function createGasGlobals(options: GasGlobalsOptions = {}): GasGlobalsStu
   const triggers: StubTrigger[] = [];
   const lines: ConsoleLine[] = [];
   const searches: StubSearch[] = [];
+  const mail: StubMail[] = [];
   const historyId = options.historyId ?? '1000';
   let held = false;
 
@@ -162,6 +179,15 @@ export function createGasGlobals(options: GasGlobalsOptions = {}): GasGlobalsStu
       },
     },
     UrlFetchApp: { fetchAll: () => unexpected('UrlFetchApp.fetchAll') },
+    MailApp: {
+      sendEmail: (message: unknown): void => {
+        if (options.mailError !== undefined) throw new Error(options.mailError);
+        if (typeof message !== 'object' || message === null) {
+          throw new Error('MailApp.sendEmail was not given a message object');
+        }
+        mail.push({ ...message });
+      },
+    },
   };
 
   return {
@@ -169,6 +195,7 @@ export function createGasGlobals(options: GasGlobalsOptions = {}): GasGlobalsStu
     properties,
     triggers,
     searches,
+    mail,
     lines,
     events: (event) => lines.filter((line) => line.json['event'] === event),
     lockHeld: () => held,
