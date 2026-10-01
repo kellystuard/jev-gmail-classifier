@@ -65,7 +65,7 @@ export type SpareTimeResult = {
   readonly abort?: 'auth' | 'config_invalid';
 };
 
-/** E8's hook: manual work in spare time. Not passed until the manual processor exists. */
+/** E8's hook: manual work in spare time (`createManualSpareTime`, `src/app/manual-run.ts`). */
 export type SpareTimeHook = (input: SpareTimeInput) => SpareTimeResult;
 
 export type ScheduledDeps = {
