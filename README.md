@@ -44,15 +44,19 @@ Each rule either adds a **label** or **moves** the thread:
 | Destination   | Effect                                                                  |
 | ------------- | ----------------------------------------------------------------------- |
 | `archive`     | Removes the thread from the Inbox.                                      |
-| `spam`        | Moves the thread to Spam.                                               |
+| `spam`        | Moves the thread to Spam. Gmail treats this as **Report spam** (see below). |
 | `trash`       | Moves the thread to Trash. Gmail deletes it permanently after 30 days.  |
 | `label:<name>` | Adds the label and removes the thread from the Inbox, like Gmail's "Move to." |
 
 - Every label rule that fires is applied. Missing labels, including nested names such as `Finance/Bill`, are created automatically. Missing parent labels are created too (`Finance` for `Finance/Bill`), so Gmail shows the label nested.
 - At most one move is applied. If several move rules fire, the first one in `config.yaml` wins.
 - Moves only happen for a **brand-new** thread, meaning all of its email arrived since the last check, or during a manual run with `MANUAL_APPLY_MOVES`. When a reply arrives on an existing thread, it is reclassified and only labels are added (a move rule's `label:<name>` label isn't added either, because it is part of the move). That way the classifier never undoes your own correction, such as clicking "Not spam."
+- A reply to a thread the classifier moved arrives in the Inbox, whatever the move was (Archive, a label, Spam or Trash). The earlier messages stay where they were, so the thread can show in the Inbox and in Spam or Trash at once. The reply gets labels only, never a move. This was seen with replies you sent to yourself.
+- `spam` and `trash` move every message of the thread, including your own sent messages in it.
 - Labels are never removed.
 - The classifier adds only your classification labels, plus `Jev/Error` for threads that need your attention (see [Failures](#failures)).
+
+**`spam` is a spam report.** The `spam` destination moves the thread to Spam through the Gmail API. Gmail treats this the same as clicking **Report spam**: the thread shows "You reported this message as spam from your inbox", and Google says that when you report spam or move an email into Spam, it receives a copy of the email and may analyze it ([Gmail Help: Report spam](https://support.google.com/mail/answer/1366858)). Use `spam` only for mail you would report yourself. For mail you just don't want to see, use `archive`, `trash`, or `label:<name>`.
 
 ### What is sent to Jev
 
@@ -222,14 +226,48 @@ When you run `install`, Google asks you to grant the script these permissions ([
 
 | Permission (scope) | Why it's needed | If not granted |
 | ------------------ | --------------- | -------------- |
-| `https://www.googleapis.com/auth/gmail.modify` | Read your mail's change history and threads, search for excluded mail, create and apply labels, and move threads to Archive, Spam, or Trash. Also reads your address, to send alerts. | Nothing works. |
-| `https://www.googleapis.com/auth/script.external_request` | Send thread content to the Jev API. | Nothing is classified; new mail waits in the queue. |
-| `https://www.googleapis.com/auth/script.scriptapp` | Create and remove the timed trigger, and check which permissions were granted. | `install` and `uninstall` stop; runs already scheduled keep going. |
+| `https://www.googleapis.com/auth/gmail.modify` | Read your mail's change history and threads, search for excluded mail, create and apply labels, and move threads to Archive, Spam, or Trash. Also reads your profile: your address (to send alerts) and Gmail's current history position. | Nothing works: reading history and threads, labels and moves. |
+| `https://www.googleapis.com/auth/script.external_request` | Send thread content to the Jev API. | Nothing is classified. Nothing is sent to Jev, and new mail is still queued. |
+| `https://www.googleapis.com/auth/script.scriptapp` | Create and remove the timed trigger, and check which permissions were granted. | `install` and `uninstall` can't create or remove the trigger, so they stop. Scheduled runs go on. |
 | `https://www.googleapis.com/auth/script.send_mail` | Send alert emails to you. | Alerts are only written to the log. |
 
-**Moving to Trash needs only `gmail.modify`.** Permanent deletion would need the full-access scope `https://mail.google.com/`, which the classifier **never requests**, so it can't permanently delete mail even by mistake. The code uses Gmail's [Advanced Gmail Service](https://developers.google.com/apps-script/advanced/gmail) rather than `GmailApp` for exactly this reason: `GmailApp` requires the full-access scope.
+### Granting the permissions
 
-Google may let you untick individual permissions on the consent screen. `install` asks again until you grant the first three (`gmail.modify`, `script.external_request` and `script.scriptapp`): without them the classifier can't do its job. Alert email (`script.send_mail`) is optional. The classifier also checks which permissions were granted at the start of every run. If a permission is missing, the script logs which one and what it disables, emails you (if it can), and keeps doing what it still can. To fix it, run `install` again and grant the missing permission.
+Google's consent screen lists the four permissions as checkboxes, and **none of them is ticked for you**. Tick all four. The [Setup](#setup) steps say where. A partly granted install is a normal case, not an error.
+
+`install` insists on the first three (`gmail.modify`, `script.external_request` and `script.scriptapp`): it shows the consent screen again until they are granted, because without them the classifier can't do its job. Google documents that when a required permission is missing, "the execution ends and prompts the user for authorization" ([Authorization scopes](https://developers.google.com/apps-script/concepts/scopes)). How the editor shows that prompt has not been tested. `script.send_mail` is optional: `install` finishes without it, and you get no alert emails.
+
+### Seeing what is missing
+
+The classifier checks which permissions were granted at the start of every run. A missing one shows in three places:
+
+- **The alert email** with the subject `[Jev Gmail Classifier] A permission is missing`. It lists each missing permission and what it disables, at most once a day. It can only be sent if `script.send_mail` and `gmail.modify` are granted.
+- **The log:** one `scope_missing` line per missing permission, in any run (see [Monitoring](#monitoring)). Its `scope` field names the permission, and `disables` says what stops.
+- **`install`'s own report:** its `run.end` line has `missingScopes` when `install` finished without a permission (only `script.send_mail` can be missing then).
+
+A missing permission never crashes a run where the classifier can catch it. The run skips that feature and carries on: for example, labels are still added when a move can't be made.
+
+### Getting a permission back
+
+1. **Run `install` again** from the Apps Script editor and tick every box on the consent screen. Google documents that this brings the consent screen back until the first three permissions are granted (see above). This has not been tested with a permission left unticked.
+2. **If the consent screen does not come back, or does not offer the missing permission,** remove the project's access and start over. Open <https://myaccount.google.com/connections> (Google Account, Security, "Your connections to third-party apps & services"), choose the project, and delete all its connections. Then run `install` again and tick all four. This is how access was removed for the developers' test project. Removing access doesn't delete your labels, the API key or the stored state.
+
+Google documents that a trigger run that uses a service you didn't authorize "fails immediately with an 'Authorization is required to perform that action.' error" ([Authorization scopes](https://developers.google.com/apps-script/concepts/scopes)). The classifier checks first and skips the feature, but what the runs in between really do has not been tested. So fix a missing permission right away.
+
+### Google Workspace accounts
+
+**v1 was verified on a consumer (gmail.com) account only.** Nothing was run on a Google Workspace account, so this README doesn't promise that the classifier works there, and doesn't say it doesn't. On Workspace, your administrator controls what scripts may do. Google documents that an admin can:
+
+- **Block or limit apps the admin has not configured.** The classifier's script is such an app. Google lists the access levels Trusted, Limited and Blocked, and says that a Blocked app "can't access any Google data" ([Control which apps access Google Workspace data](https://knowledge.workspace.google.com/admin/apps/control-which-apps-access-google-workspace-data)).
+- **Restrict Gmail's high-risk scopes.** Google says that Gmail "can also restrict access to a predefined list of high-risk OAuth scopes", and `gmail.modify` is on that list (same page). The classifier can't work without it.
+- **Turn Apps Script off for users.** Google says that then "script and trigger executions are blocked" ([Turn Apps Script on or off for users](https://knowledge.workspace.google.com/admin/users/access/turn-apps-script-on-or-off-for-users)).
+- **Control which external domains a script may reach.** Google says: "As an administrator, you can control which external domains your users can access through Apps Script" ([Monitor and control Google Apps Script use](https://developers.google.com/apps-script/guides/admin/monitor-use)). The classifier calls `https://api.typesafe.ai` and nothing else.
+
+What you would see when a policy blocks the classifier is not known. If one does, ask your admin to trust the project (and allow `api.typesafe.ai`), or use a consumer account. Separately, Google says that "Verification isn't required for Google Apps Script projects whose owner and users belong to the same Google Workspace domain or customer" ([OAuth client verification](https://developers.google.com/apps-script/guides/client-verification)). The "unverified app" screen is for users outside your domain.
+
+### No permanent deletion
+
+**Moving to Trash needs only `gmail.modify`.** Permanent deletion would need the full-access scope `https://mail.google.com/`, which the classifier **never requests**, so it can't permanently delete mail even by mistake. The code uses Gmail's [Advanced Gmail Service](https://developers.google.com/apps-script/advanced/gmail) rather than `GmailApp` for exactly this reason: `GmailApp` requires the full-access scope. `gmail.modify` does let the classifier move mail to Spam, and Gmail treats that as a spam report: see [Labels and moves](#labels-and-moves).
 
 ## Setup
 
