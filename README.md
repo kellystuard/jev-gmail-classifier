@@ -50,7 +50,7 @@ Each rule either adds a **label** or **moves** the thread:
 
 - Every label rule that fires is applied. Missing labels, including nested names such as `Finance/Bill`, are created automatically. Missing parent labels are created too (`Finance` for `Finance/Bill`), so Gmail shows the label nested.
 - At most one move is applied. If several move rules fire, the first one in `config.yaml` wins.
-- Moves only happen for a **brand-new** thread, meaning all of its email arrived since the last check, or during a manual run with the `applyMoves` option. When a reply arrives on an existing thread, it is reclassified and only labels are added (a move rule's `label:<name>` label isn't added either, because it is part of the move). That way the classifier never undoes your own correction, such as clicking "Not spam."
+- Moves only happen for a **brand-new** thread, meaning all of its email arrived since the last check, or during a manual run with `MANUAL_APPLY_MOVES`. When a reply arrives on an existing thread, it is reclassified and only labels are added (a move rule's `label:<name>` label isn't added either, because it is part of the move). That way the classifier never undoes your own correction, such as clicking "Not spam."
 - Labels are never removed.
 - The classifier adds only your classification labels, plus `Jev/Error` for threads that need your attention (see [Failures](#failures)).
 
@@ -100,18 +100,34 @@ To retry a thread marked `Jev/Error`, remove that label in Gmail. The next run p
 
 A manual run classifies existing mail, which scheduled runs skip. Apps Script editor functions can't take arguments, so you set the run's options as Script Properties (**Project Settings → Script Properties**) and then run `startManualRun` from the editor:
 
-| Property             | Example            | Meaning                                                                 |
-| -------------------- | ------------------ | ----------------------------------------------------------------------- |
-| `MANUAL_QUERY`       | `label:Receipts`   | A [Gmail search query](https://support.google.com/mail/answer/7190).    |
-| `MANUAL_TIMESPAN`    | `2h`, `7d`         | Only mail from this recent period. It can be combined with `MANUAL_QUERY`. |
-| `MANUAL_APPLY_MOVES` | `true`             | Also apply move rules. The default is labels only.                      |
-| `MANUAL_REPLACE`     | `true`             | Replace a manual run that hasn't finished yet.                          |
+| Property             | Example          | Meaning                                                                                                                                                                                                                               |
+| -------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MANUAL_QUERY`       | `label:Receipts` | A [Gmail search query](https://support.google.com/mail/answer/7190), at most 1,000 characters.                                                                                                                                         |
+| `MANUAL_TIMESPAN`    | `2h`, `7d`, `4w` | Only mail from this recent period: a whole number directly followed by `h` (hours), `d` (days) or `w` (weeks), in either case. `m` and `y` aren't accepted, so write days (`30d`, `365d`). No spaces, decimals or combinations like `1d12h`. The period is counted back from the moment the job starts and then stays fixed. It can be combined with `MANUAL_QUERY`. |
+| `MANUAL_APPLY_MOVES` | `true`           | Also apply move rules. `true` or `false` in any case. The default (unset) is `false`, labels only. Any other value is refused, not guessed.                                                                                            |
+| `MANUAL_REPLACE`     | `true`           | Replace a manual run that hasn't finished yet. `true` or `false` in any case. The default (unset) is `false`. Any other value is refused.                                                                                              |
 
-At least one of `MANUAL_QUERY` or `MANUAL_TIMESPAN` is required. Your exclusion query is always applied, and threads marked `Jev/Error` are skipped. Every matching thread is reclassified. Use this after adding or changing questions, since scheduled runs don't revisit old threads.
+At least one of `MANUAL_QUERY` or `MANUAL_TIMESPAN` is required. The search is your query as typed, `after:<time>` for a timespan alone, or `(<query>) after:<time>` for both. The log entry `manual.started` shows the exact search. Your exclusion query is not part of it, but it is always applied to every thread, as for scheduled mail, and threads marked `Jev/Error` are skipped. Every matching thread is reclassified. Use this after adding or changing questions, since scheduled runs don't revisit old threads.
 
-With `MANUAL_APPLY_MOVES`, **move rules apply** to every matching thread. A new `trash` rule with `applyMoves` can move a lot of old mail. The run log reports how many threads went to each destination.
+**With `MANUAL_APPLY_MOVES`, move rules apply to every matching thread. A new `trash` rule can move a lot of old mail, and cancelling a job doesn't undo anything it has already done.** Run the job without `MANUAL_APPLY_MOVES` first, read the probabilities and the counts in the log, and only then run it again with `MANUAL_APPLY_MOVES` set to `true`.
 
-A large manual run cannot finish within a single execution (see [Google Apps Script limits](#google-apps-script)). It continues in the spare time of scheduled runs, after new mail has been handled. To go faster, run `continueManualRun` from the editor as many times as you like. `cancelManualRun` stops it.
+Once a job starts, all four `MANUAL_*` properties are deleted, so a leftover `MANUAL_APPLY_MOVES` or `MANUAL_REPLACE` can't act on a later run. If the start is refused, they stay as they are, so you can fix one and run again. A refusal is not a failure: the execution completes, `startManualRun` returns `status: 'rejected'` with a `reason`, and the log has `manual.rejected` with the same reason. The reasons are:
+
+- `no_input`: neither a query nor a timespan is set.
+- `invalid_timespan`: the timespan doesn't follow the rules above.
+- `query_too_long`, `invalid_query`: the query is over 1,000 characters, or contains control characters (a line break, for example).
+- `invalid_apply_moves`, `invalid_replace`: the value isn't `true` or `false`.
+- `job_unfinished`: another manual job is still running. Only one job runs at a time. Wait for it, cancel it, or set `MANUAL_REPLACE` to `true` to replace it.
+
+A large manual run cannot finish within a single execution (see [Google Apps Script limits](#google-apps-script)). `startManualRun` itself processes the first part right away. After that, the job continues in the spare time of scheduled runs, after new mail has been handled. A scheduled run that has time left does about one chunk of manual work: 20 threads (5 at a 1-minute trigger). To go faster, run `continueManualRun` from the editor as many times as you like. Each of those runs works for up to 4.5 minutes and handles about 140 threads. An editor run does manual work only, so new mail waits for the next scheduled run. Without `install` (no trigger), only editor runs make progress.
+
+`cancelManualRun` stops the job. It deletes the job and the manual work still queued. Labels and moves already applied stay. Replacing a job with `MANUAL_REPLACE` cancels the old one the same way.
+
+To follow a job, read the log. Each execution that works on the job logs `manual.progress`: what this execution did and how much is still queued. When the job is done, it logs `manual.completed`: the search, how long it took, the totals (classified, excluded, skipped, marked `Jev/Error`), the number of threads per label (`labels`) and the number per move destination (`moves`: `archive`, `spam`, `trash` and `label:<name>`). A thread that gets new mail while it waits is classified by a scheduled run and counted there, not in the job. A thread that fails keeps the job open until it is classified or, after failing on 3 runs, marked `Jev/Error`, so one bad thread can add a few executions. If the log shows the job's search stuck on empty pages, end the job with `cancelManualRun`.
+
+The search result isn't a snapshot of your mailbox. Mail that changes while the job runs can be classified twice, which is harmless: labels and moves are applied the same way again. In rare cases a matching thread can be missed, if Gmail loses its place in the results and earlier matches were deleted meanwhile. Mail in Spam and Trash is never part of a job. A thread marked `Jev/Error` is skipped: remove the label to retry it. As a caution, if a job's own moves take threads out of its search (for example `in:inbox` with an `archive` rule and `MANUAL_APPLY_MOVES`), it may skip some threads. Run the same job again until it finds nothing, or use a search that its moves don't change.
+
+Manual work counts against `dailyTokenBudget` like scheduled work, so a large job can use up the day's budget, and new mail then waits until the next day. For a big backfill, use a narrower query or timespan.
 
 ## Features (v1)
 
@@ -226,7 +242,7 @@ After changing `triggerIntervalMinutes`, build, push, and run `install` again to
 
 To start from now instead, add the Script Property `RESET_POSITION` with the value `true` and run `install`. It saves a new starting position and deletes the property. Mail that arrived since the old position isn't classified automatically (use a [manual run](#manual-runs) for it), and threads already queued stay queued. Any other value is ignored, with a warning in the log.
 
-To stop the classifier, run the `uninstall` function. It removes the trigger and stored state, and leaves all labels and your API key in place, and also any `RESET_POSITION` and `MANUAL_*` properties. Running `uninstall` again is safe. If the `script.scriptapp` permission isn't granted, `uninstall` stops without changing anything. Mail that arrives while it is uninstalled is only classified with a [manual run](#manual-runs).
+To stop the classifier, run the `uninstall` function. It removes the trigger and stored state (including an unfinished manual job), and leaves all labels and your API key in place, and also any `RESET_POSITION` and `MANUAL_*` properties. Running `uninstall` again is safe. If the `script.scriptapp` permission isn't granted, `uninstall` stops without changing anything. Mail that arrives while it is uninstalled is only classified with a [manual run](#manual-runs).
 
 ## Limits and Cost
 
@@ -262,7 +278,7 @@ Published [quotas](https://developers.google.com/apps-script/guides/services/quo
 
 The default 10-minute trigger fires 144 times a day. On a consumer account, that leaves an average of about 37 seconds per run within the 90-minute daily runtime budget. Only one execution runs at a time; a run that starts while another is still going exits immediately.
 
-Each scheduled run stops starting new work after a soft limit (8 s at 1 minute, 15 s at 5 minutes, 30 s at 10, 15 or 30 minutes) and plans at most 1,000 to 3,000 Gmail quota units, so it stays under Gmail's per-minute limit. Runs you start yourself from the editor work for up to 4.5 minutes. Under a constant backlog the 10, 15 and 30 minute intervals fit the consumer 90 minutes a day; 1 and 5 minutes may not. A quiet mailbox uses only a second or two per run.
+Each scheduled run stops starting new work after a soft limit (8 s at 1 minute, 15 s at 5 minutes, 30 s at 10, 15 or 30 minutes) and plans at most 1,000 to 3,000 Gmail quota units, so it stays under Gmail's per-minute limit. Runs you start yourself from the editor work for up to 4.5 minutes (about 140 threads of manual work). Under a constant backlog the 10, 15 and 30 minute intervals fit the consumer 90 minutes a day; 1 and 5 minutes may not. A quiet mailbox uses only a second or two per run.
 
 ## Roadmap
 
