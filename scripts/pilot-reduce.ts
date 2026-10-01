@@ -406,15 +406,28 @@ function alertsSection(inWindow: readonly PilotLine[]): { sent: Counts; failed: 
 
 /** Counts per rule, as the `rules` section prints them and as `precision` needs them. */
 export interface RuleCounts {
-  readonly rules: readonly (RuleInfo & { fired: number; applied: number })[];
+  readonly rules: readonly (RuleInfo & {
+    fired: number;
+    applied: number;
+    appliedSince: number;
+  })[];
   readonly appliedLabels: number;
   readonly appliedMoves: number;
   readonly models: Counts;
 }
 
-export function ruleCounts(inWindow: readonly PilotLine[], config: Config): RuleCounts {
+/**
+ * `applied` counts every action in the window. `appliedSince` counts only the
+ * actions at or after the rule's `--rule-from` instant (all of them without
+ * one): it is what `precision` compares with the checked rows.
+ */
+export function ruleCounts(
+  inWindow: readonly PilotLine[],
+  config: Config,
+  ruleFrom: ReadonlyMap<string, number> = new Map(),
+): RuleCounts {
   const infos = ruleInfos(config);
-  const rules = infos.map((info) => ({ ...info, fired: 0, applied: 0 }));
+  const rules = infos.map((info) => ({ ...info, fired: 0, applied: 0, appliedSince: 0 }));
   const models: Counts = {};
   let appliedLabels = 0;
   let appliedMoves = 0;
@@ -425,7 +438,10 @@ export function ruleCounts(inWindow: readonly PilotLine[], config: Config): Rule
     }
     for (const applied of appliedActions(line, infos)) {
       const rule = rules.find((r) => r.id === applied.ruleId);
-      if (rule !== undefined) rule.applied += 1;
+      if (rule !== undefined) {
+        rule.applied += 1;
+        if (line.ts >= (ruleFrom.get(rule.id) ?? Number.NEGATIVE_INFINITY)) rule.appliedSince += 1;
+      }
       if (applied.kind === 'label') appliedLabels += 1;
       else appliedMoves += 1;
     }

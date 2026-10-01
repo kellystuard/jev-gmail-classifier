@@ -763,11 +763,11 @@ describe('worksheet and --checked', () => {
     expect(dig(result.json, 'precision', 'moves')).toEqual({ applied: 2, checked: 2, correct: 2 });
     expect(dig(result.json, 'precision', 'labels')).toEqual({ applied: 6, checked: 4, correct: 3 });
     expect(dig(result.json, 'precision', 'rules')).toEqual([
-      { id: 'newsletter', checked: 4, correct: 3 },
-      { id: 'promo', checked: 0, correct: 0 },
-      { id: 'bill', checked: 0, correct: 0 },
-      { id: 'shipping', checked: 2, correct: 2 },
-      { id: 'junk', checked: 0, correct: 0 },
+      { id: 'newsletter', applied: 4, checked: 4, correct: 3 },
+      { id: 'promo', applied: 0, checked: 0, correct: 0 },
+      { id: 'bill', applied: 2, checked: 0, correct: 0 },
+      { id: 'shipping', applied: 2, checked: 2, correct: 2 },
+      { id: 'junk', applied: 0, checked: 0, correct: 0 },
     ]);
     // (2 + 6 * 3 / 4) / (2 + 6) = 0.8125
     expect(dig(result.json, 'precision', 'estimate')).toBe(0.8125);
@@ -784,6 +784,142 @@ describe('worksheet and --checked', () => {
     });
     // Two bill rows in the log, both repeated across the files: counted once each.
     expect(dig(result.json, 'precision', 'labels')).toEqual({ applied: 6, checked: 2, correct: 2 });
+  });
+
+  describe('--rule-from', () => {
+    const at = (minutes: number): string => new Date(T0 + minutes * MIN).toISOString();
+    /** The worksheet of the whole window, filled: moves y; newsletter y y n y; bill y y. */
+    function filledSheet(): string {
+      const sheet =
+        run(args('--worksheet', SHEET, '--sample', '100'), [pilotEntries()], CFG).written[SHEET] ??
+        '';
+      return fill(sheet, (rule, i) =>
+        rule === 'newsletter' ? (i === 2 ? 'n' : 'y') : rule === 'junk' ? '' : 'y',
+      );
+    }
+    const withFilled = (...more: string[]): Harness =>
+      run(args('--checked', 'filled.csv', ...more), [pilotEntries()], {
+        files: { ...CFG.files, '/data/filled.csv': filledSheet() },
+      });
+
+    it('counts a rule only from its instant: applied, and the checked rows by their own ts', () => {
+      const result = withFilled('--rule-from', `newsletter=${at(12)}`);
+      expect(result.code).toBe(0);
+      expect(dig(result.json, 'ruleFrom')).toEqual([{ id: 'newsletter', from: at(12) }]);
+      // Actions at minutes 10 and 11 are before the instant: not applied, and their rows are not counted.
+      expect(dig(result.json, 'precision', 'rules', 0)).toEqual({
+        id: 'newsletter',
+        applied: 2,
+        checked: 2,
+        correct: 1,
+      });
+      expect(dig(result.json, 'precision', 'rules', 2)).toEqual({
+        id: 'bill',
+        applied: 2,
+        checked: 2,
+        correct: 2,
+      });
+      expect(dig(result.json, 'precision', 'moves')).toEqual({
+        applied: 2,
+        checked: 2,
+        correct: 2,
+      });
+      expect(dig(result.json, 'precision', 'labels')).toEqual({
+        applied: 4,
+        checked: 4,
+        correct: 3,
+      });
+      // (2 + 4 * 3 / 4) / (2 + 4)
+      expect(dig(result.json, 'precision', 'estimate')).toBe(0.8333);
+      // Every other measure counts the whole window.
+      expect(dig(result.json, 'rules', 'rules', 0)).toEqual({
+        id: 'newsletter',
+        kind: 'label',
+        fired: 4,
+        applied: 4,
+      });
+      expect(dig(result.json, 'rules', 'appliedLabels')).toBe(6);
+    });
+
+    it('takes more than one --rule-from', () => {
+      const result = withFilled(
+        '--rule-from',
+        `bill=${at(21)}`,
+        '--rule-from',
+        `newsletter=${at(12)}`,
+      );
+      // Printed in config order.
+      expect(dig(result.json, 'ruleFrom')).toEqual([
+        { id: 'newsletter', from: at(12) },
+        { id: 'bill', from: at(21) },
+      ]);
+      expect(dig(result.json, 'precision', 'rules', 2)).toEqual({
+        id: 'bill',
+        applied: 1,
+        checked: 1,
+        correct: 1,
+      });
+      expect(dig(result.json, 'precision', 'labels')).toEqual({
+        applied: 3,
+        checked: 3,
+        correct: 2,
+      });
+      // (2 + 3 * 2 / 3) / (2 + 3)
+      expect(dig(result.json, 'precision', 'estimate')).toBe(0.8);
+    });
+
+    it('does not count a row with no readable ts for a rule that has an instant', () => {
+      const sheet = [
+        'id,ts,threadId,ruleId,kind,action,subject,from,correct',
+        'x1,,t1,bill,label,label:Synthetic/Bill,s,f,y',
+        'x2,not a time,t2,bill,label,label:Synthetic/Bill,s,f,y',
+        `x3,${at(21)},t3,bill,label,label:Synthetic/Bill,s,f,y`,
+      ].join('\n');
+      const result = run(
+        args('--checked', 'nots.csv', '--rule-from', `bill=${at(12)}`),
+        [pilotEntries()],
+        { files: { ...CFG.files, '/data/nots.csv': sheet } },
+      );
+      expect(dig(result.json, 'precision', 'rules', 2)).toMatchObject({ applied: 2, checked: 1 });
+    });
+
+    it('limits the worksheet to the actions from the instant', () => {
+      const result = run(
+        args('--worksheet', SHEET, '--sample', '100', '--rule-from', `newsletter=${at(12)}`),
+        [pilotEntries()],
+        CFG,
+      );
+      const rows = parseCsv(result.written[SHEET] ?? '').slice(1);
+      expect(rows.filter((r) => r[3] === 'newsletter')).toHaveLength(2);
+      expect(rows.filter((r) => r[3] === 'newsletter').every((r) => (r[1] ?? '') >= at(12))).toBe(
+        true,
+      );
+      expect(rows.filter((r) => r[3] === 'bill')).toHaveLength(2);
+      expect(dig(result.json, 'worksheet')).toEqual({ rows: 6, moves: 2, labels: 4 });
+    });
+
+    it('refuses an unknown rule, a malformed value, an instant outside the window, a repeat and no config', () => {
+      const bad = [
+        ['--rule-from', `nosuchrule=${at(12)}`],
+        ['--rule-from', 'newsletter'],
+        ['--rule-from', 'newsletter=yesterday'],
+        ['--rule-from', `=${at(12)}`],
+        ['--rule-from', `newsletter=${FROM}x`],
+        ['--rule-from', `newsletter=${new Date(T0 - MIN).toISOString()}`],
+        ['--rule-from', `newsletter=${TO}`],
+        ['--rule-from', `newsletter=${at(12)}`, '--rule-from', `newsletter=${at(13)}`],
+      ];
+      for (const more of bad) {
+        const result = run(args(...more), [pilotEntries()], CFG);
+        expect(result.code).toBe(1);
+        expect(result.stdout).toBe('');
+        expect(result.stderr).toContain('--rule-from');
+        expect(result.stderr).not.toContain('nosuchrule');
+      }
+      const noConfig = run([...BASE_ARGS, '--rule-from', `newsletter=${at(12)}`], [pilotEntries()]);
+      expect(noConfig.code).toBe(1);
+      expect(noConfig.stderr).toContain('--config');
+    });
   });
 
   it('leaves the estimate out when nothing was checked', () => {
@@ -956,6 +1092,8 @@ describe('privacy', () => {
         'list.txt',
         '--seed',
         S,
+        '--rule-from',
+        `newsletter=${new Date(T0 + MIN).toISOString()}`,
       ],
       [secretEntries()],
       { files },

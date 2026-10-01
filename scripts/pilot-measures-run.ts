@@ -6,8 +6,13 @@
  *     node scripts/pilot-measures.ts --from <ISO> --to <ISO> --interval <minutes>
  *       [--config <config.yaml>] [--usd-per-million <number>]
  *       [--worksheet <file> [--sample <n>] [--min-per-rule <n>] [--seed <text>]]
- *       [--checked <file>]... [--crosscheck <file>]
+ *       [--checked <file>]... [--rule-from <ruleId>=<ISO>]... [--crosscheck <file>]
  *       <export.json>...
+ *
+ * `--rule-from` (story #156 S4): a rule whose config changed at that instant
+ * counts, in `precision` and in the worksheet, only actions at or after it
+ * (a checked row by its own `ts`). Every other measure, `rules` included,
+ * counts the whole window. The instants used are printed as `ruleFrom`.
  *
  * The pilot's log holds subjects and senders and this repository is public,
  * so the output holds only numbers, booleans, ISO times, names from closed
@@ -36,7 +41,7 @@ export const PILOT_USAGE =
   'node scripts/pilot-measures.ts --from <ISO> --to <ISO> --interval <minutes> ' +
   '[--config <config.yaml>] [--usd-per-million <number>] ' +
   '[--worksheet <file> [--sample <n>] [--min-per-rule <n>] [--seed <text>]] ' +
-  '[--checked <file>]... [--crosscheck <file>] <export.json>...';
+  '[--checked <file>]... [--rule-from <ruleId>=<ISO>]... [--crosscheck <file>] <export.json>...';
 
 export interface PilotDeps {
   /** Reads a UTF-8 file, throwing like `fs.readFileSync`. */
@@ -68,6 +73,7 @@ interface Options {
   readonly minPerRule: number;
   readonly seed: string;
   readonly checked: readonly string[];
+  readonly ruleFrom: readonly { readonly ruleId: string; readonly at: number }[];
   readonly crosscheck: string | undefined;
   readonly exports: readonly string[];
 }
@@ -96,6 +102,7 @@ function parseOptions(argv: readonly string[]): Parsed {
         'min-per-rule': { type: 'string' },
         seed: { type: 'string' },
         checked: { type: 'string', multiple: true },
+        'rule-from': { type: 'string', multiple: true },
         crosscheck: { type: 'string' },
       },
     });
@@ -134,6 +141,25 @@ function parseOptions(argv: readonly string[]): Parsed {
   if ((values.worksheet !== undefined || checked.length > 0) && values.config === undefined) {
     return { ok: false, message: '--worksheet and --checked need --config.' };
   }
+  const ruleFrom: { ruleId: string; at: number }[] = [];
+  for (const text of values['rule-from'] ?? []) {
+    const cut = text.indexOf('=');
+    const at = cut < 0 ? Number.NaN : Date.parse(text.slice(cut + 1));
+    if (cut <= 0 || Number.isNaN(at)) {
+      return { ok: false, message: '--rule-from must look like <ruleId>=<ISO instant>.' };
+    }
+    if (at < from || at >= to) {
+      return { ok: false, message: 'A --rule-from instant must be inside [--from, --to).' };
+    }
+    const ruleId = text.slice(0, cut);
+    if (ruleFrom.some((entry) => entry.ruleId === ruleId)) {
+      return { ok: false, message: '--rule-from is given twice for one rule.' };
+    }
+    ruleFrom.push({ ruleId, at });
+  }
+  if (ruleFrom.length > 0 && values.config === undefined) {
+    return { ok: false, message: '--rule-from needs --config.' };
+  }
   if (positionals.length === 0) {
     return { ok: false, message: 'Give at least one export file.' };
   }
@@ -150,6 +176,7 @@ function parseOptions(argv: readonly string[]): Parsed {
       minPerRule,
       seed: values.seed ?? values.from,
       checked,
+      ruleFrom,
       crosscheck: values.crosscheck,
       exports: positionals,
     },
@@ -216,6 +243,15 @@ export function runPilotMeasures(argv: readonly string[], deps: PilotDeps): numb
       return 1;
     }
   }
+  const ruleFrom = new Map<string, number>();
+  for (const entry of options.ruleFrom) {
+    const known = config?.rules.some((rule) => rule.id === entry.ruleId) === true;
+    if (!known) {
+      deps.stderr('--rule-from names a rule that is not in the config.');
+      return 1;
+    }
+    ruleFrom.set(entry.ruleId, entry.at);
+  }
   const checkedTexts: string[] = [];
   for (const file of options.checked) {
     const text = read(file);
@@ -264,9 +300,15 @@ export function runPilotMeasures(argv: readonly string[], deps: PilotDeps): numb
   const inWindow = log.lines.filter((l) => l.ts >= options.from && l.ts < options.to);
   if (config !== undefined) {
     const rules = ruleInfos(config);
-    const counts = ruleCounts(inWindow, config);
+    const counts = ruleCounts(inWindow, config, ruleFrom);
+    if (ruleFrom.size > 0) {
+      out['ruleFrom'] = rules.flatMap((rule) => {
+        const at = ruleFrom.get(rule.id);
+        return at === undefined ? [] : [{ id: rule.id, from: new Date(at).toISOString() }];
+      });
+    }
     if (worksheetPath !== undefined) {
-      const all = applicationRows(inWindow, rules);
+      const all = applicationRows(inWindow, rules, ruleFrom);
       const rows = sampleRows(all, rules, {
         sample: options.sample,
         minPerRule: options.minPerRule,
@@ -285,10 +327,12 @@ export function runPilotMeasures(argv: readonly string[], deps: PilotDeps): numb
       };
     }
     if (checkedRows !== undefined) {
-      out['precision'] = precisionOf(checkedRows, rules, {
-        labels: counts.appliedLabels,
-        moves: counts.appliedMoves,
-      });
+      out['precision'] = precisionOf(
+        checkedRows,
+        rules,
+        new Map(counts.rules.map((rule) => [rule.id, rule.appliedSince])),
+        ruleFrom,
+      );
     }
   }
 

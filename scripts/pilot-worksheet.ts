@@ -76,6 +76,7 @@ function shuffled<T>(items: readonly T[], random: () => number): T[] {
 export function applicationRows(
   lines: readonly PilotLine[],
   rules: readonly RuleInfo[],
+  ruleFrom: ReadonlyMap<string, number> = new Map(),
 ): WorksheetRow[] {
   const rows: WorksheetRow[] = [];
   for (const line of lines) {
@@ -83,6 +84,7 @@ export function applicationRows(
     const threadId = stringField(line.fields, 'threadId') ?? '';
     const ts = new Date(line.ts).toISOString();
     for (const applied of appliedActions(line, rules)) {
+      if (line.ts < (ruleFrom.get(applied.ruleId) ?? Number.NEGATIVE_INFINITY)) continue;
       rows.push({
         id: rowId(threadId, applied.ruleId, ts),
         ts,
@@ -181,9 +183,17 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
+function validTime(text: string | undefined): number | undefined {
+  if (text === undefined) return undefined;
+  const ms = Date.parse(text);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
 export interface CheckedRow {
   readonly ruleId: string;
   readonly kind: string;
+  /** The row's own `ts` (epoch ms), or undefined when the column or its value is missing. */
+  readonly ts: number | undefined;
   /** `undefined`: the cell was empty, so the row was not checked. */
   readonly correct: boolean | undefined;
 }
@@ -202,6 +212,7 @@ export function readChecked(texts: readonly string[]): CheckedRow[] | undefined 
     const ruleCol = header.indexOf('ruleId');
     const kindCol = header.indexOf('kind');
     const correctCol = header.indexOf('correct');
+    const tsCol = header.indexOf('ts');
     if (idCol < 0 || ruleCol < 0 || kindCol < 0 || correctCol < 0) return undefined;
     for (const row of body) {
       const id = row[idCol]?.trim() ?? '';
@@ -210,6 +221,7 @@ export function readChecked(texts: readonly string[]): CheckedRow[] | undefined 
       byId.set(id, {
         ruleId: row[ruleCol] ?? '',
         kind: row[kindCol] ?? '',
+        ts: tsCol < 0 ? undefined : validTime(row[tsCol]),
         correct: cell === '' ? undefined : cell.toLowerCase() === 'y',
       });
     }
@@ -218,7 +230,7 @@ export function readChecked(texts: readonly string[]): CheckedRow[] | undefined 
 }
 
 export interface Precision {
-  readonly rules: readonly { id: string; checked: number; correct: number }[];
+  readonly rules: readonly { id: string; applied: number; checked: number; correct: number }[];
   readonly moves: { applied: number; checked: number; correct: number };
   readonly labels: { applied: number; checked: number; correct: number };
   /**
@@ -229,39 +241,53 @@ export interface Precision {
   readonly estimate?: number;
 }
 
+/**
+ * Precision from the checked rows. `appliedByRule` is each rule's applied
+ * count (from its `--rule-from` instant on, for a rule that has one). A row
+ * of a rule with an instant counts only when its own `ts` is at or after it;
+ * a row without a readable `ts` does not count.
+ */
 export function precisionOf(
-  checked: readonly CheckedRow[],
+  checkedRows: readonly CheckedRow[],
   rules: readonly RuleInfo[],
-  applied: { readonly labels: number; readonly moves: number },
+  appliedByRule: ReadonlyMap<string, number>,
+  ruleFrom: ReadonlyMap<string, number> = new Map(),
 ): Precision {
+  const checked = checkedRows.filter((row) => {
+    if (row.correct === undefined) return false;
+    const from = ruleFrom.get(row.ruleId);
+    return from === undefined || (row.ts !== undefined && row.ts >= from);
+  });
   const perRule = rules.map((rule) => {
-    const own = checked.filter((row) => row.ruleId === rule.id && row.correct !== undefined);
+    const own = checked.filter((row) => row.ruleId === rule.id);
     return {
       id: rule.id,
+      applied: appliedByRule.get(rule.id) ?? 0,
       checked: own.length,
       correct: own.filter((r) => r.correct === true).length,
     };
   });
-  const tally = (move: boolean, appliedCount: number) => {
-    const own = checked.filter(
-      (row) => row.kind.startsWith('move') === move && row.correct !== undefined,
-    );
+  const tally = (move: boolean) => {
+    const own = checked.filter((row) => row.kind.startsWith('move') === move);
+    const applied = rules
+      .filter((rule) => (rule.kind !== 'label') === move)
+      .reduce((total, rule) => total + (appliedByRule.get(rule.id) ?? 0), 0);
     return {
-      applied: appliedCount,
+      applied,
       checked: own.length,
       correct: own.filter((r) => r.correct === true).length,
     };
   };
-  const moves = tally(true, applied.moves);
-  const labels = tally(false, applied.labels);
-  const total = applied.moves + applied.labels;
+  const moves = tally(true);
+  const labels = tally(false);
+  const total = moves.applied + labels.applied;
   const nothing = moves.checked + labels.checked === 0;
-  const labelsUnknown = labels.checked === 0 && applied.labels > 0;
+  const labelsUnknown = labels.checked === 0 && labels.applied > 0;
   const estimate =
     nothing || labelsUnknown || total === 0
       ? undefined
       : (moves.correct +
-          (labels.checked === 0 ? 0 : (applied.labels * labels.correct) / labels.checked)) /
+          (labels.checked === 0 ? 0 : (labels.applied * labels.correct) / labels.checked)) /
         total;
   return {
     rules: perRule,
