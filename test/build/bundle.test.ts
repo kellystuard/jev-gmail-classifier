@@ -288,7 +288,8 @@ describe('bundle()', () => {
     });
 
     it('continueManualRun with no key throws RunAbortError before any search', () => {
-      const { JEV_API_KEY: _key, ...properties } = installed();
+      const properties = installed();
+      delete properties['JEV_API_KEY'];
       const stub = createGasGlobals({ properties: { ...properties, ...seededJob() } });
 
       let thrown: unknown;
