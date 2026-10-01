@@ -2,8 +2,10 @@
  * The config the build embedded (Solution Design §7.2, §11), validated again
  * at load. Only `src/entry/` imports `virtual:generated-config`.
  *
- * A failure throws `ConfigError`. E7 calls this inside the per-run boundary,
- * which logs the failure, and E9 adds the `config_invalid` alert.
+ * A failure throws `ConfigError`. `runEntry` calls this inside the per-run
+ * boundary, which logs `run.failed` and raises the `config_invalid` alert. The
+ * alert mailer emails it, except for `uninstall` and `cancelManualRun`, which
+ * only log (`src/entry/main.ts`).
  */
 import { EMBEDDED_CONFIG } from 'virtual:generated-config';
 

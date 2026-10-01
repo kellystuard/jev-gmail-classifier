@@ -17,6 +17,7 @@ import {
   resolveOutDir,
 } from '../../scripts/bundle.ts';
 import { ENTRY_POINTS } from '../../src/entry/entry-points.ts';
+import { ALERTS_KEY } from '../../src/core/alert-limit.ts';
 import { encodeManualJob, MANUAL_KEY, newManualJob } from '../../src/core/manual-job.ts';
 import { workQueueShardCodec } from '../../src/core/work-queue.ts';
 import { encodePosition, POSITION_KEY } from '../../src/core/position.ts';
@@ -26,6 +27,12 @@ const FIXTURE_CONFIG = join(REPO_ROOT, 'test', 'fixtures', 'config', 'valid.yaml
 const FIXTURE_RULE_IDS = ['fixture-approval', 'fixture-bill', 'fixture-newsletter'];
 
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+const AUTH_SUBJECT = '[Jev Gmail Classifier] Jev API key missing or rejected';
+const CONFIG_INVALID_SUBJECT = '[Jev Gmail Classifier] Configuration is invalid';
+const RUN_FAILURES_SUBJECT = '[Jev Gmail Classifier] Runs are failing repeatedly';
 
 /** Every entry point is wired; they need Apps Script's globals. */
 const WIRED = ENTRY_POINTS;
@@ -41,6 +48,17 @@ function callGlobal(scope: Record<string, unknown>, name: string): unknown {
     throw new Error(`${name} is not a global function`);
   }
   return Reflect.apply(fn, undefined, []);
+}
+
+/** The `name` of what calling the global function `name` throws, or `undefined` when it returns. */
+function thrownName(scope: Record<string, unknown>, name: string): unknown {
+  try {
+    callGlobal(scope, name);
+  } catch (error) {
+    // The error comes from the vm context, so check its shape, not `instanceof`.
+    return isRecord(error) ? error['name'] : error;
+  }
+  return undefined;
 }
 
 /** Evaluates `code` as a classic script in a fresh context with no module system, and `globals`. */
@@ -202,6 +220,103 @@ describe('bundle()', () => {
       expect(stub.properties.has('state.runs')).toBe(true);
       expect(stub.properties.has('state.gmailCalls')).toBe(true);
       expect(stub.lockHeld()).toBe(false);
+      // A clean run raises no condition: no email, no alert event, no `state.alerts`.
+      expect(stub.mail).toEqual([]);
+      expect(stub.events('alert.sent')).toEqual([]);
+      expect(stub.events('alert.failed')).toEqual([]);
+      expect(stub.properties.has(ALERTS_KEY)).toBe(false);
+    });
+
+    /** An installed classifier whose key is gone: every run raises `auth`. */
+    function installedWithoutKey(): Record<string, string> {
+      const properties = installed();
+      delete properties['JEV_API_KEY'];
+      return properties;
+    }
+
+    it('onTrigger with no key sends one auth email, and not again the same day', () => {
+      const stub = createGasGlobals({ properties: installedWithoutKey() });
+
+      expect(thrownName(evaluate(code, stub.globals), 'onTrigger')).toBe('RunAbortError');
+
+      expect(stub.events('run.failed').map((line) => line.json['alerts'])).toEqual([['auth']]);
+      expect(stub.mail).toHaveLength(1);
+      const [message] = stub.mail;
+      // Exactly the adapter's four keys: plain text, with no `htmlBody`, cc or attachment.
+      expect(Object.keys(message ?? {}).sort()).toEqual(['body', 'name', 'subject', 'to']);
+      expect(message?.to).toBe('<test-account>');
+      expect(message?.subject).toBe(AUTH_SUBJECT);
+      expect(message?.name).toBe('Jev Gmail Classifier');
+      expect(typeof message?.body === 'string' && message.body.length > 0).toBe(true);
+
+      const [sent, ...more] = stub.events('alert.sent');
+      expect(more).toEqual([]);
+      expect(sent?.level).toBe('info');
+      expect(sent?.json).toMatchObject({ entry: 'onTrigger', condition: 'auth' });
+      const day = String(sent?.json['day']);
+      expect(day).toMatch(CALENDAR_DAY);
+      expect(stub.events('alert.failed')).toEqual([]);
+      expect(JSON.parse(stub.properties.get(ALERTS_KEY) ?? 'null')).toEqual({
+        v: 1,
+        sent: { auth: day },
+      });
+      expect(stub.lockHeld()).toBe(false);
+
+      // The same condition again, the same day: the run fails the same way and nothing is sent.
+      expect(thrownName(evaluate(code, stub.globals), 'onTrigger')).toBe('RunAbortError');
+
+      expect(stub.events('run.failed').map((line) => line.json['alerts'])).toEqual([
+        ['auth'],
+        ['auth'],
+      ]);
+      expect(stub.mail).toHaveLength(1);
+      expect(stub.events('alert.sent')).toHaveLength(1);
+      expect(stub.events('alert.failed')).toEqual([]);
+      expect(stub.lockHeld()).toBe(false);
+    });
+
+    it('a mail failure does not change the run: alert.failed, nothing sent or recorded', () => {
+      const stub = createGasGlobals({
+        properties: installedWithoutKey(),
+        mailError: 'Service invoked too many times for one day: email.',
+      });
+
+      expect(thrownName(evaluate(code, stub.globals), 'onTrigger')).toBe('RunAbortError');
+
+      // One `run.failed`, the run's own: the sink threw nothing in `finally`.
+      const [failedRun, ...moreRuns] = stub.events('run.failed');
+      expect(moreRuns).toEqual([]);
+      expect(failedRun?.json).toMatchObject({ reason: 'missing_key', alerts: ['auth'] });
+      const [failed, ...more] = stub.events('alert.failed');
+      expect(more).toEqual([]);
+      expect(failed?.level).toBe('warn');
+      expect(failed?.json).toMatchObject({ conditions: ['auth'], reason: 'quota' });
+      expect(stub.events('alert.sent')).toEqual([]);
+      expect(stub.mail).toEqual([]);
+      expect(stub.properties.has(ALERTS_KEY)).toBe(false);
+      expect(stub.properties.has('state.runs')).toBe(true);
+      expect(stub.lockHeld()).toBe(false);
+    });
+
+    it('scrubs the Jev key from every log line (the log adapter got it as a secret value)', () => {
+      const key = 'test-key-0123456789';
+      const stub = createGasGlobals({
+        // The key's text as the query: an allowed field that only `secretValues` can scrub.
+        properties: { ...installed(), JEV_API_KEY: key, MANUAL_QUERY: key },
+      });
+
+      expect(run(stub, 'startManualRun')).toMatchObject({ status: 'ok', query: key });
+
+      // The search itself got the real text: only the log is scrubbed.
+      expect(stub.searches.map((search) => search.q)).toEqual([key]);
+      const [started, ...more] = stub.events('manual.started');
+      expect(more).toEqual([]);
+      expect(started?.json['query']).toBe('[redacted]');
+      expect(stub.lines.length).toBeGreaterThan(0);
+      for (const line of stub.lines) {
+        expect(line.text).not.toContain(key);
+      }
+      expect(stub.mail).toEqual([]);
     });
 
     function seededJob(): Record<string, string> {
@@ -287,21 +402,15 @@ describe('bundle()', () => {
       expect(line?.json).toMatchObject({ stopped: 'no_job' });
     });
 
-    it('continueManualRun with no key throws RunAbortError before any search', () => {
-      const properties = installed();
-      delete properties['JEV_API_KEY'];
-      const stub = createGasGlobals({ properties: { ...properties, ...seededJob() } });
+    it('continueManualRun with no key throws RunAbortError before any search, and sends the auth email', () => {
+      const stub = createGasGlobals({ properties: { ...installedWithoutKey(), ...seededJob() } });
 
-      let thrown: unknown;
-      try {
-        run(stub, 'continueManualRun');
-      } catch (error) {
-        thrown = error;
-      }
-      expect(isRecord(thrown) ? thrown['name'] : thrown).toBe('RunAbortError');
+      expect(thrownName(evaluate(code, stub.globals), 'continueManualRun')).toBe('RunAbortError');
       expect(stub.events('run.failed')[0]?.json).toMatchObject({ reason: 'missing_key' });
       expect(stub.searches).toEqual([]);
       expect(stub.properties.has(MANUAL_KEY)).toBe(true);
+      expect(stub.mail.map((message) => message.subject)).toEqual([AUTH_SUBJECT]);
+      expect(stub.events('alert.sent').map((line) => line.json['condition'])).toEqual(['auth']);
     });
 
     it('cancelManualRun removes the job and its queued work, with no heartbeat or tally', () => {
@@ -379,24 +488,26 @@ describe('bundle()', () => {
 });
 
 describe('bundle() with an embedded config that fails validation', () => {
+  // `bundle()` doesn't validate (the build does that first), so this is what
+  // a bundle with a bad embedded config does at runtime. The wired entry
+  // points load it inside `runEntry`, with the lock free, which logs
+  // `run.failed` and rethrows.
   let outDir: string;
+  let code: string;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     outDir = mkdtempSync(join(tmpdir(), 'jev-bundle-invalid-'));
+    await bundle({ outDir, embeddedConfig: { defaultThreshold: 2, rules: [] } });
+    code = readFileSync(join(outDir, 'Code.js'), 'utf8');
   });
 
   afterAll(() => {
     rmSync(outDir, { recursive: true, force: true });
   });
 
-  it('throws ConfigError from every entry point, as a stale or hand-edited bundle would', async () => {
-    // `bundle()` doesn't validate (the build does that first), so this is what
-    // a bundle with a bad embedded config does at runtime. The wired entry
-    // points load it inside `runEntry`, with the lock free, which logs
-    // `run.failed` and rethrows.
-    await bundle({ outDir, embeddedConfig: { defaultThreshold: 2, rules: [] } });
+  it('throws ConfigError from every entry point, as a stale or hand-edited bundle would', () => {
     const stub = createGasGlobals({ properties: { JEV_API_KEY: 'test-key' } });
-    const scope = evaluate(readFileSync(join(outDir, 'Code.js'), 'utf8'), stub.globals);
+    const scope = evaluate(code, stub.globals);
     for (const name of ENTRY_POINTS) {
       let thrown: unknown;
       try {
@@ -418,5 +529,42 @@ describe('bundle() with an embedded config that fails validation', () => {
     expect(stub.events('run.failed').map((line) => line.json['error'])).toEqual(
       WIRED.map(() => 'ConfigError'),
     );
+
+    // Two emails in all. `config_invalid` once, from the first entry point
+    // (`onTrigger`): the later ones raise it again the same day. `run_failures`
+    // from the third counted failure in a row: `onTrigger`, `startManualRun`
+    // and `continueManualRun` write the heartbeat, the other three don't.
+    expect(stub.mail.map((message) => message.subject)).toEqual([
+      CONFIG_INVALID_SUBJECT,
+      RUN_FAILURES_SUBJECT,
+    ]);
+    expect(
+      stub.events('alert.sent').map((line) => [line.json['entry'], line.json['condition']]),
+    ).toEqual([
+      ['onTrigger', 'config_invalid'],
+      ['continueManualRun', 'run_failures'],
+    ]);
+    expect(stub.events('alert.failed')).toEqual([]);
+  });
+
+  it('uninstall and cancelManualRun never mail or write state.alerts', () => {
+    // Both raise `config_invalid` here, which the mailer would send: they keep
+    // the do-nothing sink (`uninstall` has just deleted `state.*`).
+    const stub = createGasGlobals({ properties: { JEV_API_KEY: 'test-key' } });
+    const scope = evaluate(code, stub.globals);
+
+    for (const name of ['uninstall', 'cancelManualRun']) {
+      expect(thrownName(scope, name), name).toBe('ConfigError');
+    }
+
+    expect(stub.events('run.failed').map((line) => line.json['alerts'])).toEqual([
+      ['config_invalid'],
+      ['config_invalid'],
+    ]);
+    expect(stub.mail).toEqual([]);
+    expect(stub.events('alert.sent')).toEqual([]);
+    expect(stub.events('alert.failed')).toEqual([]);
+    expect(stub.properties.has(ALERTS_KEY)).toBe(false);
+    expect([...stub.properties.keys()]).toEqual(['JEV_API_KEY']);
   });
 });

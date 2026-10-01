@@ -78,23 +78,33 @@ If the classifier stops for so long that Gmail no longer has the history it need
 - **Invalid request** (HTTP `422`, or a `400` saying the request is over Jev's token limit): the thread gets `Jev/Error` immediately, because retrying the same content will not help.
 - **Bad API key** (HTTP `401`, `402` or `403`): the run stops and logs the error, and no thread is marked. Once the key is fixed, the next run continues where it left off.
 - **Daily token budget reached:** no more requests are sent until the next day (see [Configuration](#configuration)). Queued threads wait.
-- **Missing permission:** if a permission was not granted (see [Permissions](#permissions)), the run logs which one and what it disables, emails you an alert, and carries on with what still works. For example, if a move can't be made, the labels are still applied and the log records the skipped move.
+- **Missing permission:** if a permission was not granted (see [Permissions](#permissions)), the run logs which one and what it disables, emails you an alert (if it can), and carries on with what still works. For example, if a move can't be made, the labels are still applied and the log records the skipped move.
 
 To retry a thread marked `Jev/Error`, remove that label in Gmail. The next run picks it up. A new reply on its own does not retry a thread marked `Jev/Error`, and manual runs skip such threads.
 
 ### Monitoring
 
 - **Execution logs** are structured JSON. For each thread they list its ID, subject, sender, each question's probability (by rule `id`), and the actions taken. Each run ends with a summary of counts, tokens used, and time taken. Email bodies are never logged. Use the probabilities to tune thresholds.
+  - **Where:** the Apps Script **Executions** page, <https://script.google.com/home/executions>. Open an execution to see its log.
+  - **Format:** each line is one JSON object with an `event` name, such as `thread.classified` or `run.end`. The lines of one execution share a `runId`.
+  - **Levels:** most events are `info`. A problem the run got past is `warn`. That includes a `thread.classified` whose content was truncated, or whose move or labels were skipped. A failed run is `error` (`run.failed`).
+  - **Scrubbing:** the code never logs the API key, an `Authorization` header or what was sent to Jev. As a last line of defence, the logger also scrubs every line: it replaces the API key and `Authorization` values wherever they appear, and cuts very long text. So a log excerpt is safe to share, apart from the subjects and senders in it.
 - **Alert emails** are sent to you when:
   - the API key is rejected or missing;
-  - threads are newly marked `Jev/Error`;
-  - runs fail or time out repeatedly;
+  - threads are newly marked `Jev/Error`. The email lists up to 50 of them as links, plus a link to the label;
+  - runs fail or don't finish 3 times in a row. A run cut off by Apps Script's 6-minute limit counts;
   - the daily token budget is reached;
   - a permission is missing;
   - the configuration is invalid;
   - Gmail's history had expired. After a long outage, the classifier catches up on the missed mail over several runs.
 
-  Each condition sends at most one alert per day.
+  What to know about them:
+  - **Where they go:** to your own address, from your own account, as plain text, with the sender name `Jev Gmail Classifier`.
+  - **How to find them:** every subject starts with `[Jev Gmail Classifier]`, so you can search or filter for them. Each email says what happened, what the classifier did about it, what to do, and where to look in the log.
+  - **At most one email per condition per day,** in the script's [time zone](#configuration). So threads marked `Jev/Error` later the same day aren't mailed again: look at the label.
+  - **When an alert can't be sent:** the `script.send_mail` permission isn't granted, Google's daily email quota is used up, or your address can't be read. The log then has `alert.failed`, the run carries on, and the next run that sees the problem tries again. Without `script.send_mail`, alerts are only in the log, so check the Executions page yourself.
+  - **What it can't notice:** a trigger that no longer fires (deleted, or stopped by Apps Script). Nothing runs then, so nothing alerts.
+  - **`uninstall` and `cancelManualRun` never send an alert.** You run them from the editor and see the result there.
 
 ### Manual runs
 

@@ -24,6 +24,23 @@
  *
  * `onTrigger` also passes the manual spare-time hook to `runScheduled`.
  *
+ * **Alerts (epic #15 decision 11).** `runEntry` hands each run's collected
+ * alerts to the entry's `AlertSink`:
+ *
+ * - `onTrigger`, `install`, `startManualRun` and `continueManualRun` get the
+ *   mailer (`createMailAlertSink`, `src/app/alert-mailer.ts`), which emails
+ *   the owner through `GasMailAdapter`, at most once per condition per day.
+ *   Its Gmail port is the **uncounted** adapter, not `ctx.gmail`: `runEntry`
+ *   saves the Gmail tally before it delivers.
+ * - `uninstall` and `cancelManualRun` keep `logOnlyAlertSink`. `uninstall` has
+ *   just deleted `state.*`, and the mailer would write `state.alerts` back;
+ *   `cancelManualRun` makes no Gmail call and isn't a run to record. The user
+ *   is in the editor for both and sees a failure there.
+ *
+ * **The log's secret list.** `GasLogAdapter` gets the Jev key as its one
+ * secret value, so `redact` scrubs it from every string. The adapter reads it
+ * at most once, at its first event, never when it is built.
+ *
  * Each returns plain JSON, which the editor shows: `{entry, status: 'ok', …}`,
  * `{entry, status: 'rejected', reason}` for a refused manual start, or
  * `{entry, status: 'skipped', reason: 'busy'}` when another execution holds
@@ -39,12 +56,14 @@ import { GasGmailAdapter } from '../adapters/gas/gas-gmail-adapter.ts';
 import { GasHttpAdapter } from '../adapters/gas/gas-http-adapter.ts';
 import { GasLockAdapter } from '../adapters/gas/gas-lock-adapter.ts';
 import { GasLogAdapter } from '../adapters/gas/gas-log-adapter.ts';
+import { GasMailAdapter } from '../adapters/gas/gas-mail-adapter.ts';
 import { GasRandomAdapter } from '../adapters/gas/gas-random-adapter.ts';
 import { GasSecretsAdapter } from '../adapters/gas/gas-secrets-adapter.ts';
 import { GasStateAdapter } from '../adapters/gas/gas-state-adapter.ts';
 import { GasTriggerAdapter } from '../adapters/gas/gas-trigger-adapter.ts';
 import { gasDecodeUtf8 } from '../adapters/gas/gas-utf8.ts';
-import { logOnlyAlertSink } from '../app/alerts.ts';
+import { createMailAlertSink } from '../app/alert-mailer.ts';
+import { type AlertSink, logOnlyAlertSink } from '../app/alerts.ts';
 import { cancelManualJob, type CancelReport } from '../app/manual-cancel.ts';
 import {
   continueManualJob,
@@ -93,16 +112,28 @@ type StartManualResult =
 type ContinueManualResult = OkResult<'continueManualRun', ContinueManualReport> | SkippedResult;
 type CancelManualResult = OkResult<'cancelManualRun', CancelReport> | SkippedResult;
 
-/** One execution's adapters. Built per call, never kept. */
+/**
+ * One execution's adapters. Built per call, never kept. Building them touches
+ * no Script Property and no mailbox: the log adapter asks for the key only at
+ * its first event.
+ */
 function buildPorts(entry: EntryPointName) {
+  const secrets = new GasSecretsAdapter();
   return {
     lock: new GasLockAdapter(),
     clock: new GasClockAdapter(),
     random: new GasRandomAdapter(),
-    log: new GasLogAdapter({ entry }),
+    log: new GasLogAdapter({
+      entry,
+      secretValues: () => {
+        const key = secrets.getJevApiKey();
+        return key === undefined ? [] : [key];
+      },
+    }),
     state: new GasStateAdapter(),
-    secrets: new GasSecretsAdapter(),
+    secrets,
     gmail: new GasGmailAdapter(),
+    mail: new GasMailAdapter(),
     http: new GasHttpAdapter(),
     trigger: new GasTriggerAdapter(),
     auth: new GasAuthAdapter(),
@@ -120,14 +151,26 @@ type StartBody =
   | Body<StartManualReport>
   | { readonly summary?: RunSummary; readonly rejected: ManualStartRejection };
 
-function entryDeps(ports: Ports): RunEntryDeps {
+/** The sink that emails the owner. Not for `uninstall` or `cancelManualRun` (see the header). */
+function mailAlertSink(ports: Ports): AlertSink {
+  return createMailAlertSink({
+    mail: ports.mail,
+    // The uncounted adapter: the Gmail tally is already saved when the sink runs.
+    gmail: ports.gmail,
+    state: ports.state,
+    clock: ports.clock,
+    log: ports.log,
+  });
+}
+
+function entryDeps(ports: Ports, alertSink: AlertSink): RunEntryDeps {
   return {
     lock: ports.lock,
     clock: ports.clock,
     state: ports.state,
     log: ports.log,
     gmail: ports.gmail,
-    alertSink: logOnlyAlertSink,
+    alertSink,
     loadConfig: loadEmbeddedConfig,
   };
 }
@@ -145,7 +188,8 @@ export function onTrigger(): OnTriggerResult {
   const entry = 'onTrigger';
   const ports = buildPorts(entry);
   const options: RunEntryOptions = { entry, kind: 'scheduled', heartbeat: true, tallyGmail: true };
-  const result = runEntry<Body<OnTriggerReport>>(options, entryDeps(ports), (ctx) => {
+  const deps = entryDeps(ports, mailAlertSink(ports));
+  const result = runEntry<Body<OnTriggerReport>>(options, deps, (ctx) => {
     const { summary, stopped, alerts } = runScheduled(ctx, {
       http: ports.http,
       state: ports.state,
@@ -173,7 +217,8 @@ export function install(): InstallResult {
   const entry = 'install';
   const ports = buildPorts(entry);
   const options: RunEntryOptions = { entry, kind: 'lifecycle', heartbeat: false, tallyGmail: true };
-  const result = runEntry<Body<InstallReport>>(options, entryDeps(ports), (ctx) => ({
+  const deps = entryDeps(ports, mailAlertSink(ports));
+  const result = runEntry<Body<InstallReport>>(options, deps, (ctx) => ({
     report: installUseCase(
       ctx,
       {
@@ -200,7 +245,8 @@ export function uninstall(): UninstallResult {
     heartbeat: false,
     tallyGmail: false,
   };
-  const result = runEntry<Body<UninstallReport>>(options, entryDeps(ports), () => ({
+  const deps = entryDeps(ports, logOnlyAlertSink);
+  const result = runEntry<Body<UninstallReport>>(options, deps, () => ({
     report: uninstallUseCase(
       { trigger: ports.trigger, state: ports.state, log: ports.log },
       TRIGGER_HANDLER,
@@ -227,7 +273,8 @@ function manualDeps(ports: Ports) {
 export function startManualRun(): StartManualResult {
   const entry = 'startManualRun';
   const ports = buildPorts(entry);
-  const result = runEntry<StartBody>({ entry, ...MANUAL_OPTIONS }, entryDeps(ports), (ctx) => {
+  const deps = entryDeps(ports, mailAlertSink(ports));
+  const result = runEntry<StartBody>({ entry, ...MANUAL_OPTIONS }, deps, (ctx) => {
     const started = startManualJob({ state: ports.state, clock: ports.clock, log: ports.log });
     if (!started.started) return { rejected: started.reason };
     const { summary, report } = continueManualJob(ctx, manualDeps(ports));
@@ -249,14 +296,11 @@ export function startManualRun(): StartManualResult {
 export function continueManualRun(): ContinueManualResult {
   const entry = 'continueManualRun';
   const ports = buildPorts(entry);
-  const result = runEntry<Body<ContinueManualReport>>(
-    { entry, ...MANUAL_OPTIONS },
-    entryDeps(ports),
-    (ctx) => {
-      const { summary, report } = continueManualJob(ctx, manualDeps(ports));
-      return { summary, report: { job: report.job, stopped: report.stopped, summary } };
-    },
-  );
+  const deps = entryDeps(ports, mailAlertSink(ports));
+  const result = runEntry<Body<ContinueManualReport>>({ entry, ...MANUAL_OPTIONS }, deps, (ctx) => {
+    const { summary, report } = continueManualJob(ctx, manualDeps(ports));
+    return { summary, report: { job: report.job, stopped: report.stopped, summary } };
+  });
   return finish(entry, result);
 }
 
@@ -269,7 +313,8 @@ export function cancelManualRun(): CancelManualResult {
     heartbeat: false,
     tallyGmail: false,
   };
-  const result = runEntry<Body<CancelReport>>(options, entryDeps(ports), () => ({
+  const deps = entryDeps(ports, logOnlyAlertSink);
+  const result = runEntry<Body<CancelReport>>(options, deps, () => ({
     report: cancelManualJob({ state: ports.state, log: ports.log }, 'cancelled'),
   }));
   return finish(entry, result);
