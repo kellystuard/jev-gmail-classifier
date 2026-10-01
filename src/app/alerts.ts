@@ -4,8 +4,9 @@
  *
  * Use cases return the conditions they detect; the run adds them to one
  * collector, and `runEntry` hands `collected()` to the `AlertSink` in its
- * `finally`. E7's sink only logs (the conditions are already in `run.end` or
- * `run.failed`); E9 (#145–#147) replaces it with the rate-limited mailer.
+ * `finally`. E7's sink does nothing (the conditions are already in `run.end`
+ * or `run.failed`); the sink that sends, at most once per condition per day,
+ * is `createMailAlertSink` (`src/app/alert-mailer.ts`, #302).
  */
 import type { AlertCondition } from '../core/alert-condition.ts';
 
@@ -14,6 +15,8 @@ export type AlertDetails = {
   readonly threadIds?: readonly string[];
   /** For `scope_missing`: the missing scopes. */
   readonly scopes?: readonly string[];
+  /** For `run_failures`: failed or unfinished runs in a row. */
+  readonly consecutiveFailures?: number;
 };
 
 export type CollectedAlerts = {
@@ -23,12 +26,16 @@ export type CollectedAlerts = {
   readonly erroredThreadIds: readonly string[];
   /** From `scope_missing` details, de-duplicated, first-seen order. */
   readonly missingScopes: readonly string[];
+  /** From `run_failures` details: the latest count given. Absent when none was given. */
+  readonly consecutiveFailures?: number;
 };
 
 export interface AlertCollector {
   /**
    * Adds a condition (again is a no-op). `details.threadIds` count only for
-   * `errored`, and `details.scopes` only for `scope_missing`.
+   * `errored`, `details.scopes` only for `scope_missing`, and
+   * `details.consecutiveFailures` only for `run_failures` (the latest one
+   * given replaces an earlier one; adding without it keeps the earlier one).
    */
   add(condition: AlertCondition, details?: AlertDetails): void;
   /** Adds each condition, for the `alerts` arrays E3–E6 return. */
@@ -41,6 +48,7 @@ export function createAlertCollector(): AlertCollector {
   const conditions: AlertCondition[] = [];
   const erroredThreadIds: string[] = [];
   const missingScopes: string[] = [];
+  let consecutiveFailures: number | undefined;
 
   const addUnique = <T>(list: T[], values: readonly T[]): void => {
     for (const value of values) {
@@ -56,6 +64,9 @@ export function createAlertCollector(): AlertCollector {
     if (condition === 'scope_missing' && details?.scopes !== undefined) {
       addUnique(missingScopes, details.scopes);
     }
+    if (condition === 'run_failures' && details?.consecutiveFailures !== undefined) {
+      consecutiveFailures = details.consecutiveFailures;
+    }
   };
 
   return {
@@ -67,6 +78,7 @@ export function createAlertCollector(): AlertCollector {
       conditions: [...conditions],
       erroredThreadIds: [...erroredThreadIds],
       missingScopes: [...missingScopes],
+      ...(consecutiveFailures === undefined ? {} : { consecutiveFailures }),
     }),
   };
 }
@@ -77,15 +89,20 @@ export function createAlertCollector(): AlertCollector {
  *
  * **Never write under `state.` for a `lifecycle` run with the Gmail tally
  * off** (`uninstall`): `deliver` runs after its body has deleted every
- * `state.*` key, and a write would leave state behind. E9's mailer, which
- * rate-limits through `state.alerts`, must not be given to `uninstall` in a
- * form that writes it (the composition root chooses the sink per entry).
+ * `state.*` key, and a write would leave state behind. The mailer
+ * (`createMailAlertSink`, #302), which rate-limits through `state.alerts`,
+ * must not be given to `uninstall` in a form that writes it (the composition
+ * root chooses the sink per entry).
  */
 export interface AlertSink {
   deliver(alerts: CollectedAlerts): void;
 }
 
-/** E7's sink: does nothing (the conditions are already in `run.end` / `run.failed`). E9 (#145–#147) replaces it. */
+/**
+ * E7's sink: does nothing (the conditions are already in `run.end` /
+ * `run.failed`). The sink that sends is `createMailAlertSink`
+ * (`src/app/alert-mailer.ts`, #302).
+ */
 export const logOnlyAlertSink: AlertSink = {
   deliver: () => undefined,
 };

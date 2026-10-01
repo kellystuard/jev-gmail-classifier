@@ -1,8 +1,11 @@
 /**
  * The `state.runs` heartbeat (Solution Design §7.3, §10.1; epic #13 decision
  * 6): the codec, and the pure updates `runEntry` (`src/app/run-entry.ts`)
- * applies at the start and end of a run. E7 only writes it; E9 (#148) reads
- * it to detect repeated failures, and a timed-out run as `lastStart > lastEnd`.
+ * applies at the start and end of a run. `consecutiveFailures` counts the runs
+ * in a row that failed or never recorded their end (`isUnfinished`: killed at
+ * the 6-minute limit, or stopped by hand); `runEntry` raises the `run_failures`
+ * alert when it goes up and is at least `RUN_FAILURES_ALERT_THRESHOLD` (epic
+ * #15 decision 9).
  *
  * Stored as `{"v": 1, "lastStart", "lastEnd"?, "lastOutcome"?,
  * "consecutiveFailures", "lastSummary"?}`, in that order, with absent optional
@@ -27,11 +30,14 @@ export type RunRecord = {
   /** Epoch ms when the latest finished run ended. Absent before the first one ends. */
   readonly lastEnd?: number;
   readonly lastOutcome?: 'ok' | 'failed';
-  /** Failed runs since the last success. A safe integer ≥ 0, saturating. */
+  /** Failed or unfinished runs since the last success. A safe integer ≥ 0, saturating. */
   readonly consecutiveFailures: number;
   /** The summary of the latest successful run that returned one. */
   readonly lastSummary?: RunSummary;
 };
+
+/** `run_failures` is raised at this many failed or unfinished runs in a row: the same count as the strike rule. */
+export const RUN_FAILURES_ALERT_THRESHOLD = 3;
 
 /** At most this many keys in `lastSummary`. */
 export const RUN_SUMMARY_MAX_KEYS = 40;
@@ -111,16 +117,36 @@ function checkTime(at: number): void {
 }
 
 /**
- * A run took the lock at `at`. Keeps `lastEnd`, `lastOutcome`,
- * `consecutiveFailures` and `lastSummary` from `previous` (absent: a first
- * run), so a run that never ends shows as `lastStart > lastEnd`.
+ * Whether the run that wrote `lastStart` never recorded its end: no `lastEnd`,
+ * or `lastEnd < lastStart`. `lastEnd === lastStart` is finished (a run can
+ * start and end in the same millisecond).
+ */
+export function isUnfinished(record: RunRecord): boolean {
+  return record.lastEnd === undefined || record.lastEnd < record.lastStart;
+}
+
+/** One more consecutive failure, saturating at `Number.MAX_SAFE_INTEGER`. */
+function oneMoreFailure(count: number): number {
+  return Math.min(Number.MAX_SAFE_INTEGER, count + 1);
+}
+
+/**
+ * A run took the lock at `at`. Keeps `lastEnd`, `lastOutcome` and
+ * `lastSummary` from `previous` (absent: a first run, at 0 failures), so a run
+ * that never ends shows as `lastStart > lastEnd`. An unfinished `previous`
+ * counts as a failure here, because nothing else could count it: one more
+ * consecutive failure. A finished one keeps its count (a failed run already
+ * counted itself).
  */
 export function recordStart(previous: RunRecord | undefined, at: number): RunRecord {
   checkTime(at);
+  if (previous === undefined) return buildRecord({ lastStart: at, consecutiveFailures: 0 });
   return buildRecord({
     ...previous,
     lastStart: at,
-    consecutiveFailures: previous?.consecutiveFailures ?? 0,
+    consecutiveFailures: isUnfinished(previous)
+      ? oneMoreFailure(previous.consecutiveFailures)
+      : previous.consecutiveFailures,
   });
 }
 
@@ -160,6 +186,6 @@ export function recordFailure(record: RunRecord, at: number): RunRecord {
     ...record,
     lastEnd: at,
     lastOutcome: 'failed',
-    consecutiveFailures: Math.min(Number.MAX_SAFE_INTEGER, record.consecutiveFailures + 1),
+    consecutiveFailures: oneMoreFailure(record.consecutiveFailures),
   });
 }

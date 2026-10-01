@@ -4,11 +4,13 @@ import { InvalidArgumentError, StateError, type StateErrorReason } from '../../s
 import {
   type RunRecord,
   type RunSummary,
+  RUN_FAILURES_ALERT_THRESHOLD,
   RUN_SUMMARY_MAX_BYTES,
   RUN_SUMMARY_MAX_KEYS,
   RUNS_KEY,
   decodeRunRecord,
   encodeRunRecord,
+  isUnfinished,
   recordFailure,
   recordStart,
   recordSuccess,
@@ -155,6 +157,116 @@ describe('recordStart', () => {
 
   it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])('rejects at = %s', (at) => {
     expect(() => recordStart(undefined, at)).toThrow(InvalidArgumentError);
+  });
+
+  describe('after an unfinished run', () => {
+    it('counts a run with no end as a failure: 0 becomes 1', () => {
+      const previous: RunRecord = { lastStart: T0, consecutiveFailures: 0 };
+      expect(recordStart(previous, T0 + 60_000)).toEqual({
+        lastStart: T0 + 60_000,
+        consecutiveFailures: 1,
+      });
+    });
+
+    it('counts an end before the start as a failure, and keeps the rest: 2 becomes 3', () => {
+      const previous: RunRecord = {
+        lastStart: T0,
+        lastEnd: T0 - 60_000,
+        lastOutcome: 'failed',
+        consecutiveFailures: 2,
+        lastSummary: { classified: 2 },
+      };
+      expect(recordStart(previous, T0 + 60_000)).toEqual({
+        lastStart: T0 + 60_000,
+        lastEnd: T0 - 60_000,
+        lastOutcome: 'failed',
+        consecutiveFailures: 3,
+        lastSummary: { classified: 2 },
+      });
+    });
+
+    it('saturates at the largest safe integer, and still round-trips', () => {
+      const previous: RunRecord = { lastStart: T0, consecutiveFailures: Number.MAX_SAFE_INTEGER };
+      const next = recordStart(previous, T0 + 1);
+      expect(next.consecutiveFailures).toBe(Number.MAX_SAFE_INTEGER);
+      expect(roundTrip(next)).toEqual(next);
+    });
+  });
+
+  describe('after a finished run', () => {
+    it('keeps an ok run at 0', () => {
+      const previous: RunRecord = {
+        lastStart: T0,
+        lastEnd: T0 + 1000,
+        lastOutcome: 'ok',
+        consecutiveFailures: 0,
+      };
+      expect(recordStart(previous, T0 + 60_000).consecutiveFailures).toBe(0);
+    });
+
+    it('keeps a failed run at 2: it is not counted twice', () => {
+      const previous: RunRecord = {
+        lastStart: T0,
+        lastEnd: T0 + 1000,
+        lastOutcome: 'failed',
+        consecutiveFailures: 2,
+      };
+      expect(recordStart(previous, T0 + 60_000).consecutiveFailures).toBe(2);
+    });
+
+    it('keeps the count of a run that ended in the millisecond it started', () => {
+      const previous: RunRecord = {
+        lastStart: T0,
+        lastEnd: T0,
+        lastOutcome: 'failed',
+        consecutiveFailures: 1,
+      };
+      expect(recordStart(previous, T0 + 60_000).consecutiveFailures).toBe(1);
+    });
+  });
+
+  describe('sequences', () => {
+    it('counts killed runs 0, 1, 2, 3, then 0 after a success', () => {
+      let record = recordStart(undefined, T0);
+      const counts = [record.consecutiveFailures];
+      for (const minute of [1, 2, 3]) {
+        record = recordStart(record, T0 + minute * 60_000);
+        counts.push(record.consecutiveFailures);
+      }
+      expect(counts).toEqual([0, 1, 2, 3]);
+      expect(recordSuccess(record, T0 + 181_000).consecutiveFailures).toBe(0);
+    });
+
+    it('counts failed, killed, failed as 1, 2, 3', () => {
+      // Run 1 fails and records it.
+      let record = recordFailure(recordStart(undefined, T0), T0 + 1000);
+      expect(record.consecutiveFailures).toBe(1);
+      // Run 2 starts (still 1: run 1 is finished) and is killed.
+      record = recordStart(record, T0 + 60_000);
+      expect(record.consecutiveFailures).toBe(1);
+      // Run 3 starts and counts run 2, then fails itself.
+      record = recordStart(record, T0 + 120_000);
+      expect(record.consecutiveFailures).toBe(2);
+      record = recordFailure(record, T0 + 121_000);
+      expect(record.consecutiveFailures).toBe(3);
+    });
+  });
+});
+
+describe('RUN_FAILURES_ALERT_THRESHOLD', () => {
+  it('is 3', () => {
+    expect(RUN_FAILURES_ALERT_THRESHOLD).toBe(3);
+  });
+});
+
+describe('isUnfinished', () => {
+  it.each<[string, RunRecord, boolean]>([
+    ['no lastEnd', { lastStart: T0, consecutiveFailures: 0 }, true],
+    ['lastEnd before lastStart', { lastStart: T0, lastEnd: T0 - 1, consecutiveFailures: 0 }, true],
+    ['lastEnd equal to lastStart', { lastStart: T0, lastEnd: T0, consecutiveFailures: 0 }, false],
+    ['lastEnd after lastStart', { lastStart: T0, lastEnd: T0 + 1, consecutiveFailures: 0 }, false],
+  ])('%s', (_name, record, expected) => {
+    expect(isUnfinished(record)).toBe(expected);
   });
 });
 
