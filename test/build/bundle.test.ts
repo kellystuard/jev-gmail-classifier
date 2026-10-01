@@ -18,9 +18,18 @@ import {
 } from '../../scripts/bundle.ts';
 import { ENTRY_POINTS } from '../../src/entry/entry-points.ts';
 import * as main from '../../src/entry/main.ts';
+import { encodePosition, POSITION_KEY } from '../../src/core/position.ts';
+import { createGasGlobals, type GasGlobalsStub, STUB_UUID } from './gas-globals-stub.ts';
 
 const FIXTURE_CONFIG = join(REPO_ROOT, 'test', 'fixtures', 'config', 'valid.yaml');
 const FIXTURE_RULE_IDS = ['fixture-approval', 'fixture-bill', 'fixture-newsletter'];
+
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/** The entry points E7 wires; they need Apps Script's globals. */
+const WIRED = ['onTrigger', 'install', 'uninstall'] as const;
+/** Placeholders until E8: they only load the config. */
+const PLACEHOLDERS = ['startManualRun', 'continueManualRun', 'cancelManualRun'] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -35,9 +44,9 @@ function callGlobal(scope: Record<string, unknown>, name: string): unknown {
   return Reflect.apply(fn, undefined, []);
 }
 
-/** Evaluates `code` as a classic script in a fresh context with no module system. */
-function evaluate(code: string): Record<string, unknown> {
-  const scope: Record<string, unknown> = createContext({});
+/** Evaluates `code` as a classic script in a fresh context with no module system, and `globals`. */
+function evaluate(code: string, globals: Record<string, unknown> = {}): Record<string, unknown> {
+  const scope: Record<string, unknown> = createContext({ ...globals });
   runInContext(code, scope);
   return scope;
 }
@@ -134,7 +143,7 @@ describe('bundle()', () => {
 
   it('loads and validates the embedded config with the bundled Zod, with no module system', () => {
     const scope = evaluate(code);
-    for (const name of ENTRY_POINTS) {
+    for (const name of PLACEHOLDERS) {
       expect(callGlobal(scope, name), name).toMatchObject({
         ruleCount: FIXTURE_RULE_IDS.length,
       });
@@ -143,9 +152,100 @@ describe('bundle()', () => {
 
   it('calls each placeholder in main.ts through the footer', () => {
     const scope = evaluate(code);
-    for (const name of ENTRY_POINTS) {
+    for (const name of PLACEHOLDERS) {
       expect(callGlobal(scope, name), name).toEqual(main[name]());
     }
+  });
+
+  it('builds no adapter at load: the bundle evaluates with no Apps Script globals', () => {
+    expect(() => evaluate(code)).not.toThrow();
+  });
+
+  describe('the wired entry points, against stubbed Apps Script globals', () => {
+    /** Script Properties for an installed classifier: a key and a position. */
+    function installed(): Record<string, string> {
+      return {
+        JEV_API_KEY: 'test-key',
+        [POSITION_KEY]: JSON.stringify(encodePosition({ historyId: '1000', savedAt: 0 })),
+      };
+    }
+
+    function run(stub: GasGlobalsStub, name: string): unknown {
+      return callGlobal(evaluate(code, stub.globals), name);
+    }
+
+    it.each(WIRED)(
+      '%s returns skipped and logs one run.skipped line when the lock is busy',
+      (name) => {
+        const stub = createGasGlobals({ lockBusy: true, properties: installed() });
+        const before = new Map(stub.properties);
+
+        expect(run(stub, name)).toEqual({ entry: name, status: 'skipped', reason: 'busy' });
+
+        expect(stub.lines).toHaveLength(1);
+        expect(stub.lines[0]?.level).toBe('info');
+        const json = stub.lines[0]?.json ?? {};
+        expect(json).toMatchObject({
+          event: 'run.skipped',
+          entry: name,
+          reason: 'busy',
+          runId: STUB_UUID,
+        });
+        expect(String(json['ts'])).toMatch(ISO_TIME);
+        expect(stub.properties).toEqual(before);
+      },
+    );
+
+    it('onTrigger runs once on an empty history: drained, with run.start and run.end', () => {
+      const stub = createGasGlobals({ properties: installed() });
+
+      const result = run(stub, 'onTrigger');
+      expect(result).toMatchObject({
+        entry: 'onTrigger',
+        status: 'ok',
+        stopped: 'drained',
+        alerts: [],
+      });
+      expect(isRecord(result) && isRecord(result['summary'])).toBe(true);
+
+      for (const event of ['run.start', 'run.end']) {
+        const [line, ...more] = stub.events(event);
+        expect(more, event).toEqual([]);
+        expect(line?.json, event).toMatchObject({ entry: 'onTrigger', runId: STUB_UUID });
+        expect(String(line?.json['ts']), event).toMatch(ISO_TIME);
+      }
+      expect(stub.events('run.failed')).toEqual([]);
+      // The heartbeat and the Gmail tally were written, and the lock released.
+      expect(stub.properties.has('state.runs')).toBe(true);
+      expect(stub.properties.has('state.gmailCalls')).toBe(true);
+      expect(stub.lockHeld()).toBe(false);
+    });
+
+    it('install sets the position and the trigger, then uninstall removes them', () => {
+      const stub = createGasGlobals({
+        properties: { JEV_API_KEY: 'test-key' },
+        historyId: '2000',
+      });
+
+      expect(run(stub, 'install')).toEqual({
+        entry: 'install',
+        status: 'ok',
+        position: 'set',
+        historyId: '2000',
+        triggerMinutes: 10,
+        missingScopes: [],
+      });
+      expect(stub.triggers).toEqual([{ handler: 'onTrigger', minutes: 10 }]);
+      expect(stub.properties.has(POSITION_KEY)).toBe(true);
+
+      expect(run(stub, 'uninstall')).toMatchObject({
+        entry: 'uninstall',
+        status: 'ok',
+        triggersDeleted: 1,
+      });
+      expect(stub.triggers).toEqual([]);
+      expect([...stub.properties.keys()]).toEqual(['JEV_API_KEY']);
+    });
   });
 
   it(`calls whatever ${GLOBAL_NAME} holds at call time`, () => {
@@ -172,9 +272,12 @@ describe('bundle() with an embedded config that fails validation', () => {
 
   it('throws ConfigError from every entry point, as a stale or hand-edited bundle would', async () => {
     // `bundle()` doesn't validate (the build does that first), so this is what
-    // a bundle with a bad embedded config does at runtime.
+    // a bundle with a bad embedded config does at runtime. The wired entry
+    // points load it inside `runEntry`, with the lock free, which logs
+    // `run.failed` and rethrows.
     await bundle({ outDir, embeddedConfig: { defaultThreshold: 2, rules: [] } });
-    const scope = evaluate(readFileSync(join(outDir, 'Code.js'), 'utf8'));
+    const stub = createGasGlobals({ properties: { JEV_API_KEY: 'test-key' } });
+    const scope = evaluate(readFileSync(join(outDir, 'Code.js'), 'utf8'), stub.globals);
     for (const name of ENTRY_POINTS) {
       let thrown: unknown;
       try {
@@ -192,5 +295,9 @@ describe('bundle() with an embedded config that fails validation', () => {
         ].join('\n'),
       );
     }
+    expect(stub.events('run.failed').map((line) => line.json['entry'])).toEqual([...WIRED]);
+    expect(stub.events('run.failed').map((line) => line.json['error'])).toEqual(
+      WIRED.map(() => 'ConfigError'),
+    );
   });
 });

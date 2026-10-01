@@ -4,7 +4,7 @@ Manual checks for the code that can't be unit-tested against a mocked Apps Scrip
 
 ## Gmail adapter (GasGmailAdapter)
 
-These run through the product's entry points once E7 wires the adapter. Until then they're a draft: run them from a scratch function in the throwaway test account (see `spikes/README.md`), and never write the account's address anywhere (write `<test-account>`).
+Since E7 (#121) the entry points use this adapter (`install` calls `getProfile`; `onTrigger` the rest), and the "Entry points" section below checks it end to end. The checks here call single methods with chosen arguments, so they run from a scratch function in the throwaway test account (see `spikes/README.md`). Never write the account's address anywhere (write `<test-account>`).
 
 Each check gives the call and the expected result.
 
@@ -54,7 +54,7 @@ Afterwards, delete the `JevSmoke` labels and the synthetic threads.
 
 ## Script Properties adapter (GasStateAdapter)
 
-These run in a real deployment once E7 wires `new GasStateAdapter()` into `src/entry/`. Until then nothing calls the adapter. Each check is a step and the expected result. Use Project Settings → Script Properties to look at and edit properties, and the execution log to see the errors. Never write the test account's address anywhere (write `<test-account>`).
+These run in a real deployment: since E7 (#121) every wired entry point builds a `GasStateAdapter` per execution. Each check is a step and the expected result. Use Project Settings → Script Properties to look at and edit properties, and the execution log to see the errors. Never write the test account's address anywhere (write `<test-account>`).
 
 1. Run the classifier at least once (a trigger run or `install`). In Script Properties, every key the classifier wrote starts with `state.`, and every value is one line of JSON starting with `{"v":`. `JEV_API_KEY` and any `MANUAL_*` inputs are unchanged.
 2. Edit `state.position` by hand to text that isn't JSON, for example `{"v":1,`. The next run fails with `StateError` and `reason: parse` in the log, and the log line has the key but not the stored text. The value is left exactly as edited (not reset). Restore it.
@@ -65,7 +65,7 @@ These run in a real deployment once E7 wires `new GasStateAdapter()` into `src/e
 
 ## UTF-8 decoder (gasDecodeUtf8)
 
-These run from a scratch function in the throwaway test account (`spikes/README.md`) until E7 wires `gasDecodeUtf8` into `src/entry/`. Each check is a call and the expected result. Never write the test account's address anywhere (write `<test-account>`).
+Since E7 (#121) `onTrigger` decodes every body with it, so check 6 also runs end to end in the "Entry points" section. Checks 1–5 call it with chosen bytes, so they run from a scratch function in the throwaway test account (`spikes/README.md`). Each check is a call and the expected result. Never write the test account's address anywhere (write `<test-account>`).
 
 1. `gasDecodeUtf8([])` returns `''`.
 2. `gasDecodeUtf8([72, 105])` returns `'Hi'`.
@@ -76,7 +76,7 @@ These run from a scratch function in the throwaway test account (`spikes/README.
 
 ## HTTP and secrets adapters (GasHttpAdapter, GasSecretsAdapter)
 
-These run from a scratch function in the throwaway test account (`spikes/README.md`) until E7 wires `new GasHttpAdapter()` and `new GasSecretsAdapter()` into `src/entry/`. Each check is a call and the expected result. `spikes/94-fetch-all.md` recorded what `UrlFetchApp` does underneath. Never write the test account's address anywhere (write `<test-account>`), and never paste the key, an `Authorization` header or a response body that echoes a request into an issue or a log.
+Since E7 (#121) `onTrigger` uses both (and `install` the secrets adapter), so checks 3 and 6 also run end to end in the "Entry points" section. The checks here send chosen requests, so they run from a scratch function in the throwaway test account (`spikes/README.md`). Each check is a call and the expected result. `spikes/94-fetch-all.md` recorded what `UrlFetchApp` does underneath. Never write the test account's address anywhere (write `<test-account>`), and never paste the key, an `Authorization` header or a response body that echoes a request into an issue or a log.
 
 The "Jev request" below is `{ url: 'https://api.typesafe.ai/v1/systemone', method: 'post', headers: {}, contentType: 'application/json', payload: <a minimal synthetic JSON body with one noul question> }`.
 
@@ -90,7 +90,7 @@ The "Jev request" below is `{ url: 'https://api.typesafe.ai/v1/systemone', metho
 
 ## Script lock adapter (GasLockAdapter)
 
-These run from a scratch function in the throwaway test account (`spikes/README.md`) until E7 wires `new GasLockAdapter()` into `src/entry/` (#121); after that, through the entry points. Each check is a call and the expected result. Checks 3 and 4 need two executions at the same time: start one from the editor and the other with `node spikes/run.mjs run`, or from two terminals. Never write the test account's address anywhere (write `<test-account>`).
+Checks 1–6 call the adapter directly, from a scratch function in the throwaway test account (`spikes/README.md`); check 7 runs through the entry points, which use the adapter since E7 (#121). Each check is a call and the expected result. Checks 3 and 4 need two executions at the same time: start one from the editor and the other with `node spikes/run.mjs run`, or from two terminals. Never write the test account's address anywhere (write `<test-account>`).
 
 1. With no other execution running, `new GasLockAdapter().tryAcquire()` returns `true`.
 2. In the same execution, a second `tryAcquire()` on the same adapter returns `true` (re-entrant for the holder, as `FakeLock` models). If it returns `false`, change `FakeLock` to match and record it here.
@@ -98,26 +98,52 @@ These run from a scratch function in the throwaway test account (`spikes/README.
 4. While A holds the lock, B calls `release()` on its own adapter: nothing throws, and A still holds the lock (a third execution's `tryAcquire()` still returns `false`).
 5. Execution A calls `tryAcquire()` (`true`) and then throws without releasing. A following execution's `tryAcquire()` returns `true`: Apps Script freed the lock when A ended.
 6. `release()` on a fresh adapter (no `tryAcquire()` first), and a second `release()` after a release, don't throw.
-7. Once #121 has merged (entry points): run `install` from the editor while a scheduled `onTrigger` run is in progress (or run the check-3 sleeper first); the log shows `run.skipped` with `reason: busy` and nothing else for that execution.
+7. Through the entry points: run `install` from the editor while a scheduled `onTrigger` run is in progress (or run the check-3 sleeper first); the log shows `run.skipped` with `reason: busy` and nothing else for that execution.
 
 ## Trigger adapter (GasTriggerAdapter)
 
-This runs from a scratch function in the throwaway test account (`spikes/README.md`) until E7 (#121) wires `install` and `uninstall`. Check the results on the editor's **Triggers** page. Never write the test account's address anywhere (write `<test-account>`).
+Since E7 (#121) `install` calls `replaceRecurringTrigger('onTrigger', triggerIntervalMinutes)` and `uninstall` calls `deleteTriggers('onTrigger')`, so checks 1–4 run through those entry points. Check 5 needs both calls in one execution, so it runs from a scratch function in the throwaway test account (`spikes/README.md`). Check the results on the editor's **Triggers** page. Never write the test account's address anywhere (write `<test-account>`).
 
-1. With no triggers, `new GasTriggerAdapter().replaceRecurringTrigger('onTrigger', 10)` returns `{ ok: true }`, and the Triggers page shows exactly one time-driven `onTrigger` trigger, every 10 minutes.
-2. `replaceRecurringTrigger('onTrigger', 5)` returns `{ ok: true }`; there is still exactly one `onTrigger` trigger, now every 5 minutes.
-3. Create a second `onTrigger` trigger and one for `smokeOther` by hand (`ScriptApp.newTrigger(...).timeBased().everyHours(1).create()`). `replaceRecurringTrigger('onTrigger', 10)` leaves exactly one `onTrigger` trigger (every 10 minutes) and the `smokeOther` one untouched.
-4. `deleteTriggers('onTrigger')` returns `{ ok: true, deleted: 1 }`, and `smokeOther` is still there. A second call returns `{ ok: true, deleted: 0 }`.
-5. In **one** execution, `replaceRecurringTrigger('onTrigger', 10)` then `deleteTriggers('onTrigger')` returns `{ ok: true, deleted: 1 }` with no HTTP 500 (the pitfall from E1 #163 is avoided).
+1. With no triggers and `triggerIntervalMinutes: 10`, `install` returns `triggerMinutes: 10`, and the Triggers page shows exactly one time-driven `onTrigger` trigger, every 10 minutes.
+2. Set `triggerIntervalMinutes: 5`, `npm run push`, and run `install` again: there is still exactly one `onTrigger` trigger, now every 5 minutes. Set it back to 10 and push again.
+3. Create a second `onTrigger` trigger and one for `smokeOther` by hand (`ScriptApp.newTrigger(...).timeBased().everyHours(1).create()`). `install` leaves exactly one `onTrigger` trigger (every 10 minutes) and the `smokeOther` one untouched.
+4. `uninstall` returns `triggersDeleted: 1`, and `smokeOther` is still there. A second `uninstall` returns `triggersDeleted: 0`.
+5. In **one** scratch execution, `new GasTriggerAdapter()`'s `replaceRecurringTrigger('onTrigger', 10)` then `deleteTriggers('onTrigger')` returns `{ ok: true, deleted: 1 }` with no HTTP 500 (the pitfall from E1 #163 is avoided).
 6. Not observed (accepted v1 risk, SD §14): with `script.scriptapp` unticked at consent, both methods return `{ ok: false, kind: 'scope' }` and don't throw.
 
 Afterwards, delete the `smokeOther` trigger.
 
 ## Auth adapter (GasAuthAdapter)
 
-This runs through `install` / `onTrigger` once E7 (#121) wires `new GasAuthAdapter()` into `src/entry/main.ts`; until then, from a scratch function in the throwaway test account. Write `<test-account>`, never the address.
+Since E7 (#121) `install` (both methods) and `onTrigger` (the scope check) use it, so the checks run through those entry points. A scratch function in the throwaway test account can call `new GasAuthAdapter()` directly to see the raw result. Write `<test-account>`, never the address.
 
-1. With all four scopes granted, `new GasAuthAdapter().missingScopes()` returns `{ ok: true, missing: [] }` and doesn't throw.
+1. With all four scopes granted, `install` returns `missingScopes: []`, and neither `install` nor `onTrigger` logs `scope_missing`. (Directly: `new GasAuthAdapter().missingScopes()` returns `{ ok: true, missing: [] }` and doesn't throw.)
 2. Not observed (accepted v1 risk, SD §14; partly granted states): with one scope unticked at consent, `missing` is exactly that scope. With `script.scriptapp` unticked, record whether it returns `missing: ['https://www.googleapis.com/auth/script.scriptapp']` or `{ ok: false, kind: 'unknown' }`. In no state does it throw.
 3. With all four scopes granted, `requireScopes(INSTALL_REQUIRED_SCOPES)` returns without throwing, and `install` goes on.
 4. Not observed (accepted v1 risk, SD §14; partly granted states): running `install` from the editor with `gmail.modify`, `script.external_request` or `script.scriptapp` unticked shows the consent screen again (or throws an authorization error with a link to it), and `install` writes nothing. With only `script.send_mail` unticked, `install` finishes and its report lists it in `missingScopes`.
+
+## Clock, random and log adapters (GasClockAdapter, GasRandomAdapter, GasLogAdapter)
+
+Every wired entry point builds these per execution (E7, #121), so the checks read the log of an entry-point run (the editor's **Executions** page, or the log pane after running from the editor). The log adapter's line format is also unit-tested (`test/adapters/gas/gas-log-adapter.test.ts`). It is minimal until E9 (#142) adds `redact`. Never write the test account's address anywhere (write `<test-account>`).
+
+1. Every line an entry point writes is one JSON object that starts with `event`, `runId`, `entry` and `ts`, at the event's level (`info`, `warn` or `error`).
+2. All the lines of one execution share one `runId` (a UUID), and two executions have different ones. `entry` is the entry point's name (`onTrigger`, `install` or `uninstall`).
+3. `ts` is an ISO 8601 time in UTC (`…Z`) within the execution's start and end (the clock adapter's `Date.now()`).
+4. The time zone: `state.gmailCalls`'s `day` and `state.budget`'s day follow `timeZone` in `appsscript.json` (`Session.getScriptTimeZone()`), not UTC. With `timeZone` set to a zone far from UTC, a run just after local midnight starts a new `day`.
+5. The sleep and the jitter (only if Jev answers 429 or 503 during the pilot; skip it otherwise): a `jev.batch` line with `rounds` > 1 has `sleptMs` > 0, and the execution lasts at least that long (`Utilities.sleep`, with the random adapter's jitter in the delay).
+6. No line contains a message body, the API key, an `Authorization` header or a request's `state`.
+
+## Entry points
+
+The composition root (`src/entry/main.ts`, E7 #121) wires `install`, `onTrigger` and `uninstall`. `startManualRun`, `continueManualRun` and `cancelManualRun` are placeholders until E8: they return `{ entry, status: 'placeholder', ruleCount }`. Run this on the throwaway test account only (ADR-0016), with synthetic mail only (a made-up sender at `example.test`, sent or imported into `<test-account>`). Never write the test account's address anywhere. Push with `npm run push` from a `config.yaml` with `triggerIntervalMinutes: 10` and one label rule that fires on the synthetic message (for example "Is this a test message from example.test?"), and set `JEV_API_KEY` in Script Properties. E10 (#154) uses this section; it has not been run live yet.
+
+1. **Install.** Run `install` from the editor. It returns `{ entry: 'install', status: 'ok', position: 'set', historyId, triggerMinutes: 10, missingScopes: [] }`. The Triggers page shows one `onTrigger` trigger, every 10 minutes. Script Properties has `state.position`, `state.installedAt` and `state.gmailCalls`. The log has `run.start` and `run.end` for `install`, and no `run.failed`.
+2. **Install again.** A second `install` returns `position: 'kept'` with the same `historyId`, and there is still one trigger.
+3. **A scheduled run.** Deliver one synthetic message. Wait for the next `onTrigger`, or run it from the editor: it returns `{ entry: 'onTrigger', status: 'ok', stopped, summary, alerts: [] }`. The log has `run.start`, `thread.classified` for the thread (with the rule's probability), and `run.end` with `ingested` ≥ 1 and `classified: 1`. The thread has the rule's label. `state.runs` has `lastOutcome: 'ok'` and `consecutiveFailures: 0`.
+4. **Nothing new.** Another `onTrigger` with no new mail returns `stopped: 'drained'`; its `run.end` has `ingested: 0` and `classified: 0`.
+5. **Two at once.** Start two `onTrigger` executions at the same time (one from the editor and one with `node spikes/run.mjs run onTrigger`, or one from the editor during a scheduled run). One returns `{ entry: 'onTrigger', status: 'skipped', reason: 'busy' }` and logs exactly one line, `run.skipped`. The other runs normally.
+6. **Missing key.** Delete `JEV_API_KEY` from Script Properties and run `onTrigger`. The execution shows as **Failed**. Right after `run.start`, the log has `run.failed` with `error: 'RunAbortError'`, `reason: 'missing_key'` and `alerts: ['auth']` (no Gmail or Jev call came first). `state.runs` has `lastOutcome: 'failed'` and `consecutiveFailures: 1`, and no thread is marked. Restore the key: the next run sets `consecutiveFailures` back to 0.
+7. **Uninstall.** Run `uninstall`. It returns `{ entry: 'uninstall', status: 'ok', triggersDeleted: 1, keysDeleted }`. The Triggers page has no `onTrigger` trigger, and Script Properties has no `state.*` key (nothing is written after the delete). `JEV_API_KEY` and the Gmail labels (the rule's, and `Jev/Error` if any) are still there.
+8. **After uninstall.** Run `onTrigger` from the editor: it fails with `StateError` (`state.position` is missing: install writes it). Run `install` to set it up again, or `uninstall` once more to remove the `state.runs` that run wrote.
+
+Afterwards, delete the synthetic threads and the rule's label.

@@ -193,7 +193,7 @@ export const UNUSED_SERVICE_GLOBALS: readonly string[] = [
   'Browser',
 ];
 
-/** The only file in `src/` that may use `console` (SD §4.1). No such adapter exists yet. */
+/** The only file in `src/` that may use `console` (SD §4.1). */
 export const LOG_ADAPTER_FILE = 'src/adapters/gas/gas-log-adapter.ts';
 
 const ADAPTER_ONLY: readonly GlobalRestriction[] = ADAPTER_ONLY_GLOBALS.map((name) => ({
