@@ -188,31 +188,28 @@ export function onTrigger(): OnTriggerResult {
   const entry = 'onTrigger';
   const ports = buildPorts(entry);
   const options: RunEntryOptions = { entry, kind: 'scheduled', heartbeat: true, tallyGmail: true };
-  const result = runEntry<Body<OnTriggerReport>>(
-    options,
-    entryDeps(ports, mailAlertSink(ports)),
-    (ctx) => {
-      const { summary, stopped, alerts } = runScheduled(ctx, {
+  const deps = entryDeps(ports, mailAlertSink(ports));
+  const result = runEntry<Body<OnTriggerReport>>(options, deps, (ctx) => {
+    const { summary, stopped, alerts } = runScheduled(ctx, {
+      http: ports.http,
+      state: ports.state,
+      log: ports.log,
+      clock: ports.clock,
+      random: ports.random,
+      secrets: ports.secrets,
+      auth: ports.auth,
+      decodeUtf8: ports.decodeUtf8,
+      spareTime: createManualSpareTime({
         http: ports.http,
         state: ports.state,
         log: ports.log,
         clock: ports.clock,
         random: ports.random,
-        secrets: ports.secrets,
-        auth: ports.auth,
         decodeUtf8: ports.decodeUtf8,
-        spareTime: createManualSpareTime({
-          http: ports.http,
-          state: ports.state,
-          log: ports.log,
-          clock: ports.clock,
-          random: ports.random,
-          decodeUtf8: ports.decodeUtf8,
-        }),
-      });
-      return { summary, report: { stopped, summary, alerts } };
-    },
-  );
+      }),
+    });
+    return { summary, report: { stopped, summary, alerts } };
+  });
   return finish(entry, result);
 }
 
@@ -220,25 +217,22 @@ export function install(): InstallResult {
   const entry = 'install';
   const ports = buildPorts(entry);
   const options: RunEntryOptions = { entry, kind: 'lifecycle', heartbeat: false, tallyGmail: true };
-  const result = runEntry<Body<InstallReport>>(
-    options,
-    entryDeps(ports, mailAlertSink(ports)),
-    (ctx) => ({
-      report: installUseCase(
-        ctx,
-        {
-          gmail: ctx.gmail,
-          state: ports.state,
-          trigger: ports.trigger,
-          auth: ports.auth,
-          secrets: ports.secrets,
-          clock: ports.clock,
-          log: ports.log,
-        },
-        TRIGGER_HANDLER,
-      ),
-    }),
-  );
+  const deps = entryDeps(ports, mailAlertSink(ports));
+  const result = runEntry<Body<InstallReport>>(options, deps, (ctx) => ({
+    report: installUseCase(
+      ctx,
+      {
+        gmail: ctx.gmail,
+        state: ports.state,
+        trigger: ports.trigger,
+        auth: ports.auth,
+        secrets: ports.secrets,
+        clock: ports.clock,
+        log: ports.log,
+      },
+      TRIGGER_HANDLER,
+    ),
+  }));
   return finish(entry, result);
 }
 
@@ -251,16 +245,13 @@ export function uninstall(): UninstallResult {
     heartbeat: false,
     tallyGmail: false,
   };
-  const result = runEntry<Body<UninstallReport>>(
-    options,
-    entryDeps(ports, logOnlyAlertSink),
-    () => ({
-      report: uninstallUseCase(
-        { trigger: ports.trigger, state: ports.state, log: ports.log },
-        TRIGGER_HANDLER,
-      ),
-    }),
-  );
+  const deps = entryDeps(ports, logOnlyAlertSink);
+  const result = runEntry<Body<UninstallReport>>(options, deps, () => ({
+    report: uninstallUseCase(
+      { trigger: ports.trigger, state: ports.state, log: ports.log },
+      TRIGGER_HANDLER,
+    ),
+  }));
   return finish(entry, result);
 }
 
@@ -282,25 +273,22 @@ function manualDeps(ports: Ports) {
 export function startManualRun(): StartManualResult {
   const entry = 'startManualRun';
   const ports = buildPorts(entry);
-  const result = runEntry<StartBody>(
-    { entry, ...MANUAL_OPTIONS },
-    entryDeps(ports, mailAlertSink(ports)),
-    (ctx) => {
-      const started = startManualJob({ state: ports.state, clock: ports.clock, log: ports.log });
-      if (!started.started) return { rejected: started.reason };
-      const { summary, report } = continueManualJob(ctx, manualDeps(ports));
-      return {
+  const deps = entryDeps(ports, mailAlertSink(ports));
+  const result = runEntry<StartBody>({ entry, ...MANUAL_OPTIONS }, deps, (ctx) => {
+    const started = startManualJob({ state: ports.state, clock: ports.clock, log: ports.log });
+    if (!started.started) return { rejected: started.reason };
+    const { summary, report } = continueManualJob(ctx, manualDeps(ports));
+    return {
+      summary,
+      report: {
+        query: started.job.query,
+        applyMoves: started.job.applyMoves,
+        job: report.job,
+        stopped: report.stopped,
         summary,
-        report: {
-          query: started.job.query,
-          applyMoves: started.job.applyMoves,
-          job: report.job,
-          stopped: report.stopped,
-          summary,
-        },
-      };
-    },
-  );
+      },
+    };
+  });
   if ('rejected' in result) return { entry, status: 'rejected', reason: result.rejected };
   return finish(entry, result);
 }
@@ -308,14 +296,11 @@ export function startManualRun(): StartManualResult {
 export function continueManualRun(): ContinueManualResult {
   const entry = 'continueManualRun';
   const ports = buildPorts(entry);
-  const result = runEntry<Body<ContinueManualReport>>(
-    { entry, ...MANUAL_OPTIONS },
-    entryDeps(ports, mailAlertSink(ports)),
-    (ctx) => {
-      const { summary, report } = continueManualJob(ctx, manualDeps(ports));
-      return { summary, report: { job: report.job, stopped: report.stopped, summary } };
-    },
-  );
+  const deps = entryDeps(ports, mailAlertSink(ports));
+  const result = runEntry<Body<ContinueManualReport>>({ entry, ...MANUAL_OPTIONS }, deps, (ctx) => {
+    const { summary, report } = continueManualJob(ctx, manualDeps(ports));
+    return { summary, report: { job: report.job, stopped: report.stopped, summary } };
+  });
   return finish(entry, result);
 }
 
@@ -328,7 +313,8 @@ export function cancelManualRun(): CancelManualResult {
     heartbeat: false,
     tallyGmail: false,
   };
-  const result = runEntry<Body<CancelReport>>(options, entryDeps(ports, logOnlyAlertSink), () => ({
+  const deps = entryDeps(ports, logOnlyAlertSink);
+  const result = runEntry<Body<CancelReport>>(options, deps, () => ({
     report: cancelManualJob({ state: ports.state, log: ports.log }, 'cancelled'),
   }));
   return finish(entry, result);
