@@ -418,6 +418,48 @@ describe('takeChunk', () => {
   });
 });
 
+describe('takeChunk with a source', () => {
+  const queue: WorkQueue = [
+    item('s1'),
+    item('m1', { source: 'manual', enqueuedAt: T0 + 1 }),
+    item('s2', { enqueuedAt: T0 + 2 }),
+    item('m2', { source: 'manual', enqueuedAt: T0 + 3 }),
+    item('s3', { enqueuedAt: T0 + 4 }),
+  ];
+
+  it.each<[WorkItem['source'], number, string[]]>([
+    ['scheduled', 2, ['s1', 's2']],
+    ['scheduled', 10, ['s1', 's2', 's3']],
+    ['manual', 1, ['m1']],
+    ['manual', 10, ['m1', 'm2']],
+  ])('takes only %s items (n = %i)', (source, n, expected) => {
+    expect(ids(takeChunk(queue, n, undefined, source))).toEqual(expected);
+  });
+
+  it.each<[WorkItem['source'], string[], string[]]>([
+    ['scheduled', ['s1'], ['s2', 's3']],
+    ['manual', ['m1'], ['m2']],
+    ['manual', ['s1', 'zzz'], ['m1', 'm2']],
+    ['scheduled', ['s1', 's2', 's3'], []],
+  ])('with source %s skips the excluded %j', (source, excluded, expected) => {
+    expect(ids(takeChunk(queue, 10, new Set(excluded), source))).toEqual(expected);
+  });
+
+  it('applies the source with an empty exclude set', () => {
+    expect(ids(takeChunk(queue, 10, new Set(), 'manual'))).toEqual(['m1', 'm2']);
+  });
+
+  it('gives nothing when no item has the source', () => {
+    expect(takeChunk([item('a')], 3, undefined, 'manual')).toEqual([]);
+  });
+
+  it('still validates n', () => {
+    expect(thrown(() => takeChunk(queue, 0, undefined, 'manual'))).toBeInstanceOf(
+      JevClassifierError,
+    );
+  });
+});
+
 describe('dequeue', () => {
   const queue: WorkQueue = [item('a'), item('b'), item('c')];
 

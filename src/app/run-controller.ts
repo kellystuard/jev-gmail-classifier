@@ -7,12 +7,14 @@
  * 2. No `gmail.modify`: nothing else runs, not even a Gmail call.
  * 3. `loadQueue`, then 4. `ingest`, bounded by the deadline and the run's Gmail
  *    units. `rate_limited` or `scope` means no processing this run.
- * 5. The chunk loop, only with `script.external_request` and budget left: one
+ * 5. The chunk loop (scheduled items only; manual ones stay queued), only with `script.external_request` and budget left: one
  *    `LabelCache` per run; each chunk starts only while `canStartChunk` allows
  *    (time, then units); each thread is taken **at most once per run**; the
  *    loop stops after a chunk that stopped Gmail work, stopped sending, or
  *    asked to abort.
- * 6. E8's spare-time hook, when scheduled work drained with time left.
+ * 6. E8's spare-time hook, when scheduled work drained with time left: its
+ *    queue is the run's final one, its counts go under `run.end`'s `spare`
+ *    (only when not empty), and its `abort` is handled as in step 8.
  * 7. `run.end`, once, also when a step stopped early and before an abort.
  * 8. An abort (`auth`, `config_invalid`) throws `RunAbortError` after
  *    `run.end`; the queue is already saved and `runEntry` logs `run.failed`.
@@ -55,8 +57,16 @@ export type SpareTimeInput = {
   readonly settledThreadIds: ReadonlySet<string>;
 };
 
-/** E8's hook: manual work in spare time. Returns flat counts for `run.end`'s `spare` field. E7 passes none. */
-export type SpareTimeHook = (input: SpareTimeInput) => RunSummary;
+export type SpareTimeResult = {
+  /** Flat counts for `run.end`'s `spare`. Empty when no manual job was worked on. */
+  readonly counts: RunSummary;
+  /** The queue as saved after the manual work. */
+  readonly queue: WorkQueue;
+  readonly abort?: 'auth' | 'config_invalid';
+};
+
+/** E8's hook: manual work in spare time. Not passed until the manual processor exists. */
+export type SpareTimeHook = (input: SpareTimeInput) => SpareTimeResult;
 
 export type ScheduledDeps = {
   readonly http: HttpPort;
@@ -80,7 +90,7 @@ export type RunStop =
   | 'classify_scope_missing'
   /** Preflight or the sender: today's token budget is reached. */
   | 'budget'
-  /** Nothing left to take this run. */
+  /** No scheduled item left to take this run. */
   | 'drained'
   /** Not enough time, or Gmail units, left to start the next chunk. */
   | 'deadline'
@@ -214,12 +224,7 @@ export function runScheduled(ctx: RunContext, deps: ScheduledDeps): RunReport {
   });
 
   if (end.abort !== undefined) {
-    throw new RunAbortError(
-      end.abort === 'auth'
-        ? 'Jev refused the API key: check JEV_API_KEY in Script Properties'
-        : 'Jev rejected the configured model: check jevModel in config.yaml',
-      { reason: end.abort },
-    );
+    throw runAbortError(end.abort);
   }
   return {
     summary,
@@ -228,6 +233,16 @@ export function runScheduled(ctx: RunContext, deps: ScheduledDeps): RunReport {
     moves: Object.fromEntries(tally.moves),
     alerts,
   };
+}
+
+/** The `RunAbortError` for a chunk's or the spare-time hook's `abort`. */
+export function runAbortError(reason: 'auth' | 'config_invalid'): RunAbortError {
+  return new RunAbortError(
+    reason === 'auth'
+      ? 'Jev refused the API key: check JEV_API_KEY in Script Properties'
+      : 'Jev rejected the configured model: check jevModel in config.yaml',
+    { reason },
+  );
 }
 
 /**
@@ -250,7 +265,7 @@ function processQueue(
   let abort: 'auth' | 'config_invalid' | undefined;
 
   while (stopped === undefined) {
-    const chunk = takeChunk(queue, limits.chunkSize, taken);
+    const chunk = takeChunk(queue, limits.chunkSize, taken, 'scheduled');
     if (chunk.length === 0) {
       stopped = 'drained';
       break;
@@ -291,13 +306,18 @@ function processQueue(
 
   if (stopped === 'drained' && deps.spareTime !== undefined && deadline.remaining() > 0) {
     const spare = deps.spareTime({ ctx, labels, apiKey, queue, settledThreadIds: taken });
-    return { stopped, queue, spare };
+    return {
+      stopped: spare.abort === undefined ? stopped : 'abort',
+      queue: spare.queue,
+      ...(spare.abort === undefined ? {} : { abort: spare.abort }),
+      ...(Object.keys(spare.counts).length === 0 ? {} : { spare: spare.counts }),
+    };
   }
   return { stopped, queue, ...(abort === undefined ? {} : { abort }) };
 }
 
 /** Why the loop stops after this chunk, or `undefined` to go on. The abort wins. */
-function chunkStop(result: ChunkResult): RunStop | undefined {
+export function chunkStop(result: ChunkResult): RunStop | undefined {
   if (result.abort !== undefined) return 'abort';
   if (result.stopGmail !== undefined) return result.stopGmail;
   switch (result.stopSending) {
@@ -318,7 +338,7 @@ function chunkStop(result: ChunkResult): RunStop | undefined {
   }
 }
 
-function collectAlerts(ctx: RunContext, result: ChunkResult): void {
+export function collectAlerts(ctx: RunContext, result: ChunkResult): void {
   ctx.alerts.addAll(result.alerts);
   if (result.erroredThreadIds.length > 0) {
     ctx.alerts.add('errored', { threadIds: result.erroredThreadIds });
