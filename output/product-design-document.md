@@ -259,7 +259,7 @@ These are known low-level decisions, left to the epic that owns them. The [Solut
 - Which responses are retryable, retry attempt count, backoff base, and jitter (E5). **Settled:** see the [Solution Design §8.5](solution-design.md#85-retries-in-rounds). Only 408, 429, 502, 503, 504, 529 and network errors are retried, a generic 500 is not, and 3 attempts go out in batches of 20 requests per `fetchAll`. Jev's over-limit 400 `max_tokens_exceeded` is treated like a 422 (`Jev/Error`).
 - Chunk size and the time budget per run, and the permission check (E7). **Settled:** see the [Solution Design §10.3](solution-design.md#103-time-budget), [§9](solution-design.md#9-gmail-integration) and [§13](solution-design.md#13-epic-guidance). The permission check reads the granted scopes with `ScriptApp.getAuthorizationInfo` (#124), and `install` insists on the three essential ones (#128). The exact error text for a missing scope wasn't observed live: an accepted v1 risk (#268).
 - The manual-run cursor that survives across executions, and the time-span format (E8). **Settled:** see the [Solution Design §6.6](solution-design.md#66-manual-runs) and [§7.3](solution-design.md#73-script-properties-state). The cursor is a `threads.list` page token, with a count of the IDs already read as the fallback when Gmail rejects the token. The time span is a whole number followed by `h`, `d` or `w`.
-- Alert email format (E9).
+- Alert email format (E9). **Settled:** one plain-text email per condition with a fixed subject starting `[Jev Gmail Classifier]`; see the [Solution Design §10.5](solution-design.md#105-logging-and-alerts).
 
 ## 14. Epics
 
