@@ -123,6 +123,18 @@ Since E7 (#121) `install` (both methods) and `onTrigger` (the scope check) use i
 3. With all four scopes granted, `requireScopes(INSTALL_REQUIRED_SCOPES)` returns without throwing, and `install` goes on.
 4. Not observed (accepted v1 risk, SD §14; partly granted states): running `install` from the editor with `gmail.modify`, `script.external_request` or `script.scriptapp` unticked shows the consent screen again (or throws an authorization error with a link to it), and `install` writes nothing. With only `script.send_mail` unticked, `install` finishes and its report lists it in `missingScopes`.
 
+## Mail adapter (GasMailAdapter)
+
+The adapter is wired by #303, and the "Alerts" section checks it end to end. These checks call `send` with chosen arguments from a scratch function in the throwaway test account (`spikes/README.md`). They have not been run live yet: E10 (#154) runs them. Never write the test account's address anywhere (write `<test-account>`).
+
+1. `new GasMailAdapter().send('<test-account>', '[Jev Gmail Classifier] Smoke test', 'Line 1\nLine 2')` returns `{ ok: true }`. The email arrives in the account's own mailbox: the sender shows as `Jev Gmail Classifier` with the account's own address, the subject is exact, and the body is plain text with the line break kept. It has no HTML styling and no attachment.
+2. Record what Gmail does with that self-sent message: its labels (`INBOX`, `SENT`, `UNREAD`?) and whether it is its own thread.
+3. Send the same subject twice: record whether the second email joins the first one's thread or starts a new one.
+4. A body with non-ASCII text (`café … 日本`) and a 5,000-character body arrive unchanged.
+5. `send('not-an-address', 'x', 'y')` throws `UnexpectedResponseError` with `service: 'mail'`. Record Apps Script's exact text. The error's message has `<recipient>` in place of the address.
+6. Not observed (accepted v1 risk, SD §14): with `script.send_mail` unticked at consent, `send` returns `{ ok: false, kind: 'scope' }` and doesn't throw. If this state is ever run, record the exact error text here, in SD §9 and in `scope-errors.ts`.
+7. Not tested (don't exhaust the quota): past the daily email quota, `send` returns `{ ok: false, kind: 'quota' }`. `MailApp.getRemainingDailyQuota()` in a scratch function shows what is left (about 100 a day on a consumer account). If the real text is ever seen, record it here and in `mail-errors.ts`.
+
 ## Clock, random and log adapters (GasClockAdapter, GasRandomAdapter, GasLogAdapter)
 
 Every wired entry point builds these per execution (E7, #121), so the checks read the log of an entry-point run (the editor's **Executions** page, or the log pane after running from the editor). The log adapter's line format is also unit-tested (`test/adapters/gas/gas-log-adapter.test.ts`). It is minimal until E9 (#142) adds `redact`. Never write the test account's address anywhere (write `<test-account>`).
