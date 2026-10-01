@@ -1,4 +1,5 @@
 import type { LogFields } from '../../src/core/log-fields.ts';
+import { isForbiddenLogField } from '../../src/core/redact.ts';
 import type { LogPort } from '../../src/ports/log-port.ts';
 
 export type LogLevel = 'info' | 'warn' | 'error';
@@ -11,8 +12,9 @@ export type LoggedEvent = {
 
 const EVENT_NAME = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/;
 
-/** Field names that must never be logged (Engineering Standards §6). E9 may extend the list. */
-const FORBIDDEN_FIELDS = new Set(['body', 'state', 'authorization', 'apikey']);
+function forbidden(event: string, name: string): Error {
+  return new Error(`FakeLog: event "${event}" has a forbidden field "${name}"`);
+}
 
 /**
  * Records every event in order. Throws on a badly named event or a forbidden
@@ -50,9 +52,13 @@ export class FakeLog implements LogPort {
     if (!EVENT_NAME.test(event)) {
       throw new Error(`FakeLog: "${event}" isn't a dotted lower-case event name`);
     }
-    for (const name of Object.keys(fields)) {
-      if (FORBIDDEN_FIELDS.has(name.toLowerCase())) {
-        throw new Error(`FakeLog: event "${event}" has a forbidden field "${name}"`);
+    for (const [name, value] of Object.entries(fields)) {
+      if (isForbiddenLogField(name)) throw forbidden(event, name);
+      // A forbidden key in a record is allowed when its value is a number (a rule ID or label name).
+      if (typeof value === 'object' && value !== null) {
+        for (const [key, inner] of Object.entries(value)) {
+          if (isForbiddenLogField(key) && typeof inner === 'string') throw forbidden(event, key);
+        }
       }
     }
     this.events.push({ level, event, fields });

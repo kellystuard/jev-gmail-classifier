@@ -137,7 +137,7 @@ The adapter is wired by #303, and the "Alerts" section checks it end to end. The
 
 ## Clock, random and log adapters (GasClockAdapter, GasRandomAdapter, GasLogAdapter)
 
-Every wired entry point builds these per execution (E7, #121), so the checks read the log of an entry-point run (the editor's **Executions** page, or the log pane after running from the editor). The log adapter's line format is also unit-tested (`test/adapters/gas/gas-log-adapter.test.ts`). It is minimal until E9 (#142) adds `redact`. Never write the test account's address anywhere (write `<test-account>`).
+Every wired entry point builds these per execution (E7, #121), so the checks read the log of an entry-point run (the editor's **Executions** page, or the log pane after running from the editor). The log adapter's line format is also unit-tested (`test/adapters/gas/gas-log-adapter.test.ts`). It runs `redact` on every event (unit-tested: `test/core/redact.test.ts`). Never write the test account's address anywhere (write `<test-account>`).
 
 1. Every line an entry point writes is one JSON object that starts with `event`, `runId`, `entry` and `ts`, at the event's level (`info`, `warn` or `error`).
 2. All the lines of one execution share one `runId` (a UUID), and two executions have different ones. `entry` is the entry point's name (`onTrigger`, `install`, `uninstall`, `startManualRun`, `continueManualRun` or `cancelManualRun`).
