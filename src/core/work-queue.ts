@@ -9,7 +9,8 @@
  *   Every operation returns a new array in that order and never changes its
  *   input.
  * - An item leaves the queue only through `dequeue` or `addStrike`, once it's
- *   finished, so a crash repeats work and never loses an item (SD §10.4).
+ *   finished, or through `dropManualWork` (a manual job cancelled or replaced),
+ *   so a crash repeats work and never loses an item (SD §10.4).
  * - Bounds are part of the type's contract, so a full queue of worst-case
  *   items is proven to fit in `QUEUE_MAX_SHARDS` shards: a `threadId` is 1 to
  *   32 characters from `[A-Za-z0-9_-]`, timestamps are integers from 0 to
@@ -284,6 +285,28 @@ export function addStrike(
     queue: queue.map((item) => (item === existing ? buildItem({ ...existing, strikes }) : item)),
     strikes,
   };
+}
+
+/**
+ * Removes every `source: 'manual'` item, and clears `applyMoves` on the items
+ * that stay. `removed` is the number of items removed.
+ *
+ * An item that stays with `applyMoves` is a scheduled item that merged with a
+ * manual one: it keeps being classified as scheduled work, without the job's
+ * moves. Every other field is unchanged. An unchanged item is the same object,
+ * and when nothing changes the same `queue` comes back.
+ */
+export function dropManualWork(queue: WorkQueue): {
+  readonly queue: WorkQueue;
+  readonly removed: number;
+} {
+  const kept = queue.filter((item) => item.source !== 'manual');
+  const removed = queue.length - kept.length;
+  const cleared = kept.map((item) =>
+    item.applyMoves === undefined ? item : buildItem({ ...item, applyMoves: undefined }),
+  );
+  const changed = removed > 0 || cleared.some((item, index) => item !== kept[index]);
+  return changed ? { queue: cleared, removed } : { queue, removed: 0 };
 }
 
 /**
