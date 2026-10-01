@@ -308,7 +308,8 @@ describe('settleThread: an answer (ok)', () => {
 
     expect(threadEvents(s.log)).toEqual([
       {
-        level: 'info',
+        // `warn`: the event carries `truncated` (ES §6).
+        level: 'warn',
         event: 'thread.classified',
         fields: {
           threadId,
@@ -331,6 +332,7 @@ describe('settleThread: an answer (ok)', () => {
     const s = setup();
     const { threadId, context } = oneThread(s);
     settleThread(responseEntry(threadId, ok200(NOTHING, { tokens: 7 })), context, s.deps);
+    expect(s.log.find('thread.classified')?.level).toBe('info');
     expect(s.log.find('thread.classified')?.fields).toEqual({
       threadId,
       source: 'scheduled',
@@ -358,6 +360,7 @@ describe('settleThread: an answer (ok)', () => {
     });
     const fields = s.log.find('thread.classified')?.fields;
     expect(fields?.['moveSkipped']).toBe('scope');
+    expect(s.log.find('thread.classified')?.level).toBe('warn');
     expect(fields?.['actions']).toEqual([`label:${BILL}`]);
   });
 
@@ -376,6 +379,7 @@ describe('settleThread: an answer (ok)', () => {
       labelsSkipped: 'scope',
     });
     expect(s.log.find('thread.classified')?.fields['labelsSkipped']).toBe('scope');
+    expect(s.log.find('thread.classified')?.level).toBe('warn');
   });
 });
 

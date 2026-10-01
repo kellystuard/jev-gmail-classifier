@@ -121,7 +121,7 @@ The model is in [Solution Design §10.1](solution-design.md#101-error-model) and
   - `warn`: handled failures, such as a strike, `scope_missing`, a truncation, or a skipped move.
   - `error`: failures at a boundary and aborted runs.
 - **Never log** message bodies, the API key, the `Authorization` header, or any raw request `state`. Subject and sender are allowed ([PDD §4.9](product-design-document.md#49-observability)).
-- **Adding a new event or field** means updating the event list in [Solution Design §10.5](solution-design.md#105-logging-and-alerts).
+- **Adding a new event or field** means updating the event list in [Solution Design §10.5](solution-design.md#105-logging-and-alerts), and for an event `LOG_EVENT_LEVELS` in `src/core/log-events.ts` (a test checks both against the code).
 
 ## 7. Configuration and State
 
