@@ -157,3 +157,8 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# The smoke test (#155): generated copies of the product bundle and the adapter bundle,
+# pushed to the spike project for the length of the test. Never commit.
+spikes/155-product.js
+spikes/155-adapters.js

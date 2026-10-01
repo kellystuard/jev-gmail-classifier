@@ -870,7 +870,7 @@ for each batch of at most MAX_REQUESTS_PER_FETCHALL requests, in input order:
   - `timeZone: "Etc/UTC"`
   - `exceptionLogging: "STACKDRIVER"`
   - The Gmail advanced service (v1) enabled.
-  - No `executionApi`. The product is never run through the Apps Script API; only the spike manifest has it ([ADR-0016](adr/0016-run-spikes-from-agents-and-a-manual-workflow.md)).
+  - No `executionApi`. The product is never run through the Apps Script API in a user's project; only the spike manifest has it ([ADR-0016](adr/0016-run-spikes-from-agents-and-a-manual-workflow.md)). The release smoke test runs a copy of the bundle in the spike project ([§12](#12-testing-architecture)).
   - Explicit `oauthScopes`:
 
   | Scope | Needed for | Without it |
@@ -1145,6 +1145,8 @@ The principle is **test what is testable in the ways it can be tested, and don't
 | Build and config validation | Unit tests on the schema, plus CI building the example config. |
 
 No live Gmail or Jev calls run in CI. The only exception is the manually dispatched spike workflow (`.github/workflows/spikes.yml`), which pushes and runs `spikes/` functions against the throwaway test account through the Apps Script API. It never runs on pull requests or pushes, and never against a real mailbox ([ADR-0016](adr/0016-run-spikes-from-agents-and-a-manual-workflow.md), proposed).
+
+The release smoke test is run by an agent through the spike runner: a copy of the product bundle, built from a synthetic config, is pushed into the spike project in the test account, run there with the `s155_` helper functions (`spikes/155-smoke.js`), and removed afterwards ([#155](https://github.com/kellystuard/jev-gmail-classifier/issues/155)). The checks that need a person are the maintainer's. The results are in `docs/smoke-test-results.md`.
 
 ## 13. Epic Guidance
 
