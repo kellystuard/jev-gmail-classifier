@@ -5,7 +5,7 @@ This is the checklist that verifies the Apps Script adapters and the six entry p
 - **When it is run:** before each release, and after any change to an adapter.
 - **Where:** on a throwaway test account only, never on a real mailbox ([ADR-0016](../output/adr/0016-run-spikes-from-agents-and-a-manual-workflow.md)). The account is written `<test-account>` everywhere. Its address is never written down.
 - **Who:** a person in the Apps Script editor, or an agent through the spike runner (`spikes/README.md`). The checks are written for both.
-- **Results:** one row per check ID in `docs/smoke-test-results.md`, in a new dated section for each run: pass, fail (with the bug's number), or not run (with the reason).
+- **Results:** one row per check ID in `docs/smoke-test-results.md` ("the results" below), in a new dated section for each run: pass, fail (with the bug's number), or not run (with the reason).
 - **It passes** when every **required** check has its expected result. A failed check is a bug: it is filed, fixed in its own PR, and the section is run again. An expected result is never changed to make a check pass. If a check is wrong against the code and the Solution Design, correct the check in a PR that gives the reason.
 
 Run it from top to bottom. The sections are ordered so that the config is rebuilt as few times as possible.
@@ -20,7 +20,7 @@ Each check is one row: **ID**, **Marking**, **Who**, **Do**, **Expect**.
   - **not observed**: an accepted v1 risk. It needs a partly granted install (some permissions left unticked at consent) or an exhausted daily email quota, and nobody runs those on purpose. It is recorded as not run and does not block the release. It is written down so that the first person who sees the real behaviour knows what to record and where. Each one names its row in [Solution Design §14](../output/solution-design.md#14-technical-risks-and-items-to-verify).
   - **when it happens**: it can't be forced. If it is seen, in a smoke run or in the pilot, record what the check says. Otherwise it is recorded as not seen.
 - **Who.** `person` means someone at the screen has to do or see a step: a consent screen, `clasp`, the Gmail web page, or a link opened in a browser. A blank cell means anyone can run it, a person or an agent.
-- **Do.** One action. Steps that only prepare the action are part of it. A line that starts "Then:" restores something afterwards and is not a check.
+- **Do.** One action. Steps that only prepare the action are part of it. A step that starts "Then:" restores something afterwards and is not a check.
 - **Expect.** One expected result, given as one or more of five kinds of observation:
   1. **Returns** or **Throws**: the function's return value, or the error it throws.
   2. **Log**: log lines, by event name, level and fields.
@@ -29,7 +29,7 @@ Each check is one row: **ID**, **Marking**, **Who**, **Do**, **Expect**.
   5. **Mailbox**: a thread's labels, or an email that arrived.
 - **Record.** A few checks have no fixed result: they observe something nobody has seen yet. They pass when the observation is recorded. Every "record" names its place. The results file always gets it; some checks name a second place.
 
-The three rows of Solution Design §14 that the checks cite:
+"SD" below is the Solution Design (`output/solution-design.md`). The three rows of SD §14 that the checks cite:
 
 | Short name | The row that starts |
 |------------|---------------------|
@@ -61,7 +61,7 @@ Changing a file in `src/` is always a bug fix with its own PR. It is never part 
 | K. Script lock adapter | 9 | 9 | 0 | 0 | 0 |
 | A. Auth adapter | 5 | 2 | 3 | 0 | 3 |
 | M. Mail adapter | 9 | 7 | 2 | 0 | 1 |
-| S. Setup | 9 | 9 | 0 | 0 | 2 |
+| S. Setup, as the README describes it | 9 | 9 | 0 | 0 | 2 |
 | R. Trigger adapter | 6 | 5 | 1 | 0 | 1 |
 | E. Entry points | 8 | 8 | 0 | 0 | 0 |
 | C. Clock, random and log adapters | 12 | 11 | 0 | 1 | 0 |
@@ -224,7 +224,7 @@ function smokeK1() {
 }
 ```
 
-**In the editor.** Pick the function and click Run. The return value is not shown by the editor, so a scratch function also logs it (`console.log(JSON.stringify(result))`). A throw shows the execution as Failed, with the error. The log lines are in the execution log. Script Properties are under Project Settings. The triggers are on the Triggers page. The mailbox is Gmail.
+**In the editor.** Pick the function and click Run. To see a return value in the execution log, a scratch function also logs it (`console.log(JSON.stringify(result))`); for an entry point, call it from a scratch function that logs what it returns. A throw shows the execution as Failed, with the error. The log lines are in the execution log. Script Properties are under Project Settings. The triggers are on the Triggers page. The mailbox is Gmail.
 
 **Through the spike runner.** Only a function's return value comes back: the log goes to Cloud Logging, which the runner can't read. So a helper function wraps each call and returns everything an agent needs: the result (or the error's name, message and fields, if it threw), the log lines it captured while the call ran, the Script Properties, the triggers from `ScriptApp.getProjectTriggers()`, and the mailbox state read through the Gmail API. The helper replaces the account's address, in both its plain and its URL-encoded form, before it returns. The task that runs the checklist writes that helper. The log of a run that the trigger started itself can't be read this way: checks that wait for a trigger run read `state.runs` and the mailbox instead.
 
@@ -334,7 +334,7 @@ Then: delete the label `JevSmoke/A/B`.
 | U2 | required | | `gasDecodeUtf8([72, 105])` | **Returns** `'Hi'`. |
 | U3 | required | | `gasDecodeUtf8([-61, -87, -26, -105, -91, -16, -97, -103, -126])` | **Returns** `'é日🙂'`: length 4 in UTF-16, because the emoji is a surrogate pair. |
 | U4 | required | | `gasDecodeUtf8([-17, -69, -65, 65])` | **Returns** a string of length 2 that starts with U+FEFF. If Apps Script drops the BOM instead, that differs from `nodeDecodeUtf8`: record it in the results and file a bug. |
-| U5 | required | | `gasDecodeUtf8([-1])` | **Returns** `'�'` (the replacement character). It doesn't throw. |
+| U5 | required | | `gasDecodeUtf8([-1])` | **Returns** `'\uFFFD'` (the replacement character). It doesn't throw. |
 | U6 | required | | `getThread(<JevSmoke direct 12's ID>, { format: 'full' })`, then decode its text part's `body.data`. That message declares `charset=ISO-8859-1`. | **Returns** readable text: `café`, not `cafÃ©` (Gmail has already converted the part to UTF-8, spike 29). |
 
 ## H. HTTP and secrets adapters
@@ -367,7 +367,7 @@ The **sleeper** is a scratch function that calls `tryAcquire()`, then `Utilities
 | K2 | required | | In one execution, call `tryAcquire()` twice on the same adapter. | **Returns** `true` both times: the lock is re-entrant for its holder, as `FakeLock` models. If the second call returns `false`, that differs from `FakeLock`: record it in the results and file a bug. |
 | K3 | required | | Start the sleeper (execution A). While A sleeps, execution B calls `tryAcquire()` and measures how long the call took. | **Returns** `false` in B, in well under a second: B didn't wait. |
 | K4 | required | | While A still sleeps, B calls `release()` on its own adapter. Then a third execution calls `tryAcquire()`. | **Returns** `false` in the third execution: B's `release()` threw nothing, and A still holds the lock. |
-| K5 | required | | Execution A calls `tryAcquire()` and then throws without releasing. Then a new execution calls `tryAcquire()`. | **Returns** `true` in A before it throws, and `true` in the new execution: Apps Script freed the lock when A ended. |
+| K5 | required | | Execution A calls `tryAcquire()` (it gets `true`) and then throws without releasing. Then a new execution calls `tryAcquire()`. | **Returns** `true` in the new execution: Apps Script freed the lock when A ended. |
 | K6 | required | | Start the sleeper and wait until it has finished. Then a new execution calls `tryAcquire()`. | **Returns** `true`. |
 | K7 | required | | `new GasLockAdapter().release()`, with no `tryAcquire()` first. | **Returns** normally: nothing is thrown. |
 | K8 | required | | `tryAcquire()`, `release()`, then `release()` again, on one adapter. | **Returns** normally: the second `release()` throws nothing. |
@@ -392,7 +392,7 @@ The **sleeper** is a scratch function that calls `tryAcquire()`, then `Utilities
 | ID | Marking | Who | Do | Expect |
 |----|---------|-----|----|--------|
 | M1 | required | | `new GasMailAdapter().send(<own address>, '[Jev Gmail Classifier] Smoke test', 'Line 1\nLine 2')` | **Returns** `{ ok: true }`. |
-| M2 | required | | Read the email M1 sent. | **Mailbox:** it arrived in the account's own mailbox. The sender is `Jev Gmail Classifier` with the account's own address, the subject is exact, and the body is plain text with the line break kept. It has no HTML part and no attachment. |
+| M2 | required | | Read the email M1 sent. | **Mailbox:** it arrived in the account's own mailbox. The sender is `Jev Gmail Classifier` with the account's own address, the subject is exact, and the body is plain text with the line break kept. It has no HTML styling and no attachment (through the API: no `text/html` part, and no part with a file name). |
 | M3 | required | | Read the labels of M1's message. | **Mailbox**, to **record** in the results: its labels (`INBOX`, `SENT`, `UNREAD`?) and whether it is a thread of its own. Nobody has observed a `MailApp` self-send before. |
 | M4 | required | | Send M1's email a second time. | **Returns** `{ ok: true }`. **Mailbox**, to **record** in the results: whether the second email joined the first one's thread or started a new one. |
 | M5 | required | | `send` with the subject `[Jev Gmail Classifier] Smoke test 2` and the body `café … 日本`. | **Mailbox:** the body arrived unchanged. |
@@ -401,7 +401,7 @@ The **sleeper** is a scratch function that calls `tryAcquire()`, then `Utilities
 | M8 | not observed | person | With `script.send_mail` unticked at consent, `send`. | **Returns** `{ ok: false, kind: 'scope' }`. It doesn't throw. SD §14, MailApp row. If this is ever run, record the exact error text in the results, SD §14 (MailApp row), SD §9 and `scope-errors.ts`. |
 | M9 | not observed | | Past the daily email quota, `send`. Don't exhaust the quota to see this: `MailApp.getRemainingDailyQuota()` shows what is left (about 100 a day on a consumer account). | **Returns** `{ ok: false, kind: 'quota' }`. SD §14, MailApp row. If the real text is ever seen, record it in the results, SD §14 (MailApp row) and `mail-errors.ts`. |
 
-## S. Setup
+## S. Setup, as the README describes it
 
 The steps of [README "Setup"](../README.md#setup), as a user follows them, on the test account. From here on the product is used through its entry points. Before S3: the manual and bulk sets are in the mailbox, and the key is set.
 
@@ -411,10 +411,10 @@ S1 and S2 need a fresh Apps Script project: they are the push with `clasp` and t
 |----|---------|-----|----|--------|
 | S1 | required | person | In a fresh Apps Script project: copy `.clasp.json.example` to `.clasp.json` with the project's script ID, put the smoke config at `config.yaml`, and run `npm run push`. | The build passes and `clasp` pushes. The project holds exactly two files, `Code.js` and `appsscript.json`. |
 | S2 | required | person | In that fresh project, run `install` for the first time. | A consent screen appears, after "Google hasn't verified this app". It lists four permissions, all unticked. It never says "Read, compose, send, and permanently delete all your email from Gmail". With all four ticked, `install` goes on. |
-| S3 | required | | Before anything is installed: with `new GasGmailAdapter()`, page three searches to the end, each with `includeSpamTrash: true`: (a) the config's `excludeQuery`; (b) `from:example.test`; (c) `in:anywhere`. | **Returns** three ID lists for which both hold. Of the synthetic threads (b), only those whose subject holds `JevSmokeExcluded` are in (a). Every thread of (c) is in (a), in (b), or is one of the classifier's own emails (its subject starts with `[Jev Gmail Classifier]`). So no real mail can reach Jev. Record counts only. |
+| S3 | required | | Before anything is installed: with `new GasGmailAdapter().searchThreadIds`, page four searches to the end, each with `includeSpamTrash: true`: (a) the config's `excludeQuery`; (b) `from:example.test`; (c) `subject:"Jev Gmail Classifier"`; (d) `in:anywhere`. | **Returns** four ID lists for which both hold. The only threads in both (a) and (b) are the ones whose subject holds `JevSmokeExcluded`. Every thread of (d) is in (a), (b) or (c): whatever is neither synthetic nor one of the classifier's own emails is excluded, so no real mail can reach Jev. Record counts only. |
 | S4 | required | | Delete the property `JEV_API_KEY`. Run `install`. Then: restore the key. | **Throws** `RunAbortError` whose message says to set `JEV_API_KEY` in Script Properties and run `install` again. **Log:** `run.failed` with `error: 'RunAbortError'`, `reason: 'missing_key'` and `alerts: ['auth']`. **Properties:** no `state.position` and no `state.installedAt`. **Triggers:** none for `onTrigger`. (The run also sends the `auth` alert email, which section N checks.) |
 | S5 | required | | Run `install`. | **Returns** `{ entry: 'install', status: 'ok', position: 'set', historyId, triggerMinutes: 10, missingScopes: [] }`. **Triggers:** exactly one for the handler `onTrigger`, and it is time-driven. **Properties:** `state.position` (with that `historyId` and a `savedAt`), `state.installedAt` and `state.gmailCalls`. **Log:** `run.start` and `run.end` for `install`; no `run.failed` and no `scope_missing`. |
-| S6 | required | | Deliver one label-kind message and one whose subject holds `JevSmokeExcluded`. Run nothing. Wait for the trigger's own run: `lastStart` appears in `state.runs`. | **Properties:** `state.runs` has `lastOutcome: 'ok'`, `consecutiveFailures: 0`, and a `lastSummary` with `sent: 1` and `classified: 1`. **Mailbox:** the first thread has the label `JevSmoke/Test`; the excluded one doesn't. (In the editor, the Executions page shows the run as Completed.) |
+| S6 | required | | Deliver one label-kind message and one whose subject holds `JevSmokeExcluded`. Run nothing. Wait for a trigger run that starts after the delivery: `state.runs` appears, with a `lastStart` later than the delivery. | **Properties:** `state.runs` has `lastOutcome: 'ok'`, `consecutiveFailures: 0`, and a `lastSummary` with `sent: 1` and `classified: 1`. **Mailbox:** the first thread has the label `JevSmoke/Test`; the excluded one doesn't. (In the editor, the Executions page shows the run as Completed.) |
 | S7 | required | | Run `install` again. | **Returns** `position: 'kept'` and the `historyId` that `state.position` held just before the run. **Triggers:** still exactly one for `onTrigger`. |
 | S8 | required | | Set the property `RESET_POSITION` to `true`. Run `install`. | **Returns** `position: 'reset'` and the mailbox's current `historyId`. **Properties:** `state.position` has a new `savedAt`, and `RESET_POSITION` is deleted. |
 | S9 | required | | Set the property `RESET_POSITION` to `yes`. Run `install`. Then: delete `RESET_POSITION`. | **Returns** `position: 'kept'`. **Log:** `run.end` at `warn`, with `resetPositionIgnored: true` and without the value. **Properties:** `RESET_POSITION` is still there, and `state.position` is unchanged. |
@@ -476,7 +476,7 @@ A trigger's interval can't be read from code. A person sees it on the Triggers p
 | C3 | required | | Compare the `runId` of two executions. | **Log:** they differ. |
 | C4 | required | | Read `entry` in the lines of an `install` run and an `onTrigger` run. Do the same for `startManualRun`, `continueManualRun` and `cancelManualRun` in section J and for `uninstall` in section X, and record C4 after X. | **Log:** `entry` is the name of the entry point that ran, in every line. |
 | C5 | required | | Note the time just before and just after one `onTrigger` run. Read `ts` in its lines. | **Log:** every `ts` is an ISO 8601 time in UTC (it ends with `Z`) between those two times. (`GasLogAdapter` writes `ts` itself; the clock adapter is not involved.) |
-| C6 | required | | Search every log line captured so far. | **Log:** no line contains `JevSmokeBody` (the first word of every synthetic body), the API key, the text `Bearer`, or a field named `state`. |
+| C6 | required | | Search every log line captured so far. | **Log:** no line contains a message body (`JevSmokeBody` is the first word of every synthetic body), the API key, an `Authorization` header (the text `Bearer`), or a request's `state`. |
 | C7 | required | | In a scratch function: `const before = Date.now(); const now = new GasClockAdapter().now(); const after = Date.now();` | **Returns** an integer `now` (epoch milliseconds) with `before <= now <= after`. |
 | C8 | required | | Note the time just before and just after one `onTrigger` run. Read `state.runs`. | **Properties:** `lastStart` and `lastEnd` are epoch milliseconds between those two times, and `lastStart <= lastEnd`. This is `GasClockAdapter.now()` as the product uses it. |
 | C9 | required | | `const clock = new GasClockAdapter(); const start = clock.now(); clock.sleep(1500); return clock.now() - start;` | **Returns** a number of at least 1500, and under 3000. |
@@ -519,7 +519,7 @@ An editor run works for up to 4.5 minutes and classifies about 140 threads. If G
 | J11 | required | | Read the `state.queue.<n>` properties while that job is unfinished. | **Properties:** each value is at most 9 KB (9,216 bytes of UTF-8), and the numbers `<n>` run from 0 with no gaps. |
 | J12 | required | | Run `onTrigger`. | **Log:** `manual.progress` for the job, and a `run.end` that has `spare`: a scheduled run works on the job in its spare time. |
 | J13 | required | | Start the sleeper (section K). While it sleeps, run `continueManualRun`. | **Returns** `{ entry: 'continueManualRun', status: 'skipped', reason: 'busy' }`. |
-| J14 | required | | Run `continueManualRun`. | **Returns** `{ entry: 'continueManualRun', status: 'ok', job: 'active', stopped, summary }`. **Log:** `manual.progress` whose `seen` and `totalClassified` are higher than in J10's line; `seen` is above 300, so this execution read a search page with the page token that an earlier execution saved. No execution of this job logged `manual.cursor_reset`. This is the only check of the search cursor across executions. |
+| J14 | required | | Run `continueManualRun`. | **Returns** `{ entry: 'continueManualRun', status: 'ok', job: 'active', stopped, summary }`. **Log:** `manual.progress` whose `seen` and `totalClassified` are higher than in J10's line: an execution after J10's read a search page with the page token that J10's execution saved. No execution of this job logged `manual.cursor_reset`. This is the only check of the search cursor across executions. |
 | J15 | required | | Run `cancelManualRun`. | **Returns** `{ entry: 'cancelManualRun', status: 'ok', cancelled: true, removed }` with `removed` above 0. **Log:** `manual.cancelled`, and no `run.end`. **Properties:** `state.manual` is gone, no item with `"source":"manual"` is left in `state.queue.*`, and `state.runs` is unchanged. **Mailbox:** the labels already applied are still there. |
 | J16 | required | | Run `cancelManualRun` again. | **Returns** `cancelled: false` and `removed: 0`. |
 | J17 | required | | With no job, run `continueManualRun`. | **Returns** `job: 'none'` and `stopped: 'no_job'`. **Log:** `run.end` with `stopped: 'no_job'`. |
@@ -544,7 +544,7 @@ Before N1: delete the property `state.alerts` if it exists. S4 or E7 sent the `a
 | N8 | required | | Delete the property `state.budget`. Build the budget variation (`dailyTokenBudget: 1`) and push. Deliver one label-kind message. Run `onTrigger`. | **Log:** `thread.classified` for the message: the first batch is sent, and it crosses the budget. **Properties:** `state.budget` has today's `day` and `inputTokens` of at least 1. |
 | N9 | required | | Run `onTrigger` again. Then: build the smoke config again and push. | **Returns** `stopped: 'budget'` and `alerts: ['budget_reached']`. **Log:** `budget.reached` at `warn`, with `day`, `inputTokens` and `dailyTokenBudget: 1`; `alert.sent` with `condition: 'budget_reached'`. **Mailbox:** `[Jev Gmail Classifier] Daily token budget reached`. |
 | N10 | required | | Build the model variation (`jevModel: no-such-model`) and push. Deliver one label-kind message. Run `onTrigger`. Then: build the smoke config again, push, and run `onTrigger` once. | **Throws** `RunAbortError`. **Log:** `run.failed` with `reason: 'config_invalid'`; `alert.sent` with `condition: 'config_invalid'`. **Mailbox:** `[Jev Gmail Classifier] Configuration is invalid`. No thread got `Jev/Error`. |
-| N11 | required | | In `state.position`, set `historyId` to `1`. Run `onTrigger`. | **Log:** `history.expired`; `alert.sent` with `condition: 'history_expired'`. **Mailbox:** `[Jev Gmail Classifier] Gmail history expired: catching up`. |
+| N11 | required | | In `state.position`, change the `historyId` to `"1"`. Run `onTrigger`. | **Log:** `history.expired`; `alert.sent` with `condition: 'history_expired'`. **Mailbox:** `[Jev Gmail Classifier] Gmail history expired: catching up`. |
 | N12 | required | | Run `onTrigger` until the catch-up is done (N11's own run may already finish it). | **Log:** `ingest.done` with `fallbackDone: true`. **Properties:** `state.fallback` is gone, and `state.position` holds a `historyId` of the mailbox again. |
 | N13 | required | person | Take a `threadId` from a `thread.classified` line. In a browser signed in to the test account, open `https://mail.google.com/mail/?authuser=<address>#all/<threadId>`, with the address URL-encoded. | The page opens that thread, in that account. **Record** the result in the results and in SD §14 (links row). |
 | N14 | required | person | Add the label `Jev/Error` to a synthetic thread by hand. Open `https://mail.google.com/mail/?authuser=<address>#label/Jev%2FError`. Then: remove the label. | The page lists that thread. **Record** the result in the results and in SD §14 (links row). |
