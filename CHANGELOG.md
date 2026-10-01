@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.8.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.7.0...v0.8.0) (2026-10-01)
+
+
+### Features
+
+* **entry:** wire the manual entry points and the spare-time hook ([#301](https://github.com/kellystuard/jev-gmail-classifier/issues/301)) ([3b30acc](https://github.com/kellystuard/jev-gmail-classifier/commit/3b30accd647dd002ec00f8e30f1b58cdf5ab8d94))
+* **gas:** return a rejected search page token as a result ([#294](https://github.com/kellystuard/jev-gmail-classifier/issues/294)) ([48cee6d](https://github.com/kellystuard/jev-gmail-classifier/commit/48cee6d9c996b66f9dc993358b8388febec3ae5e))
+* **manual:** add the manual job record and its search cursor ([#292](https://github.com/kellystuard/jev-gmail-classifier/issues/292)) ([11bbb96](https://github.com/kellystuard/jev-gmail-classifier/commit/11bbb969d987c171d9dd330fa1e2260ecd4dcd06))
+* **manual:** cancel a manual job and drop its queued work ([#295](https://github.com/kellystuard/jev-gmail-classifier/issues/295)) ([e9e6fb3](https://github.com/kellystuard/jev-gmail-classifier/commit/e9e6fb3d079ce5a48bd0f567f05b7e9d87cf5a71))
+* **manual:** count a manual job's chunks and build its report events ([#296](https://github.com/kellystuard/jev-gmail-classifier/issues/296)) ([b391af2](https://github.com/kellystuard/jev-gmail-classifier/commit/b391af2faa60b92b63240a25ec04e1bca6f08c3c))
+* **manual:** parse the MANUAL_TIMESPAN grammar ([#293](https://github.com/kellystuard/jev-gmail-classifier/issues/293)) ([9da8dd4](https://github.com/kellystuard/jev-gmail-classifier/commit/9da8dd4321a91336ca3806a6cd6af6275f5a7562))
+* **manual:** process manual work in spare time and in editor runs ([#299](https://github.com/kellystuard/jev-gmail-classifier/issues/299)) ([0caff01](https://github.com/kellystuard/jev-gmail-classifier/commit/0caff010b30f6c2d235b1b4acf252cf6c50dcc32))
+* **manual:** queue job search pages as manual work items ([#298](https://github.com/kellystuard/jev-gmail-classifier/issues/298)) ([f36101b](https://github.com/kellystuard/jev-gmail-classifier/commit/f36101b981a4f64ead30761c978266ca7f3ef74d)), closes [#135](https://github.com/kellystuard/jev-gmail-classifier/issues/135)
+* **manual:** start a manual job from the MANUAL_* inputs ([#297](https://github.com/kellystuard/jev-gmail-classifier/issues/297)) ([f1e3b78](https://github.com/kellystuard/jev-gmail-classifier/commit/f1e3b786519bb8d620588e1123204b862cd4b642))
+* **run:** take only scheduled items in the scheduled chunk loop ([#290](https://github.com/kellystuard/jev-gmail-classifier/issues/290)) ([3a02bc9](https://github.com/kellystuard/jev-gmail-classifier/commit/3a02bc92d0fa06d8e71a71269666c1cd2f9e8a26))
+
 ## [0.7.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.6.0...v0.7.0) (2026-10-01)
 
 
