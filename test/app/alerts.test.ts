@@ -47,6 +47,60 @@ describe('createAlertCollector', () => {
     });
   });
 
+  describe('consecutiveFailures', () => {
+    it('has no key at the start, or after run_failures without a count', () => {
+      const alerts = createAlertCollector();
+      expect(alerts.collected()).not.toHaveProperty('consecutiveFailures');
+      alerts.add('run_failures');
+      expect(alerts.collected()).toStrictEqual({
+        conditions: ['run_failures'],
+        erroredThreadIds: [],
+        missingScopes: [],
+      });
+    });
+
+    it('keeps the latest count given with run_failures', () => {
+      const alerts = createAlertCollector();
+      alerts.add('run_failures', { consecutiveFailures: 3 });
+      expect(alerts.collected()).toStrictEqual({
+        conditions: ['run_failures'],
+        erroredThreadIds: [],
+        missingScopes: [],
+        consecutiveFailures: 3,
+      });
+      alerts.add('run_failures', { consecutiveFailures: 4 });
+      expect(alerts.collected().consecutiveFailures).toBe(4);
+      alerts.add('run_failures');
+      alerts.add('run_failures', {});
+      expect(alerts.collected().consecutiveFailures).toBe(4);
+      expect(alerts.collected().conditions).toEqual(['run_failures']);
+    });
+
+    it('ignores a count given with another condition', () => {
+      const alerts = createAlertCollector();
+      alerts.add('auth', { consecutiveFailures: 9 });
+      expect(alerts.collected()).toStrictEqual({
+        conditions: ['auth'],
+        erroredThreadIds: [],
+        missingScopes: [],
+      });
+      alerts.add('run_failures', { consecutiveFailures: 3 });
+      alerts.add('errored', { consecutiveFailures: 9 });
+      expect(alerts.collected().consecutiveFailures).toBe(3);
+    });
+
+    it('does not change a snapshot with later adds', () => {
+      const alerts = createAlertCollector();
+      const empty = alerts.collected();
+      alerts.add('run_failures', { consecutiveFailures: 3 });
+      const first = alerts.collected();
+      alerts.add('run_failures', { consecutiveFailures: 4 });
+      expect(empty).not.toHaveProperty('consecutiveFailures');
+      expect(first.consecutiveFailures).toBe(3);
+      expect(alerts.collected().consecutiveFailures).toBe(4);
+    });
+  });
+
   it('adds every condition of a list with addAll', () => {
     const alerts = createAlertCollector();
     alerts.add('budget_reached');

@@ -5,12 +5,16 @@
  * Every entry point that touches state runs its body through `runEntry`:
  *
  * 1. `lock.tryAcquire()`; busy → `run.skipped` and `{skipped: 'busy'}`, nothing else.
- * 2. The `state.runs` heartbeat's `lastStart` (when `heartbeat`).
+ * 2. The `state.runs` heartbeat's `lastStart` (when `heartbeat`). A previous
+ *    run that never recorded its end counts as a failure: `run.unfinished`,
+ *    and the `run_failures` alert at `RUN_FAILURES_ALERT_THRESHOLD` in a row.
  * 3. `loadConfig()`, the run limits, the `Deadline`.
  * 4. The daily Gmail call tally (when `tallyGmail`), and the counting `GmailPort`.
  * 5. `run.start`, then the body.
  * 6. Success: the heartbeat's `lastEnd`, `lastOutcome: 'ok'`, `lastSummary`.
- *    Failure: `run.failed`, the heartbeat's failure, then the error is rethrown.
+ *    Failure: the mapped alert; the failure is counted and `run_failures`
+ *    added at the threshold (or at once, when `state.runs` couldn't be read);
+ *    `run.failed`; the heartbeat's failure; then the error is rethrown.
  * 7. `finally`: save the tally, deliver the alerts, release the lock (last).
  *
  * This is the only place a run's exceptions are caught (Engineering Standards
@@ -25,9 +29,11 @@ import type { LogFields } from '../core/log-fields.ts';
 import {
   type RunRecord,
   type RunSummary,
+  RUN_FAILURES_ALERT_THRESHOLD,
   RUNS_KEY,
   decodeRunRecord,
   encodeRunRecord,
+  isUnfinished,
   recordFailure,
   recordStart,
   recordSuccess,
@@ -121,8 +127,20 @@ export function runEntry<T extends { readonly summary?: RunSummary }>(
   try {
     if (options.heartbeat) {
       const raw = state.get(RUNS_KEY);
-      started = recordStart(raw === undefined ? undefined : decodeRunRecord(raw), startedAt);
+      const previous = raw === undefined ? undefined : decodeRunRecord(raw);
+      started = recordStart(previous, startedAt);
       state.set(RUNS_KEY, encodeRunRecord(started));
+      // Only one execution runs at a time, so the run that wrote an unfinished
+      // record is over: it was killed, or stopped by hand.
+      if (previous !== undefined && isUnfinished(previous)) {
+        log.warn('run.unfinished', {
+          lastStart: previous.lastStart,
+          consecutiveFailures: started.consecutiveFailures,
+        });
+        if (started.consecutiveFailures >= RUN_FAILURES_ALERT_THRESHOLD) {
+          alerts.add('run_failures', { consecutiveFailures: started.consecutiveFailures });
+        }
+      }
     }
     const config = deps.loadConfig();
     const limits = runLimits(
@@ -151,16 +169,28 @@ export function runEntry<T extends { readonly summary?: RunSummary }>(
   } catch (error) {
     const condition = alertFor(error);
     if (condition !== undefined) alerts.add(condition);
+    let failed: RunRecord | undefined;
+    if (started !== undefined) {
+      failed = recordFailure(started, clock.now());
+      if (failed.consecutiveFailures >= RUN_FAILURES_ALERT_THRESHOLD) {
+        alerts.add('run_failures', { consecutiveFailures: failed.consecutiveFailures });
+      }
+    } else if (options.heartbeat) {
+      // The run failed before `state.runs` could be read, so it can't be
+      // counted: alert at once, without a count.
+      alerts.add('run_failures');
+    }
     log.error('run.failed', {
       kind: options.kind,
       ...errorFields(error),
       elapsedMs: Math.max(0, clock.now() - startedAt),
       alerts: alerts.collected().conditions,
+      ...(failed === undefined ? {} : { consecutiveFailures: failed.consecutiveFailures }),
     });
-    if (started !== undefined) {
-      const record = started;
+    if (failed !== undefined) {
+      const record = failed;
       step(log, 'heartbeat', () => {
-        state.set(RUNS_KEY, encodeRunRecord(recordFailure(record, clock.now())));
+        state.set(RUNS_KEY, encodeRunRecord(record));
       });
     }
     throw error;
@@ -180,7 +210,10 @@ export function runEntry<T extends { readonly summary?: RunSummary }>(
   }
 }
 
-/** The alert a run failure raises, if any. E9's `run_failures` comes from `state.runs`, not from here. */
+/**
+ * The alert a run failure's error maps to, if any. `run_failures` isn't
+ * mapped from an error: `runEntry` adds it from the `state.runs` count.
+ */
 function alertFor(error: unknown): AlertCondition | undefined {
   if (error instanceof ConfigError) return 'config_invalid';
   if (!(error instanceof RunAbortError)) return undefined;
