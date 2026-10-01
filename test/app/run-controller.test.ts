@@ -10,6 +10,7 @@ import {
   type ScheduledDeps,
   type SpareTimeHook,
   type SpareTimeInput,
+  type SpareTimeResult,
 } from '../../src/app/run-controller.ts';
 import { type RunContext, type RunEntryOptions, runEntry } from '../../src/app/run-entry.ts';
 import { loadConfig } from '../../src/config/loader.ts';
@@ -22,7 +23,12 @@ import { decodeRunRecord, RUNS_KEY } from '../../src/core/run-record.ts';
 import { type RunLimits, runLimits } from '../../src/core/run-limits.ts';
 import { SCOPE_FEATURES } from '../../src/core/scope-features.ts';
 import { BUDGET_KEY, encodeBudget } from '../../src/core/token-budget.ts';
-import { enqueue, QUEUE_MAX_ITEMS, type WorkQueue } from '../../src/core/work-queue.ts';
+import {
+  enqueue,
+  QUEUE_MAX_ITEMS,
+  type WorkItemSource,
+  type WorkQueue,
+} from '../../src/core/work-queue.ts';
 import type { HttpRequest } from '../../src/ports/http-port.ts';
 import { FakeGmail } from '../fakes/fake-gmail.ts';
 import { type FakeHttpResponse, jsonPayload } from '../fakes/fake-http.ts';
@@ -292,6 +298,15 @@ function caught(fn: () => unknown): unknown {
   throw new Error('expected a throw');
 }
 
+function thrownBy(fn: () => unknown): unknown {
+  try {
+    fn();
+  } catch (error) {
+    return error;
+  }
+  throw new Error('expected a throw');
+}
+
 function at<T>(list: readonly T[], i: number): T {
   const value = list[i];
   if (value === undefined) throw new Error(`no element ${String(i)}`);
@@ -312,6 +327,50 @@ function ghostQueue(n: number): WorkQueue {
   }
   return queue;
 }
+
+/**
+ * A world with `manual` real threads queued as manual items (found before the
+ * saved position, so ingest doesn't touch them) and `scheduled` new threads
+ * for ingest to find.
+ */
+function mixedWorld(
+  manual: number,
+  scheduled: number,
+): { ports: FakePorts; manualIds: string[]; scheduledIds: string[] } {
+  const { ports } = world(0);
+  const manualIds: string[] = [];
+  for (let i = 0; i < manual; i++) {
+    manualIds.push(deliver(ports.gmail, `manual ${String(i)}`));
+  }
+  ports.state.seedRaw(
+    POSITION_KEY,
+    JSON.stringify(encodePosition({ historyId: ports.gmail.historyId, savedAt: NOW - HOUR_MS })),
+  );
+  let queue: WorkQueue = [];
+  for (const [i, threadId] of manualIds.entries()) {
+    queue = queueWith(queue, threadId, 'manual', i);
+  }
+  saveQueue(ports.state, queue);
+  const scheduledIds: string[] = [];
+  for (let i = 0; i < scheduled; i++) {
+    scheduledIds.push(deliver(ports.gmail, `mail ${String(i)}`));
+  }
+  return { ports, manualIds, scheduledIds };
+}
+
+function queueWith(
+  queue: WorkQueue,
+  threadId: string,
+  source: WorkItemSource,
+  i: number,
+): WorkQueue {
+  const added = enqueue(queue, { threadId, source, enqueuedAt: NOW - HOUR_MS + i });
+  if (!added.ok) throw new Error('setup: enqueue failed');
+  return added.queue;
+}
+
+/** A hook result with no manual work. */
+const NO_SPARE: SpareTimeResult = { counts: {}, queue: [] };
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -784,7 +843,7 @@ describe('runScheduled: the spare-time hook', () => {
     const calls: SpareTimeInput[] = [];
     const spareTime = vi.fn((input: SpareTimeInput) => {
       calls.push(input);
-      return { manualClassified: 2, manualChunks: 1 };
+      return { counts: { manualClassified: 2, manualChunks: 1 }, queue: input.queue };
     });
 
     const { report } = run(ports, { limits: ROOMY, spareTime });
@@ -805,9 +864,9 @@ describe('runScheduled: the spare-time hook', () => {
   it('shares the run’s label cache with the hook (no second listLabels)', () => {
     const { ports } = world(2);
     respondRest(ports);
-    const spareTime: SpareTimeHook = ({ labels }) => {
+    const spareTime: SpareTimeHook = ({ labels, queue }) => {
       labels.idFor(NEWS);
-      return {};
+      return { counts: {}, queue };
     };
     run(ports, { spareTime });
     expect(methods(ports).filter((m) => m === 'listLabels')).toHaveLength(1);
@@ -830,7 +889,7 @@ describe('runScheduled: the spare-time hook', () => {
     const { ports } = world(2);
     respondRest(ports);
     arrange(ports);
-    const spareTime = vi.fn(() => ({}));
+    const spareTime = vi.fn(() => NO_SPARE);
     const { report } = run(ports, { spareTime });
     expect(report.stopped).not.toBe('drained');
     expect(spareTime).not.toHaveBeenCalled();
@@ -841,9 +900,112 @@ describe('runScheduled: the spare-time hook', () => {
     const { ports } = world(0);
     const ctx = context(ports);
     ports.clock.advance(SCHEDULED_10.softLimitMs);
-    const spareTime = vi.fn(() => ({}));
+    const spareTime = vi.fn(() => NO_SPARE);
     const report = runScheduled(ctx, scheduledDeps(ports, spareTime));
     expect(report.stopped).toBe('drained');
     expect(spareTime).not.toHaveBeenCalled();
+  });
+
+  it('takes its queue as the run’s final one, and logs no spare for empty counts', () => {
+    const { ports } = world(2);
+    respondRest(ports);
+    const kept = ghostQueue(3);
+    const spareTime: SpareTimeHook = () => ({ counts: {}, queue: kept });
+
+    const { report } = run(ports, { spareTime });
+
+    expect(report.stopped).toBe('drained');
+    expect(report.summary.queueSize).toBe(3);
+    expect(runEnd(ports)).toMatchObject({ queueSize: 3, stopped: 'drained' });
+    expect(runEnd(ports)).not.toHaveProperty('spare');
+  });
+
+  it.each<['auth' | 'config_invalid']>([['auth'], ['config_invalid']])(
+    'an abort (%s) from the hook gives run.end with stopped abort, then RunAbortError',
+    (reason) => {
+      const { ports } = world(1);
+      respondRest(ports);
+      const spareTime: SpareTimeHook = ({ queue }) => ({
+        counts: { manualChunks: 1 },
+        queue,
+        abort: reason,
+      });
+
+      const error = thrownBy(() => run(ports, { spareTime }));
+
+      expect(error).toBeInstanceOf(RunAbortError);
+      expect(error).toMatchObject({ reason });
+      expect(runEnd(ports)).toMatchObject({
+        stopped: 'abort',
+        classified: 1,
+        spare: { manualChunks: 1 },
+      });
+    },
+  );
+
+  it('puts an alert the hook adds in run.end’s alerts', () => {
+    const { ports } = world(1);
+    respondRest(ports);
+    const spareTime: SpareTimeHook = ({ ctx, queue }) => {
+      ctx.alerts.add('scope_missing', { scopes: [GMAIL_MODIFY] });
+      return { counts: {}, queue };
+    };
+
+    const { report, collected } = run(ports, { spareTime });
+
+    expect(collected.conditions).toEqual(['scope_missing']);
+    expect(report.alerts).toEqual(['scope_missing']);
+    expect(runEnd(ports).alerts).toEqual(['scope_missing']);
+  });
+
+  it('lets an exception in the hook propagate, without run.end', () => {
+    const { ports, ids } = world(1);
+    respondRest(ports);
+    const spareTime: SpareTimeHook = () => {
+      throw new StateError('boom', { key: 'state.queue', reason: 'parse' });
+    };
+
+    expect(thrownBy(() => run(ports, { spareTime }))).toBeInstanceOf(StateError);
+    expect(ports.log.all('run.end')).toHaveLength(0);
+    expect(labelNames(ports, at(ids, 0))).toContain(NEWS);
+  });
+});
+
+describe('runScheduled: manual items are left alone', () => {
+  it('sends only the scheduled threads and leaves the manual items queued untouched', () => {
+    const { ports, manualIds, scheduledIds } = mixedWorld(2, 2);
+    respondRest(ports);
+    const manualBefore = JSON.stringify(loadQueue(ports.state));
+
+    const { report } = run(ports);
+
+    const sent = ports.http.batches.flat().map(subjectOf).sort();
+    expect(sent).toEqual(['mail 0', 'mail 1']);
+    expect(report.stopped).toBe('drained');
+    expect(report.summary).toMatchObject({ classified: 2, queueSize: 2 });
+    const after = loadQueue(ports.state);
+    expect(after.map((i) => i.threadId)).toEqual(manualIds);
+    expect(JSON.stringify(after)).toBe(manualBefore);
+    for (const id of scheduledIds) {
+      expect(labelNames(ports, id)).toContain(NEWS);
+    }
+    for (const id of manualIds) {
+      expect(labelNames(ports, id)).not.toContain(NEWS);
+    }
+  });
+
+  it('sends nothing with only manual items, and still calls the hook', () => {
+    const { ports } = mixedWorld(2, 0);
+    respondRest(ports);
+    const before = JSON.stringify(loadQueue(ports.state));
+    const spareTime = vi.fn((input: SpareTimeInput) => ({ counts: {}, queue: input.queue }));
+
+    const { report } = run(ports, { spareTime });
+
+    expect(ports.http.batches).toHaveLength(0);
+    expect(report.stopped).toBe('drained');
+    expect(report.summary).toMatchObject({ classified: 0, chunks: 0, queueSize: 2 });
+    expect(spareTime).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(loadQueue(ports.state))).toBe(before);
   });
 });

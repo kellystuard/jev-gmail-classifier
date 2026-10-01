@@ -286,7 +286,7 @@ sequenceDiagram
   R->>G: listHistory from the position (while time and units allow)
   R->>S: save the queue, move the position
   loop while a chunk can start (time and units) and nothing stopped the run
-    R->>R: takeChunk(queue, chunkSize, taken)
+    R->>R: takeChunk(queue, chunkSize, taken, 'scheduled')
     R->>G: screen: metadata reads, one exclusion search
     R->>G: getThread (full) for each kept thread
     R->>J: sendAll (retry rounds within the deadline)
@@ -294,7 +294,7 @@ sequenceDiagram
     R->>G: apply labels, the winning move, or Jev/Error
     R->>S: save the queue (strikes, dequeued items)
   end
-  R->>R: spare time? E8's hook (manual work)
+  R->>R: spare time? E8's hook (manual work): counts, queue, abort?
   R->>R: log run.end
   R-->>E: RunReport (summary), or throw RunAbortError after run.end
   E->>S: heartbeat end, Gmail tally
@@ -309,14 +309,14 @@ sequenceDiagram
 4. **Ingest** ([§6.3](#63-ingest-gmail-history-to-work-queue)) through the run's counting `GmailPort`, with `shouldContinue` true while `deadline.remaining() > 0` and the run's Gmail units are under `maxGmailUnitsPerRun` ([§10.3](#103-time-budget)). Its alerts (`history_expired`) are collected. `stopped: 'rate_limited'` means no processing this run (`ingest_rate_limited`); `stopped: 'scope'` logs `scope_missing` with `step: 'ingest'`, adds the alert with the scope, and means no processing (`ingest_scope`). `cap` and `deadline` let processing go on. A missing position throws `StateError` `missing` (run `install`).
 5. **Chunk loop**, only when `script.external_request` is granted (else `classify_scope_missing`) and the budget isn't reached (else `budget`); ingest still ran.
    - **One label cache per run** (`createLabelCache` over the counting port), created before the loop and shared by every chunk and by the spare-time hook.
-   - Take the next chunk with `takeChunk(queue, chunkSize, taken)`: the first `chunkSize` items in queue order whose thread **hasn't been taken this run**. None left → `drained`.
+   - Take the next chunk with `takeChunk(queue, chunkSize, taken, 'scheduled')`: the first `chunkSize` **scheduled** items in queue order whose thread **hasn't been taken this run**. None left → `drained`, which now means "no scheduled item left to take". Manual items stay queued, untouched, for the spare-time hook or an editor run, so scheduled work comes first by construction and a chunk never mixes sources. A manual thread that merged into a scheduled item *is* scheduled (`enqueue` made it so): the loop classifies it, and it counts in this run's `run.end`, not in the job's counts.
    - The chunk starts only if `canStartChunk` allows it ([§10.3](#103-time-budget)): time first (`deadline`), then units (`units`).
    - Every thread in the chunk goes into `taken` before `processChunk` ([§6.4](#64-process-classify-a-chunk)), so **each thread is settled at most once per run**: a struck or untouched item stays at the front of the queue but isn't taken again until the next run.
    - The chunk's alerts, errored thread IDs (`errored` details) and missing scopes (`scope_missing` details) are collected, and its counts and settlements added to the run's.
    - The loop stops after a chunk that returned `abort` (`abort`), `stopGmail` (`rate_limited`, `scope`) or `stopSending` (`budget` → `budget`, `deadline` → `send_deadline`, `scope` → `send_scope`, `outage` → `outage`). The queue is already saved.
-6. **Spare time.** When the loop `drained` and `deadline.remaining() > 0`, E8's `spareTime` hook (if one is wired; E7 wires none) is called with the context, the label cache, the key, the saved queue and the set of threads taken this run. Its flat counts go under `run.end`'s `spare`.
+6. **Spare time.** When the loop `drained` and `deadline.remaining() > 0`, E8's `spareTime` hook (if one is wired; none is until the manual processor, [#136](https://github.com/kellystuard/jev-gmail-classifier/issues/136)) is called with the context, the label cache, the key, the saved queue and the set of threads taken this run. It returns `{counts, queue, abort?}` (`SpareTimeResult`): `queue` is the run's final queue (it sets `run.end`'s `queueSize`), `counts` go under `run.end`'s `spare` **only when it has at least one key** (a run that worked on no manual job logs no `spare`), and `abort` is handled as in step 8. The run's own counts, `labels`, `moves` and `summary` stay scheduled-only. An exception in the hook propagates like one from a chunk: no `run.end`, `run.failed` instead.
 7. **`run.end`** is logged once ([§10.5](#105-logging-and-alerts)), also when step 2, 4 or 5 stopped early, and before an abort is thrown.
-8. **Abort.** If a chunk returned `abort`, `runScheduled` throws `RunAbortError` (`auth` for a Jev 401, 402 or 403; `config_invalid` for the unknown-model response) after `run.end`. The other threads of that chunk were settled; the refused thread stays queued, unmarked. `runEntry` logs `run.failed`, maps the alert and rethrows. A `RunAbortError` or `StateError` thrown by a callee propagates without `run.end` (`run.failed` covers it).
+8. **Abort.** If a chunk, or the spare-time hook, returned `abort` (`stopped` becomes `abort`), `runScheduled` throws `RunAbortError` (`auth` for a Jev 401, 402 or 403; `config_invalid` for the unknown-model response) after `run.end`. The other threads of that chunk were settled; the refused thread stays queued, unmarked. `runEntry` logs `run.failed`, maps the alert and rethrows. A `RunAbortError` or `StateError` thrown by a callee propagates without `run.end` (`run.failed` covers it).
 9. It returns a JSON-serializable `RunReport`: `summary` (the numeric `run.end` fields, which `runEntry` stores as `state.runs.lastSummary`), `stopped`, `labels`, `moves` and `alerts`.
 
 **Two phases.** *Ingest* reads history and adds to the queue. *Process* takes from the queue and classifies. Keeping them separate makes retries, the budget, and the deadline uniform: any item not finished simply stays in the queue ([ADR-0004](adr/0004-history-api-position.md)).
@@ -361,7 +361,7 @@ sequenceDiagram
 
 ### 6.4 Process: classify a chunk
 
-1. **Take a chunk** from the queue: `takeChunk(queue, chunkSize, taken)`, the first `chunkSize` items in queue order (scheduled items first, then manual-job items) that the run hasn't taken yet ([§6.2](#62-scheduled-run)). The chunk size is settled in [§10.3](#103-time-budget).
+1. **Take a chunk** from the queue: `takeChunk(queue, chunkSize, taken, source)`, the first `chunkSize` items in queue order that have the given `source` (when given) and that the run hasn't taken yet ([§6.2](#62-scheduled-run)). `runScheduled` takes scheduled chunks (`'scheduled'`); manual chunks are taken only by the manual processor ([#136](https://github.com/kellystuard/jev-gmail-classifier/issues/136)). A chunk never mixes sources. The chunk size is settled in [§10.3](#103-time-budget).
    - **E7: `processChunk`** (`src/app/process-chunk.ts`, [#266](https://github.com/kellystuard/jev-gmail-classifier/issues/266)) runs steps 2 to 6 for one chunk of at most `MAX_REQUESTS_PER_FETCHALL` items, in this order: `screenChunk`; a full `getThread` of each kept thread, in chunk order; `threadToState` and `buildRequest`; **one** `sendJevRequests` call for every built request; `settleThread` for each entry in request order, threading the queue through; then `saveQueue` **once**, whatever happened. It takes `remainingMs` (the run's `deadline.remaining`), not a `Deadline`, and returns the saved queue, flat counts, the de-duplicated alert conditions, the errored thread IDs, one flat settlement per settled thread, the input tokens, the missing scopes met, and `stopGmail?`, `stopSending?` and `abort?`. It never throws `RunAbortError` itself: the controller throws after its loop.
      - A screening failure returns at once with the input queue: nothing saved, nothing sent.
      - A full read that hits `rate_limited` or `scope` stops reading and **sends nothing** (an answer that can't be applied isn't bought); the queue from screening is saved and the unsent items stay queued, untouched.
@@ -953,7 +953,7 @@ Logs are **structured JSON only**, one object per event, through `LogPort`. `con
   - `gmailCalls`, `gmailCallsToday` and `gmailUnits` (from the counting `GmailPort`);
   - `labels` (`{labelName: threads}`) and `moves` (`{archive|spam|trash|label:<name>: threads}`): flat records of numbers;
   - `alerts` (the run's conditions so far) and `durationMs` (`deadline.elapsed()`);
-  - `spare?`: the spare-time hook's flat record of counts (E8), present only when it ran.
+  - `spare?`: the spare-time hook's flat record of counts (E8), present only when the hook worked on a manual job (its counts have at least one key). A hook `abort` also gives `stopped: 'abort'`.
 
   The run's `summary` (stored in `state.runs.lastSummary`) is the numeric fields only, without `labels`, `moves` and `spare`, whose keys are unbounded. E9 ([#143](https://github.com/kellystuard/jev-gmail-classifier/issues/143)) may refine these fields.
 - For `uninstall`, `run.end` carries `triggersDeleted` and `keysDeleted`.
