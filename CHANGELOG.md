@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.8.0...v0.9.0) (2026-10-01)
+
+
+### Features
+
+* **alerts:** add the alert email formats ([#306](https://github.com/kellystuard/jev-gmail-classifier/issues/306)) ([6934d16](https://github.com/kellystuard/jev-gmail-classifier/commit/6934d1626988234e04dcee5dce68a1a006cef904))
+* **alerts:** add the state.alerts codec and the once-a-day rule ([#305](https://github.com/kellystuard/jev-gmail-classifier/issues/305)) ([7be9c46](https://github.com/kellystuard/jev-gmail-classifier/commit/7be9c468553818f42859e8446a736ca86d143448))
+* **alerts:** raise run_failures from the heartbeat ([#307](https://github.com/kellystuard/jev-gmail-classifier/issues/307)) ([677e00d](https://github.com/kellystuard/jev-gmail-classifier/commit/677e00d8d80d829355d2a42b11c42f38fc54dbc5))
+* **alerts:** send the collected alerts by email, once per condition per day ([#311](https://github.com/kellystuard/jev-gmail-classifier/issues/311)) ([85a49e0](https://github.com/kellystuard/jev-gmail-classifier/commit/85a49e0c7a9312f9fd0a9cb352abd1dc25ae2e04)), closes [#302](https://github.com/kellystuard/jev-gmail-classifier/issues/302)
+* **entry:** wire the alert mailer and the mail adapter ([#313](https://github.com/kellystuard/jev-gmail-classifier/issues/313)) ([7617205](https://github.com/kellystuard/jev-gmail-classifier/commit/761720532bc8af05f36bd1b276b14cfc552b9ea0))
+* **gas:** add the mail adapter ([#309](https://github.com/kellystuard/jev-gmail-classifier/issues/309)) ([dce309d](https://github.com/kellystuard/jev-gmail-classifier/commit/dce309dfbbbab60fd725448977d1821015856cac))
+* **log:** add redact and apply it in the log adapter ([#310](https://github.com/kellystuard/jev-gmail-classifier/issues/310)) ([aa671b7](https://github.com/kellystuard/jev-gmail-classifier/commit/aa671b7cf6f4fdbbe03c809e25d5514f9c961c38))
+* **log:** check the event contract against the code and the SD ([#312](https://github.com/kellystuard/jev-gmail-classifier/issues/312)) ([331f711](https://github.com/kellystuard/jev-gmail-classifier/commit/331f711dbe85eee11b762fadd31fd6187e9aa72e))
+
 ## [0.8.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.7.0...v0.8.0) (2026-10-01)
 
 
