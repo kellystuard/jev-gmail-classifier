@@ -6,6 +6,7 @@ import {
   searchExcludedThreads,
 } from '../../src/app/exclusion-search.ts';
 import { buildExclusionQuery } from '../../src/core/exclusion-query.ts';
+import { UnexpectedResponseError } from '../../src/core/errors.ts';
 import type { GmailMessage, GmailThread } from '../../src/core/gmail-types.ts';
 import type { SearchThreadIdsRequest } from '../../src/ports/gmail-port.ts';
 import { FakeGmail } from '../fakes/fake-gmail.ts';
@@ -347,6 +348,37 @@ describe('searchExcludedThreads: failures', () => {
     scopes.revoke(GMAIL_MODIFY);
     expect(run(threads)).toMatchObject({ ok: false, kind: 'scope' });
     expect(searchRequests(gmail)).toHaveLength(1);
+  });
+
+  it('throws UnexpectedResponseError for a page token rejected on the second page, without the query', () => {
+    const { gmail, run } = setup({ gmail: { maxSearchPageSize: 1 } });
+    deliver(gmail, { at: D_OLD, matches: true });
+    deliver(gmail, { at: D_OLD, matches: true });
+    const late = deliver(gmail, { at: D_OLD, matches: true });
+    const threads = metadataThreads(gmail, [late]);
+    let searches = 0;
+    gmail.onCall = (method) => {
+      searches += method === 'searchThreadIds' ? 1 : 0;
+      if (method === 'searchThreadIds' && searches === 2) {
+        gmail.invalidateSearchTokens();
+      }
+    };
+    let thrown: unknown;
+    try {
+      run(threads);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(UnexpectedResponseError);
+    expect(thrown).toMatchObject({ service: 'gmail' });
+    const text = JSON.stringify(
+      thrown instanceof UnexpectedResponseError
+        ? { message: thrown.message, fields: thrown.toLogFields() }
+        : {},
+    );
+    expect(text).not.toContain('bank@example.com');
+    expect(text).not.toContain('from:');
+    expect(searchRequests(gmail)).toHaveLength(2);
   });
 
   it('lets an unrecognized Gmail error propagate', () => {

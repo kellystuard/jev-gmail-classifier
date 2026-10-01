@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ingest, type IngestOptions } from '../../src/app/ingest.ts';
 import { rememberJevErrorLabelId } from '../../src/app/jev-error-label-store.ts';
 import { loadQueue } from '../../src/app/queue-store.ts';
-import { StateError } from '../../src/core/errors.ts';
+import { StateError, UnexpectedResponseError } from '../../src/core/errors.ts';
 import type { GmailMessage } from '../../src/core/gmail-types.ts';
 import {
   FALLBACK_KEY,
@@ -1203,6 +1203,29 @@ describe('ingest: expired-history fallback', () => {
     expect(ids(second.queue)).toEqual([a, b, c, d].map((t) => t.threadId));
     expect(position(state)).toEqual({ historyId: resume, savedAt: NOW });
     expect(cursorIn(state)).toBeUndefined();
+  });
+
+  it('throws on a page token rejected at the second page of a window, leaving the completed windows and the next call finishing', () => {
+    const savedAt = NOW - 2 * DAY_MS;
+    const t0 = firstAfter(savedAt);
+    const ports = expiredSetup(savedAt, { gmail: { maxSearchPageSize: 1 } });
+    const { gmail, state } = ports;
+    const a = deliverAt(ports, t0 + 10);
+    const b = deliverAt(ports, t0 + DAY_S + 10);
+    const c = deliverAt(ports, t0 + DAY_S + 20);
+    expire(ports);
+    // Search calls: window 1 (one page), window 2 page 1, window 2 page 2 (rejected).
+    gmail.failNext('searchThreadIds', FakeGmail.invalidPageToken(), { after: 2 });
+
+    expect(() => run(ports, [], undefined, ['history_expired'])).toThrow(UnexpectedResponseError);
+
+    // Window 1 is queued and saved; window 2 queued nothing and the cursor stays before it.
+    expect(ids(loadQueue(state))).toEqual([a.threadId]);
+    expect(cursorIn(state)).toMatchObject({ nextAfter: t0 + DAY_S, queued: 1 });
+
+    const second = run(ports, loadQueue(state));
+    expect(second.result.stopped).toBeUndefined();
+    expect(ids(second.queue)).toEqual([a, b, c].map((t) => t.threadId));
   });
 
   it('drops an unfinished window at the deadline between its pages', () => {

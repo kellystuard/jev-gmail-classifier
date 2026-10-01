@@ -170,9 +170,12 @@ export class GasGmailAdapter implements GmailPort {
     try {
       response = Gmail.Users.Threads.list('me', options);
     } catch (error) {
-      // No `notFound`: a 404 has no expected meaning for a search. The error
-      // never carries `q`, which holds the user's `excludeQuery`.
-      return toGmailFailure(error, { method: 'searchThreadIds' });
+      // No `notFound`: a 404 has no expected meaning for a search. A rejected
+      // page token is expected only when the request had one. The error never
+      // carries `q`, which holds the user's `excludeQuery`.
+      return request.pageToken === undefined
+        ? toGmailFailure(error, { method: 'searchThreadIds' })
+        : toGmailFailure(error, { method: 'searchThreadIds', expected: ['invalid_page_token'] });
     }
     const { nextPageToken } = response;
     const threads: unknown = response.threads;

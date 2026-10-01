@@ -333,6 +333,18 @@ describe('processChunk: screening fails', () => {
 });
 
 describe('processChunk: screening skips and excludes', () => {
+  it('throws, sends nothing and saves nothing when the exclusion search hits a rejected page token', () => {
+    const s = setup({ config: config({ excludeQuery: EXCLUDE_QUERY }) });
+    s.ports.gmail.setSearchMatcher(() => false);
+    s.ports.gmail.failNext('searchThreadIds', FakeGmail.invalidPageToken());
+    respondRest(s, [ok200]);
+
+    expect(thrown(() => run(s))).toBeInstanceOf(UnexpectedResponseError);
+
+    expect(s.ports.http.batches).toEqual([]);
+    expect(queueSaves(s)).toBe(0);
+  });
+
   it('counts a Jev/Error thread as skipped and an excluded one as excluded, and sends neither', () => {
     const s = setup({ threads: 1, config: config({ excludeQuery: EXCLUDE_QUERY }) });
     const errored = s.ports.gmail.deliver({ labelIds: ['INBOX', 'Label_9'] }).threadId;

@@ -17,6 +17,7 @@ import type { GmailThread } from '../core/gmail-types.ts';
 import { type Result, ok } from '../core/result.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { GmailFailure, GmailPort } from '../ports/gmail-port.ts';
+import { rejectedPageTokenError } from './rejected-page-token.ts';
 
 /** IDs requested per page: the most `threads.list` allows. */
 export const EXCLUSION_SEARCH_PAGE_SIZE = 500;
@@ -57,6 +58,10 @@ function search(
       ...(pageToken === undefined ? {} : { pageToken }),
     });
     if (!result.ok) {
+      if (result.kind === 'invalid_page_token') {
+        // A token from this same loop: invalid state, so it fails closed by throwing.
+        throw rejectedPageTokenError();
+      }
       return result;
     }
     for (const id of result.threadIds) {

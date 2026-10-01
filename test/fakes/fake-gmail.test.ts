@@ -376,6 +376,79 @@ describe('FakeGmail search', () => {
     expect(first.nextPageToken).toBeDefined();
   });
 
+  describe('page tokens', () => {
+    function twoPages(): { gmail: FakeGmail; token: string } {
+      const gmail = new FakeGmail();
+      gmail.deliver();
+      gmail.deliver();
+      gmail.deliver();
+      gmail.setSearchMatcher(() => true);
+      const first = unwrap(
+        gmail.searchThreadIds({ q: 'x', includeSpamTrash: true, maxResults: 2 }),
+      );
+      return { gmail, token: first.nextPageToken ?? '' };
+    }
+    const REJECTED = FakeGmail.invalidPageToken();
+
+    it('rejects a garbage token and a history token as a result', () => {
+      const { gmail } = twoPages();
+      const start = unwrap(gmail.getProfile()).historyId;
+      gmail.deliver();
+      const history = unwrap(
+        gmail.listHistory({ startHistoryId: start, historyTypes: BOTH_TYPES, maxResults: 1 }),
+      );
+      expect(history.nextPageToken).toBeDefined();
+      for (const pageToken of ['not-a-token', '', history.nextPageToken ?? '']) {
+        expect(gmail.searchThreadIds({ q: 'x', includeSpamTrash: true, pageToken })).toEqual(
+          REJECTED,
+        );
+      }
+    });
+
+    it('rejects an invalidated token, and a fresh token after that works', () => {
+      const { gmail, token } = twoPages();
+      gmail.invalidateSearchTokens();
+      expect(gmail.searchThreadIds({ q: 'x', includeSpamTrash: true, pageToken: token })).toEqual(
+        REJECTED,
+      );
+      const fresh = unwrap(
+        gmail.searchThreadIds({ q: 'x', includeSpamTrash: true, maxResults: 2 }),
+      );
+      const second = unwrap(
+        gmail.searchThreadIds({
+          q: 'x',
+          includeSpamTrash: true,
+          pageToken: fresh.nextPageToken ?? '',
+        }),
+      );
+      expect(second.threadIds).toHaveLength(1);
+    });
+
+    it('returns the failure queued by failNext with FakeGmail.invalidPageToken()', () => {
+      const { gmail, token } = twoPages();
+      gmail.failNext('searchThreadIds', FakeGmail.invalidPageToken());
+      expect(gmail.searchThreadIds({ q: 'x', includeSpamTrash: true, pageToken: token })).toEqual(
+        REJECTED,
+      );
+      expect(
+        unwrap(gmail.searchThreadIds({ q: 'x', includeSpamTrash: true, pageToken: token }))
+          .threadIds,
+      ).toHaveLength(1);
+    });
+
+    it('still throws from listHistory for a bad token', () => {
+      const { gmail } = twoPages();
+      const start = unwrap(gmail.getProfile()).historyId;
+      expect(() =>
+        gmail.listHistory({
+          startHistoryId: start,
+          historyTypes: BOTH_TYPES,
+          pageToken: 'not-a-token',
+        }),
+      ).toThrow(/page token/);
+    });
+  });
+
   it('throws without a matcher', () => {
     expect(() => new FakeGmail().searchThreadIds({ q: 'x', includeSpamTrash: true })).toThrow(
       /setSearchMatcher/,

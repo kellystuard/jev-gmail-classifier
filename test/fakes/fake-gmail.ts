@@ -42,6 +42,10 @@ export const GMAIL_UNIT_COSTS: Readonly<Record<GmailMethod, number>> = {
   createLabel: 5,
 };
 
+/** The message Gmail returns for a rejected page token (spike 287). */
+const INVALID_PAGE_TOKEN_MESSAGE =
+  'API call to gmail.users.threads.list failed with error: Invalid pageToken';
+
 /** The message Gmail returns for the per-user rate limit (SD §9, spike 30). */
 export const RATE_LIMIT_MESSAGE =
   "Quota exceeded for quota metric 'Total Query Cost' and limit 'Units per minute per user'";
@@ -158,6 +162,7 @@ export class FakeGmail implements GmailPort {
   private readonly latencyMs: number;
   private readonly emailAddress: string;
   private readonly bareRecords: boolean;
+  private searchGeneration = 0;
   private readonly pageSize: number;
   private readonly maxSearchPageSize: number;
   private readonly maxPageSize: number;
@@ -247,7 +252,10 @@ export class FakeGmail implements GmailPort {
 
   searchThreadIds(
     request: SearchThreadIdsRequest,
-  ): Result<{ threadIds: readonly string[]; nextPageToken?: string }, GmailFailure> {
+  ): Result<
+    { threadIds: readonly string[]; nextPageToken?: string },
+    GmailFailure | Fail<'invalid_page_token', { message: string }>
+  > {
     const failure = this.begin('searchThreadIds', [request]);
     if (failure !== undefined) {
       return failure;
@@ -273,7 +281,14 @@ export class FakeGmail implements GmailPort {
         threadIds.push(threadId);
       }
     }
-    const offset = request.pageToken === undefined ? 0 : decodeToken('search', request.pageToken);
+    let offset = 0;
+    if (request.pageToken !== undefined) {
+      const decoded = decodeSearchToken(request.pageToken, this.searchGeneration);
+      if (decoded === undefined) {
+        return FakeGmail.invalidPageToken();
+      }
+      offset = decoded;
+    }
     const size = Math.min(
       request.maxResults ?? this.pageSize,
       this.maxSearchPageSize,
@@ -281,7 +296,10 @@ export class FakeGmail implements GmailPort {
     );
     const page = threadIds.slice(offset, offset + size);
     if (offset + size < threadIds.length) {
-      return ok({ threadIds: page, nextPageToken: encodeToken('search', offset + size) });
+      return ok({
+        threadIds: page,
+        nextPageToken: encodeSearchToken(this.searchGeneration, offset + size),
+      });
     }
     return ok({ threadIds: page });
   }
@@ -381,6 +399,19 @@ export class FakeGmail implements GmailPort {
   /** The `rate_limited` failure Gmail returns for the per-user limit. */
   static rateLimited(): Fail<'rate_limited', { message: string }> {
     return fail('rate_limited', { message: RATE_LIMIT_MESSAGE });
+  }
+
+  /** The failure Gmail returns for a rejected `threads.list` page token (spike 287). */
+  static invalidPageToken(): Fail<'invalid_page_token', { message: string }> {
+    return fail('invalid_page_token', { message: INVALID_PAGE_TOKEN_MESSAGE });
+  }
+
+  /**
+   * Every search page token issued so far is rejected from now on, as if it
+   * hadn't survived until a later execution. Tokens issued afterwards work.
+   */
+  invalidateSearchTokens(): void {
+    this.searchGeneration += 1;
   }
 
   /** The transient `failed_precondition` E1 saw on a freshly imported thread (spike 26). */
@@ -694,17 +725,36 @@ function labelKey(name: string): string {
   return name.toLowerCase().replace(/\s*\/\s*/g, '/');
 }
 
-function encodeToken(kind: 'history' | 'search', value: number): string {
+function encodeToken(kind: 'history', value: number): string {
   return Buffer.from(`${kind}:${String(value)}`).toString('base64url');
 }
 
-function decodeToken(kind: 'history' | 'search', token: string): number {
+function decodeToken(kind: 'history', token: string): number {
   const [tokenKind, value] = Buffer.from(token, 'base64url').toString().split(':');
   const number = Number(value);
   if (tokenKind !== kind || !Number.isInteger(number)) {
     throw new Error(`FakeGmail: "${token}" isn't a ${kind} page token`);
   }
   return number;
+}
+
+function encodeSearchToken(generation: number, offset: number): string {
+  return Buffer.from(`search:${String(generation)}:${String(offset)}`).toString('base64url');
+}
+
+/** The offset in a search token of the current generation, or `undefined` for any other string. */
+function decodeSearchToken(token: string, generation: number): number | undefined {
+  const [kind, tokenGeneration, value] = Buffer.from(token, 'base64url').toString().split(':');
+  const offset = Number(value);
+  if (
+    kind !== 'search' ||
+    tokenGeneration !== String(generation) ||
+    value === undefined ||
+    !Number.isInteger(offset)
+  ) {
+    return undefined;
+  }
+  return offset;
 }
 
 function clone<T>(value: T): T {
