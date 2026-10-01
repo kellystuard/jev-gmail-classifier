@@ -35,6 +35,7 @@ Gmail groups messages into **threads** (conversations), and Gmail labels apply t
 3. For each thread, the script sends one request to Jev. The request contains the thread's content and every configured question (see [What is sent to Jev](#what-is-sent-to-jev)).
 4. Jev returns a probability from 0 to 1 for each question: its estimate that the answer is "yes". The value comes from Jev's yes/no question type, [Noul](https://docs.typesafe.ai/primitives/noul).
 5. A question's rule **fires** when its probability is at least its **threshold**, the minimum probability required (see [Configuration](#configuration)). The script then applies the outcomes (see [Labels and moves](#labels-and-moves)). A thread can receive any number of labels, including none.
+6. Each run stops well before Apps Script's time limit, and before it uses too much of Gmail's per-minute quota. Whatever is still queued waits for the next run, and a thread is classified at most once per run. If Gmail reports its rate limit, the run stops its Gmail work and the next run carries on.
 
 ### Labels and moves
 

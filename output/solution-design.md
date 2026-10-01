@@ -254,36 +254,57 @@ The lock is **one script-wide lock** taken with `tryLock(0)`. If it is busy, the
 
 ### 6.2 Scheduled run
 
+`onTrigger` runs the run controller's body, `runScheduled` (`src/app/run-controller.ts`, [#118](https://github.com/kellystuard/jev-gmail-classifier/issues/118)), inside `runEntry` ([§10.1](#101-error-model)). `runEntry` owns the lock, the heartbeat, the config load, the `Deadline`, the counting `GmailPort`, `run.start`, `run.failed` and the alert delivery; `runScheduled` does everything between them and logs `run.end`.
+
 ```mermaid
 sequenceDiagram
   autonumber
   participant T as Trigger
-  participant R as Run controller
+  participant E as runEntry
+  participant R as runScheduled
   participant S as StatePort
-  participant G as GmailPort
+  participant G as GmailPort (counting)
   participant J as Jev client
-  T->>R: onTrigger()
-  R->>R: acquire lock, create Deadline, load + validate config
-  R->>R: preflight: API key present? scopes granted? budget left?
-  R->>G: listHistory(startHistoryId = position)
-  G-->>R: messageAdded + labelRemoved records
-  R->>S: enqueue work items, advance position
-  loop while queue not empty and deadline + budget allow
-    R->>S: take a chunk (scheduled items first)
-    R->>G: exclusion search, drop excluded threads
-    R->>G: getThread (full) for each remaining thread
-    R->>R: build state (allowlist, plain text, truncate)
+  T->>E: onTrigger()
+  E->>E: lock, heartbeat start, config, limits, Deadline, Gmail tally, run.start
+  E->>R: body(ctx)
+  R->>R: preflight: key? scopes? budget?
+  R->>S: loadQueue
+  R->>G: listHistory from the position (while time and units allow)
+  R->>S: save the queue, move the position
+  loop while a chunk can start (time and units) and nothing stopped the run
+    R->>R: takeChunk(queue, chunkSize, taken)
+    R->>G: screen: metadata reads, one exclusion search
+    R->>G: getThread (full) for each kept thread
     R->>J: sendAll (retry rounds within the deadline)
     J-->>R: per-thread results + usage
     R->>G: apply labels, the winning move, or Jev/Error
-    R->>S: dequeue done items, record strikes, add tokens to budget
+    R->>S: save the queue (strikes, dequeued items)
   end
-  R->>R: spare time? process manual job chunks the same way
-  R->>S: save run summary + heartbeat
-  R->>R: log run.end, send any due alerts, release lock
+  R->>R: spare time? E8's hook (manual work)
+  R->>R: log run.end
+  R-->>E: RunReport (summary), or throw RunAbortError after run.end
+  E->>S: heartbeat end, Gmail tally
+  E->>E: deliver alerts, release lock
 ```
 
-**Preflight.** `runPreflight` (`src/app/run-preflight.ts`, [#119](https://github.com/kellystuard/jev-gmail-classifier/issues/119)) checks, in this order, the key, the scopes and the budget. A missing key throws `RunAbortError('missing_key')` before any call (no auth, Gmail, HTTP or state access); the per-run boundary logs `run.failed` and alerts `auth`. The scope check (`checkScopes`, [§9](#9-gmail-integration)) logs `scope_missing`, and the preflight adds its alert with the missing scopes. A reached budget adds `budget_reached` and logs `budget.reached`. It writes nothing. A missing `gmail.modify` means the run does nothing more; a missing `script.external_request` or a reached budget skips processing but not ingest. A Jev 401, 402 or 403 in the middle of a run is not the preflight's: it is `settleThread`'s `abort`, and the controller throws `RunAbortError('auth')` after the chunk.
+**Steps** (`runScheduled(ctx, deps) → RunReport`):
+
+1. **Preflight.** `runPreflight` (`src/app/run-preflight.ts`, [#119](https://github.com/kellystuard/jev-gmail-classifier/issues/119)) checks, in this order, the key, the scopes and the budget. A missing key throws `RunAbortError('missing_key')` before any call (no auth, Gmail, HTTP or state access); the per-run boundary logs `run.failed` and alerts `auth`. The scope check (`checkScopes`, [§9](#9-gmail-integration)) logs `scope_missing`, and the preflight adds its alert with the missing scopes. A reached budget adds `budget_reached` and logs `budget.reached`. It writes nothing.
+2. **No `gmail.modify`:** the run stops here (`stopped: 'gmail_scope_missing'`) and makes no Gmail call at all ([§9](#9-gmail-integration): a trigger run that uses an unauthorized service fails at once). The queue is only read, for `run.end`'s `queueSize`.
+3. **Queue:** `loadQueue`.
+4. **Ingest** ([§6.3](#63-ingest-gmail-history-to-work-queue)) through the run's counting `GmailPort`, with `shouldContinue` true while `deadline.remaining() > 0` and the run's Gmail units are under `maxGmailUnitsPerRun` ([§10.3](#103-time-budget)). Its alerts (`history_expired`) are collected. `stopped: 'rate_limited'` means no processing this run (`ingest_rate_limited`); `stopped: 'scope'` logs `scope_missing` with `step: 'ingest'`, adds the alert with the scope, and means no processing (`ingest_scope`). `cap` and `deadline` let processing go on. A missing position throws `StateError` `missing` (run `install`).
+5. **Chunk loop**, only when `script.external_request` is granted (else `classify_scope_missing`) and the budget isn't reached (else `budget`); ingest still ran.
+   - **One label cache per run** (`createLabelCache` over the counting port), created before the loop and shared by every chunk and by the spare-time hook.
+   - Take the next chunk with `takeChunk(queue, chunkSize, taken)`: the first `chunkSize` items in queue order whose thread **hasn't been taken this run**. None left → `drained`.
+   - The chunk starts only if `canStartChunk` allows it ([§10.3](#103-time-budget)): time first (`deadline`), then units (`units`).
+   - Every thread in the chunk goes into `taken` before `processChunk` ([§6.4](#64-process-classify-a-chunk)), so **each thread is settled at most once per run**: a struck or untouched item stays at the front of the queue but isn't taken again until the next run.
+   - The chunk's alerts, errored thread IDs (`errored` details) and missing scopes (`scope_missing` details) are collected, and its counts and settlements added to the run's.
+   - The loop stops after a chunk that returned `abort` (`abort`), `stopGmail` (`rate_limited`, `scope`) or `stopSending` (`budget` → `budget`, `deadline` → `send_deadline`, `scope` → `send_scope`, `outage` → `outage`). The queue is already saved.
+6. **Spare time.** When the loop `drained` and `deadline.remaining() > 0`, E8's `spareTime` hook (if one is wired; E7 wires none) is called with the context, the label cache, the key, the saved queue and the set of threads taken this run. Its flat counts go under `run.end`'s `spare`.
+7. **`run.end`** is logged once ([§10.5](#105-logging-and-alerts)), also when step 2, 4 or 5 stopped early, and before an abort is thrown.
+8. **Abort.** If a chunk returned `abort`, `runScheduled` throws `RunAbortError` (`auth` for a Jev 401, 402 or 403; `config_invalid` for the unknown-model response) after `run.end`. The other threads of that chunk were settled; the refused thread stays queued, unmarked. `runEntry` logs `run.failed`, maps the alert and rethrows. A `RunAbortError` or `StateError` thrown by a callee propagates without `run.end` (`run.failed` covers it).
+9. It returns a JSON-serializable `RunReport`: `summary` (the numeric `run.end` fields, which `runEntry` stores as `state.runs.lastSummary`), `stopped`, `labels`, `moves` and `alerts`.
 
 **Two phases.** *Ingest* reads history and adds to the queue. *Process* takes from the queue and classifies. Keeping them separate makes retries, the budget, and the deadline uniform: any item not finished simply stays in the queue ([ADR-0004](adr/0004-history-api-position.md)).
 
@@ -327,7 +348,7 @@ sequenceDiagram
 
 ### 6.4 Process: classify a chunk
 
-1. **Take a chunk** from the queue. Scheduled items come first, then manual-job items. The chunk size is a starting value owned by E7.
+1. **Take a chunk** from the queue: `takeChunk(queue, chunkSize, taken)`, the first `chunkSize` items in queue order (scheduled items first, then manual-job items) that the run hasn't taken yet ([§6.2](#62-scheduled-run)). The chunk size is settled in [§10.3](#103-time-budget).
    - **E7: `processChunk`** (`src/app/process-chunk.ts`, [#266](https://github.com/kellystuard/jev-gmail-classifier/issues/266)) runs steps 2 to 6 for one chunk of at most `MAX_REQUESTS_PER_FETCHALL` items, in this order: `screenChunk`; a full `getThread` of each kept thread, in chunk order; `threadToState` and `buildRequest`; **one** `sendJevRequests` call for every built request; `settleThread` for each entry in request order, threading the queue through; then `saveQueue` **once**, whatever happened. It takes `remainingMs` (the run's `deadline.remaining`), not a `Deadline`, and returns the saved queue, flat counts, the de-duplicated alert conditions, the errored thread IDs, one flat settlement per settled thread, the input tokens, the missing scopes met, and `stopGmail?`, `stopSending?` and `abort?`. It never throws `RunAbortError` itself: the controller throws after its loop.
      - A screening failure returns at once with the input queue: nothing saved, nothing sent.
      - A full read that hits `rate_limited` or `scope` stops reading and **sends nothing** (an answer that can't be applied isn't bought); the queue from screening is saved and the unsent items stay queued, untouched.
@@ -369,7 +390,7 @@ sequenceDiagram
    - **Auth (401, 402 or 403) or missing key:** stop the whole run. Nothing is marked, items stay queued, and an alert is sent. For a 401, 402 or 403, `settleThread` doesn't throw: it returns the item `untouched` with `abort: 'auth'`, and E7 settles the rest of the chunk first, so answers already paid for are applied, then throws `RunAbortError` after the loop.
    - **Config (the unknown-model response):** stop the whole run like auth, and send the `config_invalid` alert. `settleThread` returns `abort: 'config_invalid'` the same way.
    - **Gmail `rate_limited`** anywhere in the thread's settlement (applying the outcome, or adding `Jev/Error`): the item is returned `untouched` with `stopGmail: 'rate_limited'`, and E7 stops Gmail work for the run. An answer already received is lost, and the thread is sent again next run. **`not_found`** (the thread was deleted): `gone`, dequeued, and logged as `thread.skipped` with `reason: 'not_found'`.
-   - **Once per run.** A struck or untouched item stays at the front of the queue, so E7 settles each thread at most once per run: a later chunk in the same run must not take it again.
+   - **Once per run.** A struck or untouched item stays at the front of the queue, so E7 settles each thread at most once per run: `runScheduled` passes the threads it has taken to `takeChunk`, so a later chunk in the same run never takes one again ([§6.2](#62-scheduled-run)).
    - **Outage (a round in which every request got a 5xx or a network error, [§8.5](#85-retries-in-rounds)):** stop sending. Nothing is struck and the items stay queued.
 7. **Token usage** is recorded into today's budget by the sender, after each batch, not here.
 
@@ -894,7 +915,7 @@ Logs are **structured JSON only**, one object per event, through `LogPort`. `con
 - **`run.start`** (`info`) is logged by `runEntry` once it holds the lock and has loaded the config, just before the body: `kind` (`scheduled`, `manual` or `lifecycle`), `softLimitMs`, `reserveMs`, `chunkSize` and `maxGmailUnitsPerRun` ([§10.3](#103-time-budget)).
 - **`run.skipped`** (`info`) is logged by `runEntry` when the lock is busy: `kind` and `reason: 'busy'`.
 - **`run.failed`** (`error`) is logged by `runEntry` once for a run whose body, config load or heartbeat threw: `kind`; `error` (the class name, or `unknown` for a thrown non-`Error`); a `JevClassifierError`'s `toLogFields()` (such as `reason`, `key`, `issues`, `errorMessage`, `cause`), or `errorMessage` for another `Error`; `elapsedMs` since the lock was taken; and `alerts` (the run's conditions so far, the mapped one included). Never a stack, a body, the key or `state`. A clean-up step that fails is logged as another `run.failed` with `phase: 'finally'`, `step` (`heartbeat`, `gmail_calls`, `alerts` or `unlock`) and the error's fields; it doesn't change the run's outcome.
-- **`scope_missing`** (`warn`) is logged by the scope preflight once per missing scope, at `install` and at the start of each scheduled run. It carries `scope`, `feature` and `disables` (from `SCOPE_FEATURES`); or, when the authorization check itself failed, `scope: 'unknown'` and `errorMessage`. Nothing is logged when every scope is granted. `processChunk` ([§6.4](#64-process-classify-a-chunk)) also logs it, once for each chunk in which a call met a missing scope (the preflight can be `unknown`, or a scope can be revoked mid-run), with `scope`, `feature`, `disables` and `step` (`screen`, `read` or `send`: which call met it; the preflight's event has no `step`). A `scope_missing` alert returned by `settleThread` (a skipped move or labels) isn't logged again: `thread.classified` carries `moveSkipped` or `labelsSkipped`.
+- **`scope_missing`** (`warn`) is logged by the scope preflight once per missing scope, at `install` and at the start of each scheduled run. It carries `scope`, `feature` and `disables` (from `SCOPE_FEATURES`); or, when the authorization check itself failed, `scope: 'unknown'` and `errorMessage`. Nothing is logged when every scope is granted. `processChunk` ([§6.4](#64-process-classify-a-chunk)) also logs it, once for each chunk in which a call met a missing scope (the preflight can be `unknown`, or a scope can be revoked mid-run), with `scope`, `feature`, `disables` and `step` (`screen`, `read` or `send`: which call met it; the preflight's event has no `step`). `runScheduled` logs it with `step: 'ingest'` when ingest stops on `scope`. A `scope_missing` alert returned by `settleThread` (a skipped move or labels) isn't logged again: `thread.classified` carries `moveSkipped` or `labelsSkipped`.
 - **`ingest.done`** is logged once per ingest call that returns (not when it throws), at `info`, or `warn` when `stopped` is `rate_limited` or `scope`, or `fallbackMissed` is above 0. It carries `pages` (`history.list` calls that succeeded), `records` (records read, bare ones included), `queued` (new work items, the fallback's included), `merged` (enqueues merged into an existing item, including a thread queued earlier in the same call), `ignored` (`messagesAdded` entries left out for `DRAFT`, `SPAM` or `TRASH`), `jevErrorRetries` (distinct threads queued or merged because the user removed `Jev/Error`; other removals aren't counted or logged), `queueSize` (items in the returned queue), `startHistoryId` and `historyId` (the position before and after; the same when it didn't move. A call that continues a fallback doesn't read the position, so it has no `startHistoryId`, and `historyId` only when it finishes the fallback), and `stopped` (`cap`, `deadline`, `rate_limited` or `scope`) only when set. When a fallback ran or started ([§6.3](#63-ingest-gmail-history-to-work-queue) "Expired position"), it also carries `fallback: true`, `fallbackStarted` (this call created the cursor), `fallbackDone` (this call finished it), `fallbackWindows` (windows completed in this call), `fallbackMissed` (new threads with no room, a lower bound), `fallbackNextAfter` and `fallbackUntil` (epoch seconds). Never a subject, sender or body: ingest reads no thread.
 - **`history.expired`** (`warn`) is logged by the call that starts a fallback. It carries `historyId` and `savedAt` (the old position), `resumeHistoryId` (from `getProfile`), `aheadOfMailbox` (the old position was ahead of the mailbox: corrupt, not expired) and `until` (epoch seconds, the last second the fallback searches).
 - **`history.fallback_missed`** (`warn`) is logged when a 60 s window has more new threads than an otherwise empty queue can hold. It carries `after` and `before` (the window, epoch seconds) and `missed` (a lower bound). No thread IDs, subjects or senders.
@@ -910,7 +931,18 @@ Logs are **structured JSON only**, one object per event, through `LogPort`. `con
   - **`thread.skipped`** (`info`) with `reason: 'not_found'` when Gmail says the thread no longer exists: `threadId`, `source` and `reason` only.
 - **`thread.skipped` at the full read** (`info`) is logged by `processChunk` ([§6.4](#64-process-classify-a-chunk) step 3) with `threadId`, `source` and `reason`: `not_found` (deleted since screening) or `no_messages` (its `state` is empty: every message moved to Drafts, Spam or Trash since screening).
 - **For `install`**, `run.end` carries `position` (`kept`, `set`, `reset`), `historyId`, `triggerMinutes`, `missingScopes?` (scope URLs) and `resetPositionIgnored?`; it is `warn` when either of the last two is present, else `info` ([§6.7](#67-install-and-uninstall)).
-- **`run.end`** is the evidence for the Coverage measure. It carries counts of items ingested, classified, excluded, retried, errored, and left queued; labels applied per label; moves per destination; tokens used and remaining; and duration.
+- **`run.end`** is the evidence for the Coverage measure. For a scheduled run it is logged by `runScheduled` ([§6.2](#62-scheduled-run)) once, at `info`, also when the run stopped early and before an abort is thrown. Every value is flat (`LogFields`):
+  - `ingested` (ingest's `queued`, the fallback's included) and `merged` (ingest's merges);
+  - `excluded`, `skipped` (screening's and the full read's skips), `sent` (requests passed to the sender) and `chunks`, summed over the chunks;
+  - `classified`, `struck`, `errored`, `untouched` and `gone`: the settlements' outcomes;
+  - `inputTokens` (this run's billed tokens) and `queueSize` (the final queue);
+  - `stopped`: why the run stopped: `gmail_scope_missing`, `ingest_rate_limited`, `ingest_scope`, `classify_scope_missing`, `budget`, `drained`, `deadline`, `units`, `rate_limited`, `scope`, `send_deadline`, `send_scope`, `outage` or `abort`;
+  - `gmailCalls`, `gmailCallsToday` and `gmailUnits` (from the counting `GmailPort`);
+  - `labels` (`{labelName: threads}`) and `moves` (`{archive|spam|trash|label:<name>: threads}`): flat records of numbers;
+  - `alerts` (the run's conditions so far) and `durationMs` (`deadline.elapsed()`);
+  - `spare?`: the spare-time hook's flat record of counts (E8), present only when it ran.
+
+  The run's `summary` (stored in `state.runs.lastSummary`) is the numeric fields only, without `labels`, `moves` and `spare`, whose keys are unbounded. E9 ([#143](https://github.com/kellystuard/jev-gmail-classifier/issues/143)) may refine these fields.
 - For `uninstall`, `run.end` carries `triggersDeleted` and `keysDeleted`.
 - **Never logged:** message bodies, the API key, or the `Authorization` header. One `redact` helper in the log adapter scrubs known secret fields as a last line of defence.
 - **Alerts** use `MailPort`, go to the owner, and are limited to one per condition per day via `state.alerts`. E7 **collects** them per run (`src/app/alerts.ts`): `runEntry` gives the body an `AlertCollector` (`add(condition, details?)`, `addAll`; conditions de-duplicated in first-seen order, plus `erroredThreadIds` and `missingScopes` from the details), adds a run failure's mapped condition, and hands `collected()` to an `AlertSink` in its `finally`. E7 wires `logOnlyAlertSink`, which does nothing (the conditions are already in `run.end` or `run.failed`); E9 (#145–#147) implements the sink that sends and rate-limits. A sink must never write under `state.` when delivering for `uninstall`, which has just deleted `state.*`. The conditions:
@@ -1014,13 +1046,13 @@ This updates the PDD's [epic list](product-design-document.md#14-epics) with the
 | Search can compare `after:`/`before:` against a date the API doesn't report. | Privacy, if a window is built from message dates alone. | E1 saw it only for uploads (`insert`/`import` with `receivedTime`), not for self-sends, and couldn't test mail from outside. An upper bound of at least now + 1 d covers it. E3 tests the window builder with a message whose indexed date is later than its `internalDate`. |
 | A combined search for manual runs, `(<query>) (<excludeQuery>)`, misses threads whose matches are split across messages. | Privacy. | Confirmed by E1 (it leaks). The manual job search never includes `excludeQuery`; manual items go through the §6.4 chunk filter ([ADR-0017](adr/0017-exclusion-search-per-chunk-for-all-work.md)). |
 | `threads.get` returns Spam and Trash messages of a thread. | Mail the user trashed or that Gmail marked as spam could be sent to Jev. | Found by E1. Settled in E4: the state builder leaves out `DRAFT`, `SPAM` and `TRASH` messages ([§8.3](#83-state-layout)). |
-| The Gmail per-user, per-minute quota ("Total Query Cost", "Units per minute per user", 6,000 units/minute per user per Cloud project) is shared by everything using the account through that project, and is easy to hit: E1 hit it at about 2,900 units in 18 s of back-to-back calls ([`spikes/30-gmail-quota.md`](../spikes/30-gmail-quota.md)), and again while several spikes ran at once. | Runs fail mid-chunk with a quota exception (HTTP 403, `rateLimitExceeded`). | E7 sizes runs by quota units as well as time, and treats the error as retryable in a later run: it stops Gmail work for the run, not a per-thread failure and not the daily stop ([§9](#9-gmail-integration)). |
+| The Gmail per-user, per-minute quota ("Total Query Cost", "Units per minute per user", 6,000 units/minute per user per Cloud project) is shared by everything using the account through that project, and is easy to hit: E1 hit it at about 2,900 units in 18 s of back-to-back calls ([`spikes/30-gmail-quota.md`](../spikes/30-gmail-quota.md)), and again while several spikes ran at once. | Runs fail mid-chunk with a quota exception (HTTP 403, `rateLimitExceeded`). | Settled: capped by units per run ([§10.3](#103-time-budget)), and `rate_limited` stops Gmail work for the run ([§6.2](#62-scheduled-run)): not a per-thread failure and not the daily stop; the next run retries ([§9](#9-gmail-integration)). |
 | Adding `SPAM` via the API reports the thread to Google as spam. | A surprising side effect: Google receives a copy, and the sender's later mail may be filtered. | E1 ([`spikes/26-moves.md`](../spikes/26-moves.md)): treat it as a report. A thread spammed through the API shows the same banner as one the user reported with "Report spam" ("You reported this message as spam from your inbox"). Google's Help says that when you report spam "or move an email into Spam", Google receives a copy and may analyze it. The API docs are silent, and the test had no outside sender. The README Permissions section (#151) says to use `spam` only for mail the user would report themselves. |
 | How well `basic` HTML conversion works for classification. | Precision on HTML-only mail. | **Checked 2026-09-30** with the probe (#86, [`spikes/86-sample-mail.md`](../spikes/86-sample-mail.md)): 19 real HTML-only messages from the test account (4 receipts or order notices, 5 service notifications, 5 newsletters, 5 marketing), 9 generic rules, 171 (sample, rule) pairs. 158 agree (92.4%) and 13 disagree: 4 false positives and 9 false negatives, **0 conversion-caused**. `basic`'s text had no CSS, template text, tags, undecoded entities, invisible padding or blank-line runs, and the main content was present and in reading order in every sample. So no fix was needed and no follow-up was filed. All 13 disagreements come from question wording or thresholds (the table below). Image-heavy mail puts some copy in `alt` text, which `basic` drops by design: no disagreement came from it, but it's something to weigh if `advanced` is ever considered. **Verdict: `basic` is good enough for v1.** The `advanced` converter stays reserved. |
 | Character-based token estimate. | A rejection from Jev because the request is too large. | Measured by E4 ([`spikes/84-token-ratio.md`](../spikes/84-token-ratio.md), [§8.4](#84-truncation)): the estimate is the UTF-8 byte count, which is above Jev's count for every kind of text measured, plus a fixed overhead and a margin under the 32,768 and 65,536 limits. An over-limit request gets a 400 `max_tokens_exceeded`, not a 422, so E5 classifies it `invalid`, like a 422 (`Jev/Error`), keeping it visible and never silent ([§8.5](#85-retries-in-rounds)). |
 | The real per-scope missing-scope error text, and what `getAuthorizationInfo` reports in a partly granted install, are not observed (E1 #27 and #268 both skipped). | A scope error whose text matches no fragment is thrown as `UnexpectedResponseError` (a per-thread strike or a failed run) instead of a `scope` result. A trigger run may also fail before any of our code runs, as Google documents, and the preflight can't help that run. | **Accepted v1 risk** (maintainer, 2026-09-30). The scope preflight ([§9](#9-gmail-integration)) skips a feature whose scope is missing before calling it, so the three documented message fragments in `src/adapters/gas/scope-errors.ts` are only the backstop. The first real text seen in E10's pilot or a user report is recorded then (§9, `scope-errors.ts`, `spikes/27-missing-scope.md`). |
 | Consumer trigger runtime of about 37 s per run. | Backlog. | Bounded chunks, concurrent `fetchAll`, configurable interval, back-pressure. |
-| Whether the Advanced Gmail Service counts toward the 20,000/day "Email read/write" quota is undocumented, and not tested by exhausting it ([E1](../spikes/30-gmail-quota.md)). | Unexpected daily quota errors. | Daily Gmail calls are tracked in `state.gmailCalls` and logged in `run.end` (`gmailCalls`, `gmailCallsToday`). E7 keeps the tally; E9 logs it. |
+| Whether the Advanced Gmail Service counts toward the 20,000/day "Email read/write" quota is undocumented, and not tested by exhausting it ([E1](../spikes/30-gmail-quota.md)). | Unexpected daily quota errors. | Daily Gmail calls are tracked in `state.gmailCalls` and logged in `run.end` (`gmailCalls`, `gmailCallsToday`, `gmailUnits`; [§10.5](#105-logging-and-alerts)). |
 
 The `basic` check per rule (#86, 2026-09-30). The rules are `config.example.yaml`'s four plus five generic ones, and each is judged at its own threshold or `defaultThreshold` (0.8). None of the disagreements is conversion-caused.
 
