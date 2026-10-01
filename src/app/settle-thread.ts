@@ -280,32 +280,35 @@ function classify(
   }
 
   const { moveSkipped, labelsSkipped } = applied;
-  deps.log.info(
-    'thread.classified',
-    withoutUndefined({
-      threadId: item.threadId,
-      source: item.source,
-      subject: context.subject,
-      from: context.from,
-      probabilities: { ...result.answers },
-      fired: decision.fired,
-      actions: actionsOf(applied.applied),
-      moveSkipped,
-      labelsSkipped,
-      truncated:
-        context.truncated === undefined
-          ? undefined
-          : {
-              messagesDropped: context.truncated.messagesDropped,
-              bodiesDropped: context.truncated.bodiesDropped,
-              charsDropped: context.truncated.charsDropped,
-            },
-      requestId: result.requestId,
-      model: result.model,
-      inputTokens: result.inputTokens,
-    }),
-  );
+  const fields = withoutUndefined({
+    threadId: item.threadId,
+    source: item.source,
+    subject: context.subject,
+    from: context.from,
+    probabilities: { ...result.answers },
+    fired: decision.fired,
+    actions: actionsOf(applied.applied),
+    moveSkipped,
+    labelsSkipped,
+    truncated:
+      context.truncated === undefined
+        ? undefined
+        : {
+            messagesDropped: context.truncated.messagesDropped,
+            bodiesDropped: context.truncated.bodiesDropped,
+            charsDropped: context.truncated.charsDropped,
+          },
+    requestId: result.requestId,
+    model: result.model,
+    inputTokens: result.inputTokens,
+  });
   const scopeMissing = moveSkipped !== undefined || labelsSkipped !== undefined;
+  // A truncation and a skipped move or label are handled failures (ES §6).
+  if (scopeMissing || context.truncated !== undefined) {
+    deps.log.warn('thread.classified', fields);
+  } else {
+    deps.log.info('thread.classified', fields);
+  }
   return {
     queue: dequeue(context.queue, item.threadId),
     outcome: 'classified',
