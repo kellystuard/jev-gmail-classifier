@@ -84,19 +84,19 @@ To retry a thread marked `Jev/Error`, remove that label in Gmail. The next run p
 
 ### Monitoring
 
-- **Execution logs** are structured JSON. For each thread they list its ID, subject, sender, each question's probability (by rule `id`), and the actions taken. Each run ends with a summary of counts, tokens used, and time taken. Email bodies are never logged. Use the probabilities to tune thresholds.
+- **Execution logs** are structured JSON. For each thread they list its ID, subject, sender, each question's probability (by rule `id`), and the actions taken. Each run ends with a summary of counts, tokens used, and time taken. Email bodies are never logged. To tune thresholds from the probabilities, see [Tuning](#tuning).
   - **Where:** the Apps Script **Executions** page, <https://script.google.com/home/executions>. Open an execution to see its log.
   - **Format:** each line is one JSON object with an `event` name, such as `thread.classified` or `run.end`. The lines of one execution share a `runId`.
   - **Levels:** most events are `info`. A problem the run got past is `warn`. That includes a `thread.classified` whose content was truncated, or whose move or labels were skipped. A failed run is `error` (`run.failed`).
-  - **Scrubbing:** the code never logs the API key, an `Authorization` header or what was sent to Jev. As a last line of defence, the logger also scrubs every line: it replaces the API key and `Authorization` values wherever they appear, and cuts very long text. So a log excerpt is safe to share, apart from the subjects and senders in it.
-- **Alert emails** are sent to you when:
-  - the API key is rejected or missing;
-  - threads are newly marked `Jev/Error`. The email lists up to 50 of them as links, plus a link to the label;
-  - runs fail or don't finish 3 times in a row. A run cut off by Apps Script's 6-minute limit counts;
-  - the daily token budget is reached;
-  - a permission is missing;
-  - the configuration is invalid;
-  - Gmail's history had expired. After a long outage, the classifier catches up on the missed mail over several runs.
+  - **Scrubbing:** the code never logs the API key, an `Authorization` header or what was sent to Jev. As a last line of defence, the logger also scrubs every line: it replaces the API key and `Authorization` values wherever they appear, and cuts very long text. A log excerpt still holds the subjects and senders of your mail (including your own address, on mail you sent and on alert emails), thread IDs, label names, rule IDs, and the search query of a manual run (`manual.started`). An error text from Gmail or Google's mail service is logged as that service wrote it. So read an excerpt before you share it.
+- **Alert emails** are sent to you when one of these happens. Each links to what to do about it, in [Troubleshooting and recovery](#troubleshooting-and-recovery):
+  - [the API key is rejected or missing](#jev-api-key-missing-or-rejected);
+  - [threads are newly marked `Jev/Error`](#threads-marked-jeverror). The email lists up to 50 of them as links, plus a link to the label;
+  - [runs fail or don't finish 3 times in a row](#runs-are-failing-repeatedly). A run cut off by Apps Script's 6-minute limit counts;
+  - [the daily token budget is reached](#daily-token-budget-reached);
+  - [a permission is missing](#a-permission-is-missing);
+  - [the configuration is invalid](#configuration-is-invalid);
+  - [Gmail's history had expired](#gmail-history-expired-catching-up). After a long outage, the classifier catches up on the missed mail over several runs.
 
   What to know about them:
   - **Where they go:** to your own address, from your own account, as plain text, with the sender name `Jev Gmail Classifier`.
@@ -253,6 +253,134 @@ After changing `triggerIntervalMinutes`, build, push, and run `install` again to
 To start from now instead, add the Script Property `RESET_POSITION` with the value `true` and run `install`. It saves a new starting position and deletes the property. Mail that arrived since the old position isn't classified automatically (use a [manual run](#manual-runs) for it), and threads already queued stay queued. Any other value is ignored, with a warning in the log.
 
 To stop the classifier, run the `uninstall` function. It removes the trigger and stored state (including an unfinished manual job), and leaves all labels and your API key in place, and also any `RESET_POSITION` and `MANUAL_*` properties. Running `uninstall` again is safe. If the `script.scriptapp` permission isn't granted, `uninstall` stops without changing anything. Mail that arrives while it is uninstalled is only classified with a [manual run](#manual-runs).
+
+## Tuning
+
+Tuning means choosing, for each rule, a threshold and a question wording that catch the right mail and nothing else. You tune from the log: it holds every probability Jev returned, and never an email body. Precision comes first, because other automation builds on the labels: a missing label is better than a wrong one. When in doubt, raise a threshold.
+
+**Where the numbers are.** Open the Executions page, <https://script.google.com/home/executions>, open an execution, and find its `thread.classified` lines. There is one for each thread it classified. This example is made up, and it is split over several lines here; in the log it is one line:
+
+```json
+{
+  "event": "thread.classified",
+  "runId": "3f2b8c1e-7a4d-4e5f-9b6a-0c1d2e3f4a5b",
+  "entry": "onTrigger",
+  "ts": "2026-01-15T09:30:04.512Z",
+  "threadId": "18d0a1b2c3d4e5f6",
+  "source": "scheduled",
+  "subject": "Your January invoice",
+  "from": "Example Billing <billing@example.test>",
+  "probabilities": { "approval": 0.03, "bill": 0.97, "newsletter": 0.41, "shipping": 0.02 },
+  "fired": ["bill"],
+  "actions": ["label:Finance/Bill"],
+  "model": "jev-1.13.0",
+  "inputTokens": 1840
+}
+```
+
+- `probabilities` is Jev's answer for every rule, by rule `id`, from 0 to 1.
+- `fired` lists the rules whose probability was at least their threshold, in the order of `config.yaml`.
+- `actions` is what the classifier did to the thread: `label:<name>` for each label added, then `move:archive`, `move:spam`, `move:trash` or `move:label:<name>` if it moved the thread.
+
+A rule can be in `fired` and not in `actions`. That happens to a move rule when moves aren't allowed (a reply on an existing thread, or a manual run without `MANUAL_APPLY_MOVES`), and when an earlier move rule also fired: only the first one moves the thread (see [Labels and moves](#labels-and-moves)). A line with `truncated` means the thread was too long and its oldest content was cut, so the probabilities come from the newer part only.
+
+For totals, read `run.end`, the summary line of a scheduled run: `labels` counts the threads per label in that run, and `moves` the threads per destination.
+
+**Choosing a threshold.**
+
+1. Collect one rule's probabilities, over a few days of mail or over a manual run (see below).
+2. In Gmail, check which of those threads really are what the question asks about.
+3. Put the threshold above the highest probability of a thread that was wrong.
+
+If a rule fires on mail it shouldn't, raise its threshold. If it misses mail it should catch, lower the threshold, or reword the question. If the right and the wrong threads get about the same probabilities, no threshold separates them: reword the question.
+
+A rule's own `threshold` overrides `defaultThreshold` (see [Configuration](#configuration)). A probability equal to the threshold fires. After a change to `config.yaml`, run `npm run push` (see [Setup](#setup)). The new value applies to mail classified from then on: scheduled runs don't revisit threads they already classified, and labels are never removed.
+
+**Move rules need high thresholds.** A wrong label is easy to see and to remove. A wrong move hides mail from you. So start a move rule as a label rule, or at a high threshold such as the example's `0.95`, and watch `moves` in `run.end` to see how many threads it moves. `trash` and `spam` are the costly destinations: [Labels and moves](#labels-and-moves) says what each one does.
+
+**Try a rule on old mail first.** A [manual run](#manual-runs) **without** `MANUAL_APPLY_MOVES` classifies existing mail and applies labels only. Each thread's probabilities are in its `thread.classified` line. A move rule that would have moved the thread is in `fired` and not in `actions`. `manual.completed` gives the job's totals, with `labels` and `moves`. Such a run still **adds labels**, and labels are never removed, so it is not a dry run. Start with a narrow `MANUAL_QUERY` or a short `MANUAL_TIMESPAN`. A dry-run mode is on the [Roadmap](#roadmap), not in v1.
+
+**Try one email before deploying.** The probe sends one saved email to Jev with your key and prints each rule's probability, its threshold and whether it fires. It deploys nothing and changes no mail. See [Development](#development).
+
+**Wording a question.** Write one yes/no question per rule. Make it specific, and ask about the content of the email. Changing a question changes its probabilities, so look at the rule's threshold again afterwards. Keep the rule's `id` when you reword its question, so the log stays comparable.
+
+**Pinning the model.** With `jevModel: jev-latest`, the classifier follows TypeSafe's new releases, and a new release can shift the probabilities without any change on your side. The `model` field of `thread.classified` shows which version answered. To keep your thresholds stable, set `jevModel` to a version, such as `jev-1.13.0`. After you change the version, or after `model` changes under `jev-latest`, read the probabilities again and adjust the thresholds.
+
+**The example rules** in `config.example.yaml` are starting points to tune on your own mail, not tested defaults.
+
+## Troubleshooting and recovery
+
+The classifier reports a problem by email, at most once per condition per day (see [Monitoring](#monitoring)). Each entry below is headed like the email's subject, after the prefix `[Jev Gmail Classifier]`, and names the log events to search for on the Executions page, <https://script.google.com/home/executions>. What the classifier does on each kind of failure is in [Failures](#failures). This section says what **you** do.
+
+### Jev API key missing or rejected
+
+- **What it means:** `JEV_API_KEY` is missing from Script Properties, or Jev rejected it: Jev answered HTTP `401`, `402` or `403`.
+- **What the classifier did:** it stopped the run and marked no thread. Mail that was waiting is still waiting. Every run stops like this until the key is fixed, and the first run after the fix carries on from there.
+- **What to do:** in the Apps Script editor, open **Project Settings → Script Properties** and set `JEV_API_KEY` to a valid key. If it is already set, check the key and your TypeSafe account.
+- **Search the log for:** `run.failed`. Its `reason` is `missing_key` or `auth`.
+
+### Threads marked `Jev/Error`
+
+- **What it means:** Jev could not classify one or more threads. It rejected the request (invalid, or over its size limit), or the thread failed on 3 runs. The email links to up to 50 of the threads, then to the label.
+- **What the classifier did:** it added `Jev/Error` to each of them and stopped retrying them. Other mail is not affected.
+- **What to do:** open each thread and decide. To retry one, remove its `Jev/Error` label in Gmail: a later run classifies it again, labels only (it is not moved). A new reply alone does not retry it, and manual runs skip it. A thread that Jev rejected (`reason` is `invalid` in `thread.errored`) is sent with the same content again, so expect it to fail again: label it by hand. Threads that get `Jev/Error` later the same day are not mailed again, so look at the label in Gmail.
+- **Search the log for:** `thread.errored` (its `reason`, `status` and `errorType`) and `thread.failed`.
+
+### Runs are failing repeatedly
+
+- **What it means:** 3 runs in a row failed or did not finish. A run that did not finish was stopped by Apps Script (for example at its 6-minute limit) or by hand.
+- **What the classifier did:** each of those runs stopped early. Mail they did not get to is still waiting, and later runs try again.
+- **What to do:** find the cause in the log and fix it. If you also got an alert about the API key, the configuration or a permission, fix that first: it is the likely cause. Otherwise see [A run failed, and no alert explains it](#problems-without-an-alert).
+- **Search the log for:** `run.failed` (its `error`, `reason` and `errorMessage`) and `run.unfinished`. Both carry `consecutiveFailures`, the count so far, when it could be counted.
+
+### Daily token budget reached
+
+- **What it means:** today's token budget (`dailyTokenBudget` in `config.yaml`) is used up.
+- **What the classifier did:** it stopped sending threads to Jev for today. New mail is still queued and waits. Sending starts again on the next day, in the script's [time zone](#configuration).
+- **What to do:** nothing, if this is expected. To classify more mail per day, raise `dailyTokenBudget` in `config.yaml`, then run `npm run push`. A large [manual run](#manual-runs) uses the same budget.
+- **Search the log for:** `budget.reached` (its `inputTokens` and `dailyTokenBudget`).
+
+### A permission is missing
+
+- **What it means:** a permission (OAuth scope) the classifier needs is not granted. The email lists each missing one with what it disables, or says that the check itself failed.
+- **What the classifier did:** it carried on with what still works and skipped the rest. `install` and `uninstall` stop when a permission they need is missing.
+- **What to do:** run `install` again from the Apps Script editor and grant every permission on the consent screen. [Permissions](#permissions) has the details: what each permission is for, and what the classifier does without it.
+- **Search the log for:** `scope_missing` (its `scope`, `feature` and `disables`). A `thread.classified` line with `moveSkipped` or `labelsSkipped` is a thread whose move or labels were skipped.
+
+### Configuration is invalid
+
+- **What it means:** the deployed script's configuration failed validation, or Jev did not accept the model in `jevModel`.
+- **What the classifier did:** it stopped the run and marked no thread. Mail that was waiting is still waiting. Every run stops like this until the configuration is fixed.
+- **What to do:** fix `config.yaml` (for a rejected model, the `jevModel` value), then run `npm run push`, which builds and pushes (see [Setup](#setup)). The build runs the same validation and names each field that is wrong.
+- **Search the log for:** `run.failed`. Its `issues` list what is wrong. For a rejected model its `reason` is `config_invalid`.
+
+### Gmail history expired: catching up
+
+- **What it means:** Gmail no longer had the change history from the classifier's last saved position (see [Keeping track of new mail](#keeping-track-of-new-mail)). This happens when the classifier has not run for about a week or more, and sometimes sooner.
+- **What the classifier did:** it is catching up by search instead. It looks for mail from one hour before its last successful run until now, oldest first, over several runs. Mail that arrives meanwhile is handled after the catch-up.
+- **What to do:** nothing, in most cases. Two things are not recovered. If you removed `Jev/Error` from a thread during the gap, that thread is not retried. If the log has `history.fallback_missed`, some threads were skipped because too many arrived at once. Use a [manual run](#manual-runs) for either. If you don't know why the classifier had stopped, see [Nothing seems to run](#problems-without-an-alert).
+- **Search the log for:** `history.expired`, `ingest.done` (its `fallback` fields) and `history.fallback_missed`.
+
+### Problems without an alert
+
+**A run failed, and no alert explains it.** On the Executions page the execution shows as Failed. Open it and read its `run.failed` line: `error` is the kind of error, and `reason`, `errorMessage` or `issues` say more when they are present. One failed run needs no action: the mail it did not get to is still waiting, and later runs try again. After 3 in a row you get [Runs are failing repeatedly](#runs-are-failing-repeatedly).
+
+If `error` is `StateError`, a value the classifier stored in Script Properties is invalid, and the `key` field names it. The classifier never resets such a value itself.
+
+- If `key` is `state.position` (the saved position), add the Script Property `RESET_POSITION` with the value `true` and run `install` (see [Setup](#setup)). It saves a new starting position. Mail that arrived since the old position isn't classified automatically: use a [manual run](#manual-runs) for it.
+- For any other key, run `uninstall`, then `install`. `uninstall` removes the trigger and all stored state, the invalid value included, and `install` saves a new starting position and creates the trigger again. Your labels and your API key stay. The cost: the queue and an unfinished manual job are gone, so mail that was still queued, or that arrives between the two steps, is classified only by a manual run.
+
+If runs keep ending as `run.unfinished` and you didn't stop them by hand, that is a bug in the classifier: every run is meant to end well before Apps Script's limit. Please [open an issue](https://github.com/kellystuard/jev-gmail-classifier/issues), and read any log excerpt before you share it (see [Monitoring](#monitoring)).
+
+**Nothing seems to run.** No alert can report this: when no run starts, nothing can send an email. Look at the Executions page for recent `onTrigger` executions, and at the editor's **Triggers** page for the `onTrigger` trigger. If the trigger is gone, run `install` again. It creates the trigger again and keeps the saved position, so the mail that arrived meanwhile is picked up. After a long gap, expect the [Gmail history expired](#gmail-history-expired-catching-up) alert. A `run.skipped` line with the `reason` `busy` is normal: another execution was still running. A run that finds no new mail is normal too.
+
+**No alert emails arrive.** Each condition is mailed at most once a day, and `alert.sent` (its `condition` and `day`) shows that one went out. If an email was due and could not be sent, the log has `alert.failed` with a `reason`:
+
+- `scope`: the `script.send_mail` permission is not granted. Alerts are then only in the log, so check the Executions page yourself, or grant the permission (see [Permissions](#permissions)).
+- `quota`: Google's daily email quota is used up. The next run that sees the problem tries again.
+- `no_owner`: your address could not be read. `kind` says why: `scope` (a missing permission, see [Permissions](#permissions)) or `rate_limited` (Gmail's rate limit, which passes).
+
+**A label or a move looks wrong.** Find the thread's `thread.classified` line by its subject or its `threadId`, read the probability of the rule that fired, and adjust the rule (see [Tuning](#tuning)). Then fix the thread by hand: the classifier never removes a label and never undoes a move. It won't repeat a move you corrected: moves only happen for brand-new threads, or in a manual run with `MANUAL_APPLY_MOVES` (see [Labels and moves](#labels-and-moves)).
 
 ## Limits and Cost
 
