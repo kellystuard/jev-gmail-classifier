@@ -13,7 +13,7 @@ import { parseCsv, toCsv } from '../../scripts/pilot-worksheet.ts';
 // ---------------------------------------------------------------------------
 
 const FIXTURES = join(REPO_ROOT, 'test', 'fixtures', 'pilot');
-const CONFIG = readFileSync(join(FIXTURES, 'config.yaml'), 'utf8');
+const CONFIG = readFileSync(join(FIXTURES, 'pilot-rules.yaml'), 'utf8');
 const FROM = '2026-10-02T00:00:00Z';
 const TO = '2026-10-16T00:00:00Z';
 const T0 = Date.parse(FROM);
