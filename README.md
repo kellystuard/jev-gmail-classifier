@@ -386,12 +386,12 @@ If runs keep ending as `run.unfinished` and you didn't stop them by hand, that i
 
 ### Jev
 
-Figures below are for the Jev model version `jev-1.13.0` (the current [`jev-latest`](https://docs.typesafe.ai/models)), retrieved on 2026-09-24; the limits and the token rate were measured on 2026-09-29 ([`spikes/84-token-ratio.md`](spikes/84-token-ratio.md)). Jev measures input size in **tokens**, small chunks of text of roughly six characters of English each (fewer for URLs, and often one or more per character in other scripts). Limits and billing are both counted in tokens.
+Figures below are for the Jev model version `jev-1.13.0` (the current [`jev-latest`](https://docs.typesafe.ai/models)), retrieved on 2026-10-01; the limits and the token rate were measured on 2026-09-29 ([`spikes/84-token-ratio.md`](spikes/84-token-ratio.md)). Jev measures input size in **tokens**, small chunks of text of roughly six characters of English each (fewer for URLs, and often one or more per character in other scripts). Limits and billing are both counted in tokens.
 
 | Item                | Value                                                                                                   |
 | ------------------- | ------------------------------------------------------------------------------------------------------- |
 | Context per request | 32k (32,768) tokens for `state` plus the longest single question; 64k (65,536) tokens for `state` plus all questions combined |
-| Rate limits         | 1,200 requests/minute and 250,000 tokens/second (subject to change)                                     |
+| Rate limits         | Jev's page says 100K tokens/second and 40 requests/second on 2026-10-01, and that a request over either limit returns a 429, which the classifier retries (subject to change: the limits adjust dynamically). A burst of 20 large requests was not refused when [measured](spikes/314-jev-rate-limit.md) on 2026-10-01. |
 | Price               | $0.042 per million input tokens; output is free                                                        |
 
 Jev reads the `state` once and evaluates every question against it in parallel. That is why one limit covers the `state` plus only the *longest* question.
