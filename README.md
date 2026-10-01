@@ -84,7 +84,7 @@ If the classifier stops for so long that Gmail no longer has the history it need
 - **Daily token budget reached:** no more requests are sent until the next day (see [Configuration](#configuration)). Queued threads wait.
 - **Missing permission:** if a permission was not granted (see [Permissions](#permissions)), the run logs which one and what it disables, emails you an alert (if it can), and carries on with what still works. For example, if a move can't be made, the labels are still applied and the log records the skipped move.
 
-To retry a thread marked `Jev/Error`, remove that label in Gmail. The next run picks it up. A new reply on its own does not retry a thread marked `Jev/Error`, and manual runs skip such threads.
+To retry a thread marked `Jev/Error`, remove that label in Gmail. The next run picks it up. A new reply on its own does not retry a thread marked `Jev/Error`, and manual runs skip such threads (except after an `uninstall` and a new `install`: see [Stopping and removing](#stopping-and-removing)).
 
 ### Monitoring
 
@@ -121,7 +121,7 @@ A manual run classifies existing mail, which scheduled runs skip. Apps Script ed
 | `MANUAL_APPLY_MOVES` | `true`           | Also apply move rules. `true` or `false` in any case. The default (unset) is `false`, labels only. Any other value is refused, not guessed.                                                                                            |
 | `MANUAL_REPLACE`     | `true`           | Replace a manual run that hasn't finished yet. `true` or `false` in any case. The default (unset) is `false`. Any other value is refused.                                                                                              |
 
-At least one of `MANUAL_QUERY` or `MANUAL_TIMESPAN` is required. The search is your query as typed, `after:<time>` for a timespan alone, or `(<query>) after:<time>` for both. The log entry `manual.started` shows the exact search. Your exclusion query is not part of it, but it is always applied to every thread, as for scheduled mail, and threads marked `Jev/Error` are skipped. Every matching thread is reclassified. Use this after adding or changing questions, since scheduled runs don't revisit old threads.
+At least one of `MANUAL_QUERY` or `MANUAL_TIMESPAN` is required. The search is your query as typed, `after:<time>` for a timespan alone, or `(<query>) after:<time>` for both. The log entry `manual.started` shows the exact search. Your exclusion query is not part of it, but it is always applied to every thread, as for scheduled mail, and threads marked `Jev/Error` are skipped (except after an `uninstall` and a new `install`: see [Stopping and removing](#stopping-and-removing)). Every matching thread is reclassified. Use this after adding or changing questions, since scheduled runs don't revisit old threads.
 
 **With `MANUAL_APPLY_MOVES`, move rules apply to every matching thread. A new `trash` rule can move a lot of old mail, and cancelling a job doesn't undo anything it has already done.** Run the job without `MANUAL_APPLY_MOVES` first, read the probabilities and the counts in the log, and only then run it again with `MANUAL_APPLY_MOVES` set to `true`.
 
@@ -139,7 +139,7 @@ A large manual run cannot finish within a single execution (see [Google Apps Scr
 
 To follow a job, read the log. Each execution that works on the job logs `manual.progress`: what this execution did and how much is still queued. When the job is done, it logs `manual.completed`: the search, how long it took, the totals (classified, excluded, skipped, marked `Jev/Error`), the number of threads per label (`labels`) and the number per move destination (`moves`: `archive`, `spam`, `trash` and `label:<name>`). A thread that gets new mail while it waits is classified by a scheduled run and counted there, not in the job. A thread that fails keeps the job open until it is classified or, after failing on 3 runs, marked `Jev/Error`, so one bad thread can add a few executions. If the log shows the job's search stuck on empty pages, end the job with `cancelManualRun`.
 
-The search result isn't a snapshot of your mailbox. Mail that changes while the job runs can be classified twice, which is harmless: labels and moves are applied the same way again. In rare cases a matching thread can be missed, if Gmail loses its place in the results and earlier matches were deleted meanwhile. Mail in Spam and Trash is never part of a job. A thread marked `Jev/Error` is skipped: remove the label to retry it. As a caution, if a job's own moves take threads out of its search (for example `in:inbox` with an `archive` rule and `MANUAL_APPLY_MOVES`), it may skip some threads. Run the same job again until it finds nothing, or use a search that its moves don't change.
+The search result isn't a snapshot of your mailbox. Mail that changes while the job runs can be classified twice, which is harmless: labels and moves are applied the same way again. In rare cases a matching thread can be missed, if Gmail loses its place in the results and earlier matches were deleted meanwhile. Mail in Spam and Trash is never part of a job. A thread marked `Jev/Error` is skipped: remove the label to retry it (except after an `uninstall` and a new `install`: see [Stopping and removing](#stopping-and-removing)). As a caution, if a job's own moves take threads out of its search (for example `in:inbox` with an `archive` rule and `MANUAL_APPLY_MOVES`), it may skip some threads. Run the same job again until it finds nothing, or use a search that its moves don't change.
 
 Manual work counts against `dailyTokenBudget` like scheduled work, so a large job can use up the day's budget, and new mail then waits until the next day. For a big backfill, use a narrower query or timespan.
 
@@ -339,7 +339,7 @@ Follow these steps from top to bottom. Each one says what to do and what you sho
 
    If something is wrong, `install` says so and goes no further:
    - If a permission box was left unticked, `install` asks for the missing permissions again, or stops with an error that names the permission. See [Permissions](#permissions).
-   - If the `JEV_API_KEY` property is missing, `install` stops with "JEV_API_KEY is missing: set JEV_API_KEY in Script Properties, then run install again" and writes nothing. Add the property and run `install` again. See [Troubleshooting and recovery](#troubleshooting-and-recovery).
+   - If the `JEV_API_KEY` property is missing, `install` stops with "JEV_API_KEY is missing: set JEV_API_KEY in Script Properties, then run install again". It saves no starting position and creates no trigger, and you get the "Jev API key missing or rejected" email (if the `script.send_mail` permission is granted). Add the property and run `install` again. See [Jev API key missing or rejected](#jev-api-key-missing-or-rejected).
 
 10. **Check that it works.**
     1. Open the execution log of the `install` run. It ends with a `run.end` line that has `position` (`set` on a first install), `historyId` and `triggerMinutes`. A `missingScopes` field means a permission is missing: see [Permissions](#permissions).
@@ -364,6 +364,8 @@ To start from now instead, add the Script Property `RESET_POSITION` with the val
 ### Stopping and removing
 
 To stop the classifier, run the `uninstall` function. It removes the trigger and stored state (including an unfinished manual job), and leaves all labels and your API key in place, and also any `RESET_POSITION` and `MANUAL_*` properties. Its log ends with a `run.end` line with `triggersDeleted` and `keysDeleted`. Running `uninstall` again is safe. If the `script.scriptapp` permission isn't granted, `uninstall` stops without changing anything. Mail that arrives while it is uninstalled is only classified with a [manual run](#manual-runs).
+
+**Threads marked `Jev/Error` before an `uninstall`.** `uninstall` leaves the `Jev/Error` label on your threads but deletes the classifier's record of which label it used. After a new `install`, the classifier no longer recognizes those threads, until it next marks a thread `Jev/Error` itself. Until then, a new reply or a [manual run](#manual-runs) that matches such a thread classifies it again, and removing the label from it does not retry it. Before a manual run, either leave those threads out of the search with a `-label:` term in `MANUAL_QUERY` (Google's [search operators page](https://support.google.com/mail/answer/7190) doesn't say how a nested label like `Jev/Error` is written, so try the search in Gmail first and check that it lists no `Jev/Error` thread), or remove the old label from them in Gmail.
 
 `uninstall` does not remove the permissions you granted or the Apps Script project. To remove the rest:
 
@@ -440,7 +442,7 @@ The classifier reports a problem by email, at most once per condition per day (s
 
 - **What it means:** Jev could not classify one or more threads. It rejected the request (invalid, or over its size limit), or the thread failed on 3 runs. The email links to up to 50 of the threads, then to the label.
 - **What the classifier did:** it added `Jev/Error` to each of them and stopped retrying them. Other mail is not affected.
-- **What to do:** open each thread and decide. To retry one, remove its `Jev/Error` label in Gmail: a later run classifies it again, labels only (it is not moved). A new reply alone does not retry it, and manual runs skip it. A thread that Jev rejected (`reason` is `invalid` in `thread.errored`) is sent with the same content again, so expect it to fail again: label it by hand. Threads that get `Jev/Error` later the same day are not mailed again, so look at the label in Gmail.
+- **What to do:** open each thread and decide. To retry one, remove its `Jev/Error` label in Gmail: a later run classifies it again, labels only (it is not moved). A new reply alone does not retry it, and manual runs skip it (except after an `uninstall` and a new `install`: see [Stopping and removing](#stopping-and-removing)). A thread that Jev rejected (`reason` is `invalid` in `thread.errored`) is sent with the same content again, so expect it to fail again: label it by hand. Threads that get `Jev/Error` later the same day are not mailed again, so look at the label in Gmail.
 - **Search the log for:** `thread.errored` (its `reason`, `status` and `errorType`) and `thread.failed`.
 
 ### Runs are failing repeatedly
@@ -485,7 +487,7 @@ The classifier reports a problem by email, at most once per condition per day (s
 If `error` is `StateError`, a value the classifier stored in Script Properties is invalid, and the `key` field names it. The classifier never resets such a value itself.
 
 - If `key` is `state.position` (the saved position), add the Script Property `RESET_POSITION` with the value `true` and run `install` (see [Setup](#setup)). It saves a new starting position. Mail that arrived since the old position isn't classified automatically: use a [manual run](#manual-runs) for it.
-- For any other key, run `uninstall`, then `install`. `uninstall` removes the trigger and all stored state, the invalid value included, and `install` saves a new starting position and creates the trigger again. Your labels and your API key stay. The cost: the queue and an unfinished manual job are gone, so mail that was still queued, or that arrives between the two steps, is classified only by a manual run.
+- For any other key, run `uninstall`, then `install`. `uninstall` removes the trigger and all stored state, the invalid value included, and `install` saves a new starting position and creates the trigger again. Your labels and your API key stay. The cost: the queue and an unfinished manual job are gone, so mail that was still queued, or that arrives between the two steps, is classified only by a manual run. Also, threads that carry `Jev/Error` are no longer skipped or retried as before, until the classifier next marks a thread itself: see [Stopping and removing](#stopping-and-removing).
 
 If runs keep ending as `run.unfinished` and you didn't stop them by hand, that is a bug in the classifier: every run is meant to end well before Apps Script's limit. Please [open an issue](https://github.com/kellystuard/jev-gmail-classifier/issues), and read any log excerpt before you share it (see [Monitoring](#monitoring)).
 
