@@ -61,7 +61,7 @@ These run in a real deployment: since E7 (#121) every wired entry point builds a
 2. Edit `state.position` by hand to text that isn't JSON, for example `{"v":1,`. The next run fails with `StateError` and `reason: parse` in the log, and the log line has the key but not the stored text. The value is left exactly as edited (not reset). Restore it.
 3. Edit `state.position` to `{"v":99}`. The next run fails with `StateError` and `reason: version`, and the value is left as is. Restore it.
 4. With a full queue (E7 or E8 makes one), each `state.queue.<n>` value is at most 9 KB, and the shard numbers have no gaps after a run that finished.
-5. Set `MANUAL_QUERY` by hand, then run `startManualRun` (E8). It reads the value and deletes the property afterwards.
+5. Set `MANUAL_QUERY` by hand, then run `startManualRun` (E8). A started job deletes all four `MANUAL_*` properties (`MANUAL_QUERY`, `MANUAL_TIMESPAN`, `MANUAL_APPLY_MOVES`, `MANUAL_REPLACE`); a refused start leaves them.
 6. Set `RESET_POSITION=true` by hand, then run `install` (E7). `state.position` is reset, and `install` honors the input.
 
 ## UTF-8 decoder (gasDecodeUtf8)
@@ -128,7 +128,7 @@ Since E7 (#121) `install` (both methods) and `onTrigger` (the scope check) use i
 Every wired entry point builds these per execution (E7, #121), so the checks read the log of an entry-point run (the editor's **Executions** page, or the log pane after running from the editor). The log adapter's line format is also unit-tested (`test/adapters/gas/gas-log-adapter.test.ts`). It is minimal until E9 (#142) adds `redact`. Never write the test account's address anywhere (write `<test-account>`).
 
 1. Every line an entry point writes is one JSON object that starts with `event`, `runId`, `entry` and `ts`, at the event's level (`info`, `warn` or `error`).
-2. All the lines of one execution share one `runId` (a UUID), and two executions have different ones. `entry` is the entry point's name (`onTrigger`, `install` or `uninstall`).
+2. All the lines of one execution share one `runId` (a UUID), and two executions have different ones. `entry` is the entry point's name (`onTrigger`, `install`, `uninstall`, `startManualRun`, `continueManualRun` or `cancelManualRun`).
 3. `ts` is an ISO 8601 time in UTC (`…Z`) within the execution's start and end (the clock adapter's `Date.now()`).
 4. The time zone: `state.gmailCalls`'s `day` and `state.budget`'s day follow `timeZone` in `appsscript.json` (`Session.getScriptTimeZone()`), not UTC. With `timeZone` set to a zone far from UTC, a run just after local midnight starts a new `day`.
 5. The sleep and the jitter (only if Jev answers 429 or 503 during the pilot; skip it otherwise): a `jev.batch` line with `rounds` > 1 has `sleptMs` > 0, and the execution lasts at least that long (`Utilities.sleep`, with the random adapter's jitter in the delay).
@@ -136,7 +136,7 @@ Every wired entry point builds these per execution (E7, #121), so the checks rea
 
 ## Entry points
 
-The composition root (`src/entry/main.ts`, E7 #121) wires `install`, `onTrigger` and `uninstall`. `startManualRun`, `continueManualRun` and `cancelManualRun` are placeholders until E8: they return `{ entry, status: 'placeholder', ruleCount }`. Run this on the throwaway test account only (ADR-0016), with synthetic mail only (a made-up sender at `example.test`, sent or imported into `<test-account>`). Never write the test account's address anywhere. Push with `npm run push` from a `config.yaml` with `triggerIntervalMinutes: 10` and one label rule that fires on the synthetic message (for example "Is this a test message from example.test?"), and set `JEV_API_KEY` in Script Properties. E10 (#154) uses this section; it has not been run live yet.
+The composition root (`src/entry/main.ts`, E7 #121) wires `install`, `onTrigger` and `uninstall`. E8 (#288) wires `startManualRun`, `continueManualRun` and `cancelManualRun` the same way; the "Manual runs" section below checks them. Run this on the throwaway test account only (ADR-0016), with synthetic mail only (a made-up sender at `example.test`, sent or imported into `<test-account>`). Never write the test account's address anywhere. Push with `npm run push` from a `config.yaml` with `triggerIntervalMinutes: 10` and one label rule that fires on the synthetic message (for example "Is this a test message from example.test?"), and set `JEV_API_KEY` in Script Properties. E10 (#154) uses this section; it has not been run live yet.
 
 1. **Install.** Run `install` from the editor. It returns `{ entry: 'install', status: 'ok', position: 'set', historyId, triggerMinutes: 10, missingScopes: [] }`. The Triggers page shows one `onTrigger` trigger, every 10 minutes. Script Properties has `state.position`, `state.installedAt` and `state.gmailCalls`. The log has `run.start` and `run.end` for `install`, and no `run.failed`.
 2. **Install again.** A second `install` returns `position: 'kept'` with the same `historyId`, and there is still one trigger.
@@ -148,3 +148,24 @@ The composition root (`src/entry/main.ts`, E7 #121) wires `install`, `onTrigger`
 8. **After uninstall.** Run `onTrigger` from the editor: it fails with `StateError` (`state.position` is missing: install writes it). Run `install` to set it up again, or `uninstall` once more to remove the `state.runs` that run wrote.
 
 Afterwards, delete the synthetic threads and the rule's label.
+
+## Manual runs
+
+The entry points `startManualRun`, `continueManualRun` and `cancelManualRun` (E8, #288), and the manual spare-time hook in `onTrigger`. Run this on the throwaway test account only (ADR-0016), with synthetic mail only (a made-up sender at `example.test`, sent or imported into `<test-account>`). Never write the test account's address anywhere. Push with `npm run push` from a `config.yaml` with `triggerIntervalMinutes: 10`, one label rule that fires on the synthetic mail, one `archive` move rule, and an `excludeQuery` that matches one marked thread; `install` it and set `JEV_API_KEY`. It has not been run live yet; E10 (#154) runs it.
+
+1. **No inputs.** With no `MANUAL_*` property, run `startManualRun`. It returns `{ entry: 'startManualRun', status: 'rejected', reason: 'no_input' }`. The execution is **Completed**, the log has `manual.rejected` (at `warn`) and no `run.end`, and there is no `state.manual`.
+2. **Bad timespan.** Set `MANUAL_QUERY` and `MANUAL_TIMESPAN=1m`, then run `startManualRun`: `rejected`, `reason: 'invalid_timespan'`, and both properties are still there.
+3. **A job over about 30 threads.** Import about 30 synthetic threads. Set `MANUAL_QUERY` (a query that matches them) and `MANUAL_TIMESPAN=7d`, then run `startManualRun`. The log has `manual.started` with the exact final query `(<query>) after:<seconds>`, and all four `MANUAL_*` properties are deleted. The threads get the label rule's label. The log has `manual.progress`, then `manual.completed` with `labels` counts, and `state.manual` is gone.
+4. **Labels only.** Without `MANUAL_APPLY_MOVES`, a firing move rule moves nothing: the threads stay in the inbox.
+5. **With moves.** Repeat with `MANUAL_APPLY_MOVES=true` and the `archive` rule firing: the threads leave the inbox, and `manual.completed` has `moves.archive`.
+6. **Exclusion.** A thread that matches `excludeQuery` is logged as `thread.excluded`, is never sent to Jev, and is counted in `excluded`. The query in `manual.started` does not contain `excludeQuery`.
+7. **`Jev/Error`.** A thread labelled `Jev/Error` is logged as `thread.skipped` with `reason: 'jev_error'`.
+8. **An unfinished job.** Delete `JEV_API_KEY`, set `MANUAL_QUERY` and run `startManualRun`. The job is saved (`state.manual` exists), the execution is **Failed**, and `run.failed` has `reason: 'missing_key'`. Restore the key.
+9. **A second start.** With that job unfinished, set `MANUAL_QUERY` and start again: `rejected`, `reason: 'job_unfinished'`, and the properties are kept. Add `MANUAL_REPLACE=true`: `manual.cancelled` with `reason: 'replaced'`, then `manual.started` with `replaced: true`.
+10. **Spare time.** With a job unfinished and the trigger installed, the next `onTrigger` logs `manual.progress`, and its `run.end` has `spare`.
+11. **Continue.** Run `continueManualRun`: more of the job is done (`{ entry: 'continueManualRun', status: 'ok', job, stopped, summary }`). Run it while another execution holds the lock: `{ entry: 'continueManualRun', status: 'skipped', reason: 'busy' }`.
+12. **Cancel.** Run `cancelManualRun` on an unfinished job: `{ entry: 'cancelManualRun', status: 'ok', cancelled: true, removed }`. `state.manual` is gone, no manual item is left in `state.queue.*`, and the labels already applied are still there. The log has `manual.cancelled` and no `run.end`; `state.runs` is unchanged. Run it again: `cancelled: false, removed: 0`.
+13. **No job.** Run `continueManualRun` with no job: `job: 'none'`, `stopped: 'no_job'`, and `run.end` has `stopped: 'no_job'`.
+14. **Optional, over 300 matching threads.** The job needs several executions, and a later one continues from the saved page token: `seen` grows in `manual.progress`, and there is no `manual.cursor_reset`.
+
+Afterwards, delete the synthetic threads and the rule's labels.

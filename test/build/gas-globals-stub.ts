@@ -1,7 +1,7 @@
 /**
  * Minimal stand-ins for the Apps Script globals the real entry points touch,
  * for running the bundle in a `vm` context (`bundle.test.ts`). Only what
- * `onTrigger`, `install` and `uninstall` call on an empty mailbox is here;
+ * the six entry points call on an empty mailbox is here;
  * anything else throws, so an unexpected call fails the test loudly.
  *
  * Not a fake of a port: the app layer's tests use `test/fakes/`. This checks
@@ -21,6 +21,13 @@ export type ConsoleLine = {
 
 export type StubTrigger = { readonly handler: string; readonly minutes: number };
 
+export type StubSearch = {
+  readonly q?: string;
+  readonly includeSpamTrash?: boolean;
+  readonly maxResults?: number;
+  readonly pageToken?: string;
+};
+
 export type GasGlobalsOptions = {
   /** Another execution holds the script lock: `tryLock` returns false. */
   readonly lockBusy?: boolean;
@@ -37,6 +44,8 @@ export type GasGlobalsStub = {
   readonly properties: Map<string, string>;
   /** The project's time-driven triggers, live. */
   readonly triggers: StubTrigger[];
+  /** Every `Threads.list` call's options, in order. */
+  readonly searches: StubSearch[];
   /** Every `console.*` line, in order. */
   readonly lines: ConsoleLine[];
   /** The lines whose `event` is `event`. */
@@ -64,6 +73,7 @@ export function createGasGlobals(options: GasGlobalsOptions = {}): GasGlobalsStu
   const properties = new Map(Object.entries(options.properties ?? {}));
   const triggers: StubTrigger[] = [];
   const lines: ConsoleLine[] = [];
+  const searches: StubSearch[] = [];
   const historyId = options.historyId ?? '1000';
   let held = false;
 
@@ -142,7 +152,10 @@ export function createGasGlobals(options: GasGlobalsOptions = {}): GasGlobalsStu
         History: { list: () => ({ historyId }) },
         Labels: { list: () => ({ labels: [] }), create: () => unexpected('Labels.create') },
         Threads: {
-          list: () => ({}),
+          list: (_userId: string, search: StubSearch) => {
+            searches.push(search);
+            return {};
+          },
           get: () => unexpected('Threads.get'),
           modify: () => unexpected('Threads.modify'),
         },
@@ -155,6 +168,7 @@ export function createGasGlobals(options: GasGlobalsOptions = {}): GasGlobalsStu
     globals,
     properties,
     triggers,
+    searches,
     lines,
     events: (event) => lines.filter((line) => line.json['event'] === event),
     lockHeld: () => held,
