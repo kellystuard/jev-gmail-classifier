@@ -30,13 +30,7 @@ import { parseConfigText } from './config-source.ts';
 import { readExports } from './pilot-log.ts';
 import { reduce, ruleCounts } from './pilot-reduce.ts';
 import { ruleInfos } from './pilot-rules.ts';
-import {
-  applicationRows,
-  precisionOf,
-  readChecked,
-  sampleRows,
-  toCsv,
-} from './pilot-worksheet.ts';
+import { applicationRows, precisionOf, readChecked, sampleRows, toCsv } from './pilot-worksheet.ts';
 
 export const PILOT_USAGE =
   'node scripts/pilot-measures.ts --from <ISO> --to <ISO> --interval <minutes> ' +
@@ -115,7 +109,10 @@ function parseOptions(argv: readonly string[]): Parsed {
   const from = Date.parse(values.from);
   const to = Date.parse(values.to);
   if (Number.isNaN(from) || Number.isNaN(to) || from >= to) {
-    return { ok: false, message: 'Invalid window: --from and --to must be ISO times, --from first.' };
+    return {
+      ok: false,
+      message: 'Invalid window: --from and --to must be ISO times, --from first.',
+    };
   }
   const interval = Number(values.interval);
   if (!INTERVALS.includes(interval)) {

@@ -1,0 +1,3 @@
+{"insertId":"a2","severity":"INFO","timestamp":"2026-10-02T00:00:20.000Z","jsonPayload":{"message":"{\"event\":\"run.end\",\"runId\":\"run-a\",\"entry\":\"onTrigger\",\"ts\":\"2026-10-02T00:00:20.000Z\",\"stopped\":\"drained\",\"queueSize\":0,\"durationMs\":20000}"}}
+{"insertId":"b1","severity":"INFO","timestamp":"2026-10-02T00:10:00.000Z","textPayload":"{\"event\":\"run.start\",\"runId\":\"run-b\",\"entry\":\"onTrigger\",\"ts\":\"2026-10-02T00:10:00.000Z\",\"kind\":\"scheduled\"}"}
+{"insertId":"b2","severity":"INFO","timestamp":"2026-10-02T00:10:01.000Z","textPayload":"not one of our lines"}

@@ -121,8 +121,8 @@ export function sampleRows(
     if (chosen.size >= options.sample) break;
     chosen.add(row.id);
   }
-  return [...moves, ...labels.filter((row) => chosen.has(row.id))].sort(
-    (a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : a.id < b.id ? -1 : 1),
+  return [...moves, ...labels.filter((row) => chosen.has(row.id))].sort((a, b) =>
+    a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : a.id < b.id ? -1 : 1,
   );
 }
 
@@ -236,7 +236,11 @@ export function precisionOf(
 ): Precision {
   const perRule = rules.map((rule) => {
     const own = checked.filter((row) => row.ruleId === rule.id && row.correct !== undefined);
-    return { id: rule.id, checked: own.length, correct: own.filter((r) => r.correct === true).length };
+    return {
+      id: rule.id,
+      checked: own.length,
+      correct: own.filter((r) => r.correct === true).length,
+    };
   });
   const tally = (move: boolean, appliedCount: number) => {
     const own = checked.filter(

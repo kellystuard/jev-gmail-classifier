@@ -209,7 +209,8 @@ export function balanceOf(
     const previous = i === 0 ? undefined : runs[i - 1];
     const queueSize = numberField(run.end.fields, 'queueSize');
     const ingested = numberField(run.end.fields, 'ingested');
-    const before = previous?.end === undefined ? undefined : numberField(previous.end.fields, 'queueSize');
+    const before =
+      previous?.end === undefined ? undefined : numberField(previous.end.fields, 'queueSize');
     const outs = OUT_KEYS.map((key) => numberField(run.end?.fields ?? {}, key));
     const manualBetween =
       previous?.end !== undefined &&

@@ -30,6 +30,7 @@ import {
 import { appliedActions, modelName, ruleInfos, type RuleInfo, sourceOf } from './pilot-rules.ts';
 
 const DAY_MS = 86_400_000;
+const KNOWN_EVENTS: ReadonlySet<string> = new Set<string>(LOG_EVENTS);
 
 /** The entry points, as named by `entry` in a log line. */
 export const ENTRY_NAMES = [
@@ -173,23 +174,23 @@ const MANUAL_SUM_KEYS: readonly (readonly [string, string])[] = [
   ['untouched', 'untouched'],
 ];
 
-function runsSection(
-  inWindow: readonly PilotLine[],
-): Record<string, Record<string, unknown>> {
+function runsSection(inWindow: readonly PilotLine[]): Record<string, Record<string, unknown>> {
   const out: Record<string, Record<string, unknown>> = {};
   for (const entry of ENTRY_NAMES) {
     const own = inWindow.filter((line) => line.entry === entry);
     const section: Record<string, unknown> = {
       started: own.filter((line) => line.event === 'run.start').length,
       ended: own.filter((line) => line.event === 'run.end').length,
-      failed: own.filter((line) => line.event === 'run.failed' && !presentField(line.fields, 'phase'))
-        .length,
+      failed: own.filter(
+        (line) => line.event === 'run.failed' && !presentField(line.fields, 'phase'),
+      ).length,
       skippedBusy: own.filter((line) => line.event === 'run.skipped').length,
     };
     if (entry === 'onTrigger') {
       const ends = own.filter((line) => line.event === 'run.end');
       const stopped: Counts = {};
-      for (const line of ends) bump(stopped, closed(stringField(line.fields, 'stopped'), RUN_STOPS));
+      for (const line of ends)
+        bump(stopped, closed(stringField(line.fields, 'stopped'), RUN_STOPS));
       const durations = ends.flatMap((line) => numberField(line.fields, 'durationMs') ?? []);
       const perDay: Counts = {};
       for (const line of ends) {
@@ -253,11 +254,16 @@ function coverageSection(
   const order = new Map<PilotLine, number>();
   all.forEach((line, index) => order.set(line, index));
   for (const line of all) {
-    if (line.event !== 'thread.classified' && line.event !== 'thread.errored' && line.event !== 'thread.skipped') {
+    if (
+      line.event !== 'thread.classified' &&
+      line.event !== 'thread.errored' &&
+      line.event !== 'thread.skipped'
+    ) {
       continue;
     }
     const id = stringField(line.fields, 'threadId');
-    if (id !== undefined) resolvedAt.set(id, Math.max(resolvedAt.get(id) ?? -1, order.get(line) ?? 0));
+    if (id !== undefined)
+      resolvedAt.set(id, Math.max(resolvedAt.get(id) ?? -1, order.get(line) ?? 0));
   }
   const failedAt = new Map<string, number>();
   for (const line of ofEvent('thread.failed')) {
@@ -338,7 +344,10 @@ function quotaSection(
   inWindow: readonly PilotLine[],
   options: ReduceOptions,
 ): Record<string, unknown> {
-  const groups = new Map<string, { group: Omit<RunFailedGroup, 'count' | 'quotaLike'>; count: number; quotaLike: number }>();
+  const groups = new Map<
+    string,
+    { group: Omit<RunFailedGroup, 'count' | 'quotaLike'>; count: number; quotaLike: number }
+  >();
   for (const line of inWindow.filter((l) => l.event === 'run.failed')) {
     const entry = closed(line.entry, new Set(ENTRY_NAMES));
     const error = closed(stringField(line.fields, 'error'), ERROR_NAMES);
@@ -370,7 +379,10 @@ function quotaSection(
     runFailed: [...groups.values()]
       .sort((a, b) => a.group.entry.localeCompare(b.group.entry) || b.count - a.count)
       .map((g) => ({ ...g.group, count: g.count, quotaLike: g.quotaLike })),
-    platformErrors: { count: platform.length, quotaLike: platform.filter((e) => e.quotaLike).length },
+    platformErrors: {
+      count: platform.length,
+      quotaLike: platform.filter((e) => e.quotaLike).length,
+    },
     rateLimitedStops: inWindow.filter((l) => {
       if (l.event !== 'run.end') return false;
       const stopped = stringField(l.fields, 'stopped');
@@ -433,7 +445,7 @@ export function reduce(read: PilotRead, options: ReduceOptions): Measures {
   for (const name of LOG_EVENTS) events[name] = 0;
   events['other'] = 0;
   for (const line of inWindow) {
-    const known = (LOG_EVENTS as readonly string[]).includes(line.event);
+    const known = KNOWN_EVENTS.has(line.event);
     bump(events, known ? line.event : 'other');
   }
 

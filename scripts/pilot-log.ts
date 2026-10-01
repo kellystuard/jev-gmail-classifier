@@ -36,7 +36,10 @@ export interface PilotRead {
   /** Entries that are not one of our lines. */
   readonly unparsed: number;
   /** `ERROR` entries that are not one of our lines, with the epoch ms of their `timestamp` when they have one. */
-  readonly platformErrors: readonly { readonly at: number | undefined; readonly quotaLike: boolean }[];
+  readonly platformErrors: readonly {
+    readonly at: number | undefined;
+    readonly quotaLike: boolean;
+  }[];
 }
 
 /** Text that marks a platform error as a quota or rate problem (ignoring case). Never printed. */
