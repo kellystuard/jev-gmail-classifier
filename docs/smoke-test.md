@@ -409,10 +409,10 @@ S1 and S2 need a fresh Apps Script project: they are the push with `clasp` and t
 
 | ID | Marking | Who | Do | Expect |
 |----|---------|-----|----|--------|
-| S1 | required | person | In a fresh Apps Script project: copy `.clasp.json.example` to `.clasp.json` with the project's script ID, put the smoke config at `config.yaml`, and run `npm run push`. | The build passes and `clasp` pushes. The project holds exactly two files, `Code.js` and `appsscript.json`. |
+| S1 | required | person | In a fresh Apps Script project, follow the README: turn on the Apps Script API, run `npx clasp login`, copy `.clasp.json.example` to `.clasp.json` with the project's script ID, put the smoke config at `config.yaml`, and run `npm run push`. Answer yes if `clasp` asks to overwrite the manifest. | The build passes and `clasp` pushes. After a reload, the editor lists exactly two files: `Code.gs` (`clasp` pushes a `.js` file as `.gs`) and `appsscript.json`. |
 | S2 | required | person | In that fresh project, run `install` for the first time. | A consent screen appears, after "Google hasn't verified this app". It lists four permissions, all unticked. It never says "Read, compose, send, and permanently delete all your email from Gmail". With all four ticked, `install` goes on. |
 | S3 | required | | Before anything is installed: with `new GasGmailAdapter().searchThreadIds`, page four searches to the end, each with `includeSpamTrash: true`: (a) the config's `excludeQuery`; (b) `from:example.test`; (c) `subject:"Jev Gmail Classifier"`; (d) `in:anywhere`. | **Returns** four ID lists for which both hold. The only threads in both (a) and (b) are the ones whose subject holds `JevSmokeExcluded`. Every thread of (d) is in (a), (b) or (c): whatever is neither synthetic nor one of the classifier's own emails is excluded, so no real mail can reach Jev. Record counts only. |
-| S4 | required | | Delete the property `JEV_API_KEY`. Run `install`. Then: restore the key. | **Throws** `RunAbortError` whose message says to set `JEV_API_KEY` in Script Properties and run `install` again. **Log:** `run.failed` with `error: 'RunAbortError'`, `reason: 'missing_key'` and `alerts: ['auth']`. **Properties:** no `state.position` and no `state.installedAt`. **Triggers:** none for `onTrigger`. (The run also sends the `auth` alert email, which section N checks.) |
+| S4 | required | | Delete the property `JEV_API_KEY`. Run `install`. Then: restore the key. | **Throws** `RunAbortError` with the message "JEV_API_KEY is missing: set JEV_API_KEY in Script Properties, then run install again". **Log:** `run.failed` with `error: 'RunAbortError'`, `reason: 'missing_key'` and `alerts: ['auth']`. **Properties:** no `state.position` and no `state.installedAt`. **Triggers:** none for `onTrigger`. (The run also sends the `auth` alert email, which section N checks.) |
 | S5 | required | | Run `install`. | **Returns** `{ entry: 'install', status: 'ok', position: 'set', historyId, triggerMinutes: 10, missingScopes: [] }`. **Triggers:** exactly one for the handler `onTrigger`, and it is time-driven. **Properties:** `state.position` (with that `historyId` and a `savedAt`), `state.installedAt` and `state.gmailCalls`. **Log:** `run.start` and `run.end` for `install`; no `run.failed` and no `scope_missing`. |
 | S6 | required | | Deliver one label-kind message and one whose subject holds `JevSmokeExcluded`. Run nothing. Wait for a trigger run that starts after the delivery: `state.runs` appears, with a `lastStart` later than the delivery. | **Properties:** `state.runs` has `lastOutcome: 'ok'`, `consecutiveFailures: 0`, and a `lastSummary` with `sent: 1` and `classified: 1`. **Mailbox:** the first thread has the label `JevSmoke/Test`; the excluded one doesn't. (In the editor, the Executions page shows the run as Completed.) |
 | S7 | required | | Run `install` again. | **Returns** `position: 'kept'` and the `historyId` that `state.position` held just before the run. **Triggers:** still exactly one for `onTrigger`. |
@@ -423,17 +423,20 @@ Every README "Setup" step that the test account can show, and its checks:
 
 | README "Setup" step | Checks |
 |---------------------|--------|
-| Write a config and build it | "The smoke config" above (local, no live call) |
-| Push with `clasp` | S1 |
-| Run `install`: it asks for the permissions | S2 |
-| Add `JEV_API_KEY`; without it `install` stops and says so | S4 |
+| Get the code, write a config, build | Local, with no account: "The smoke config" and "The two builds" above |
+| Create the project, connect `clasp`, push | S1 |
+| Set the time zone | Z1–Z3 |
+| Add the Jev key; without it `install` stops and says so | S4 |
+| Run `install`: the consent screen | S2 |
 | `install` saves the position and creates the trigger | S5 |
-| Only mail that arrives afterwards is classified automatically | S6 |
+| Check that it works: `install`'s `run.end`, one trigger, a completed trigger run, a test mail that gets its label | S5, S6 |
+| Changing the config or the interval: push, and run `install` again for the interval | R2, R3 |
 | Running `install` again keeps the position | S7 |
-| `RESET_POSITION`: `true` resets, any other value is ignored with a warning | S8, S9 |
-| Change `triggerIntervalMinutes`, then build, push and run `install` again | R2, R3 |
-| Upgrade: pull, build, push | V1–V5 |
-| `uninstall`, and what it leaves | X1, X2 |
+| Upgrading: pull, build, push | V1–V5 |
+| Starting from now: `RESET_POSITION` | S8, S9 |
+| Stopping: `uninstall`, and what it leaves | X1, X2 |
+
+Removing the granted permissions and deleting the project are Google account pages, not the classifier: they have no check.
 
 ## R. Trigger adapter
 
@@ -560,7 +563,7 @@ Before N1: delete the property `state.alerts` if it exists. S4 or E7 sent the `a
 
 `GasClockAdapter.timeZone()` and the days that follow it: the Gmail call tally, the token budget and the alert limit. These checks need `timeZone` changed in the project's manifest (`appsscript.json`), and changed back afterwards. The manifest belongs to the whole project: in a project shared with other scripts, run this section only when nothing else there depends on the time zone.
 
-Before Z1: choose a zone whose date differs from the UTC date right now. `Pacific/Kiritimati` (UTC+14) is a day ahead from 10:00 UTC on; `Pacific/Pago_Pago` (UTC−11) is a day behind until 11:00 UTC. Set it as `timeZone` in the manifest and push. The trigger is paused.
+Before Z1: choose a zone whose date differs from the UTC date right now. `Pacific/Kiritimati` (UTC+14) is a day ahead from 10:00 UTC on; `Pacific/Pago_Pago` (UTC−11) is a day behind until 11:00 UTC. Set it as `timeZone` in the manifest and push: the build copies the repository's `appsscript.json` into `dist/`, so change it there and build, and never commit that change. Each push overwrites the project's manifest. The trigger is paused.
 
 | ID | Marking | Who | Do | Expect |
 |----|---------|-----|----|--------|
