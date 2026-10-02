@@ -536,6 +536,6 @@ describe.each([
 
 describe('labelKey', () => {
   it('is exported from the schema module for the label cache (E6)', () => {
-    expect(labelKey('Finance / Bill')).toBe('finance/bill');
+    expect(labelKey('Finance/ Bill')).toBe('finance/bill');
   });
 });

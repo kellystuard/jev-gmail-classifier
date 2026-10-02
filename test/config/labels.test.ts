@@ -28,10 +28,16 @@ describe('labelKey', () => {
   it.each([
     ['Finance/Bill', 'finance/bill'],
     ['finance/bill', 'finance/bill'],
-    ['Finance / Bill', 'finance/bill'],
     ['Finance/ Bill', 'finance/bill'],
-    ['Finance /Bill', 'finance/bill'],
-    ['A  /  B / C', 'a/b/c'],
+    ['Finance/Bill ', 'finance/bill'],
+    ['A/ B/ C ', 'a/b/c'],
+    // A space before a `/` makes another label in Gmail (#329).
+    ['Finance /Bill', 'finance /bill'],
+    ['Finance / Bill', 'finance /bill'],
+    ['A /B/ C', 'a /b/c'],
+    // Not observed: only one space is dropped, so these stay different keys.
+    ['Finance/  Bill', 'finance/ bill'],
+    ['Finance/Bill  ', 'finance/bill '],
     ['Approval Required', 'approval required'],
     ['INBOX', 'inbox'],
   ])('%j -> %j', (name, key) => {

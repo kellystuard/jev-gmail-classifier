@@ -57,7 +57,7 @@ describe('decideOutcome results', () => {
   });
 
   it('de-duplicates labels by labelKey, first spelling wins', () => {
-    const rules = [label('a', 'Finance/Bill'), label('b', 'finance / bill')];
+    const rules = [label('a', 'Finance/Bill'), label('b', 'FINANCE/BILL')];
     expect(decide(rules, { a: 1, b: 1 })).toEqual({
       fired: ['a', 'b'],
       labels: ['Finance/Bill'],

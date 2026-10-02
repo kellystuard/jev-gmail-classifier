@@ -118,7 +118,9 @@ export interface GmailPort {
    * after `label_exists` are E6's.
    *
    * - `label_exists`: 409 "Label name exists or conflicts". Gmail compares
-   *   names case-insensitively, with spaces around `/` ignored.
+   *   names case-insensitively and ignores a space after a `/` and at the
+   *   end of the name, but not a space before a `/` (`Finance /Bill` is
+   *   another label than `Finance/Bill`; #329).
    * - `invalid_label_name`: 400 "Invalid label name", for a reserved name
    *   such as `Inbox` or `Spam`.
    */

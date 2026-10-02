@@ -1,10 +1,11 @@
 /**
  * Gmail label-name rules for the config (Solution Design §6.5, §7.2).
  *
- * Observed by E1 (`spikes/25-nested-labels.md`): Gmail compares label names
- * case-insensitively and ignores spaces around `/`, but stores them exactly as
- * typed. Instead of normalizing names, the schema rejects the forms that would
- * surprise the user.
+ * Observed by E1 (`spikes/25-nested-labels.md`) and by #155's smoke check L5
+ * (#329): Gmail compares label names case-insensitively and ignores a space
+ * after a `/` and at the end of the name, but not a space before a `/`. It
+ * stores names exactly as typed. Instead of normalizing names, the schema
+ * rejects the forms that would surprise the user.
  */
 
 /** Gmail system labels. `labels.create` rejects them in any case (400 `Invalid label name`). */
@@ -24,11 +25,20 @@ export const RESERVED_LABEL_NAMES = [
 const CLASSIFIER_NAMESPACE = 'Jev';
 
 /**
- * The key Gmail compares label names by: lower case, with spaces around `/`
- * dropped. `Finance / Bill` and `finance/bill` both give `finance/bill`.
+ * The key Gmail compares label names by: lower case, with one space after a
+ * `/` and one at the end of the name dropped. A space before a `/` is kept, so
+ * `Finance/ Bill`, `Finance/Bill ` and `FINANCE/BILL` give `finance/bill`, while
+ * `Finance /Bill` and `Finance / Bill` give other keys (they are other labels).
+ *
+ * Observed (#329, table of the smoke probe): a case change, one space after a
+ * `/`, one space at the end (all 409), and one space before a `/` (created).
+ * NOT observed: a space at the start, two or more spaces, a tab or other
+ * whitespace. Those are left out of the rule on purpose: two names the key
+ * tells apart only make the classifier create the label the config names,
+ * while two it wrongly merges could add a label the config doesn't name.
  */
 export function labelKey(name: string): string {
-  return name.replace(/\s*\/\s*/g, '/').toLowerCase();
+  return name.toLowerCase().replace(/\/ /g, '/').replace(/ $/, '');
 }
 
 function findReserved(part: string): string | undefined {

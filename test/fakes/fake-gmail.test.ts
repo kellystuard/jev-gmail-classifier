@@ -545,7 +545,7 @@ describe('FakeGmail labels', () => {
     expect(names).toEqual(['Finance/Bill']);
   });
 
-  it.each(['finance/bill', 'FINANCE / BILL', 'Finance/ Bill'])(
+  it.each(['finance/bill', 'FINANCE/ BILL', 'Finance/ Bill', 'Finance/Bill '])(
     'returns label_exists for %j',
     (name) => {
       const gmail = new FakeGmail();
@@ -555,6 +555,15 @@ describe('FakeGmail labels', () => {
         kind: 'label_exists',
         message: 'Label name exists or conflicts',
       });
+    },
+  );
+
+  it.each(['Finance /Bill', 'Finance / Bill'])(
+    'creates %j as another label than Finance/Bill (a space before a /)',
+    (name) => {
+      const gmail = new FakeGmail();
+      gmail.seedLabel('Finance/Bill');
+      expect(unwrap(gmail.createLabel(name)).label.name).toBe(name);
     },
   );
 

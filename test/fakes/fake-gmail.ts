@@ -720,9 +720,12 @@ function labelChange(m: StoredMessage, labelId: string): GmailLabelChange {
   return { labelIds: [labelId], message };
 }
 
-/** Gmail's label-name comparison: case-insensitive, with spaces around `/` ignored (spike 25). */
+/**
+ * Gmail's label-name comparison as observed (spike 25, #329): case-insensitive,
+ * one space after a `/` and one at the end ignored, a space before a `/` kept.
+ */
 function labelKey(name: string): string {
-  return name.toLowerCase().replace(/\s*\/\s*/g, '/');
+  return name.toLowerCase().replace(/\/ /g, '/').replace(/ $/, '');
 }
 
 function encodeToken(kind: 'history', value: number): string {

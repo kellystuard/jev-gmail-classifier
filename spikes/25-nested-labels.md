@@ -833,6 +833,20 @@ Results from `node spikes/run.mjs`, reduced to the fields that matter. Error det
 
 **For #41 (config schema):** reject label names that are reserved (`Inbox`, `Spam`, `Trash`, `Sent`, `Drafts`, `Starred`, `Important`, `Unread`, `Chats`, any case), and names with empty segments or a leading or trailing `/`. Also reject two rules whose labels differ only in case or in spaces around `/`.
 
+## Correction (2026-10-02, #329)
+
+The conclusion above, "Gmail also ignores spaces around `/` when it compares names", and the "For E6" and "For #41" lines that repeat it, were drawn from one pair (`S25odd/ X` against `S25odd / X`), which shows only that a space **after** a `/` is ignored. Smoke check L5 (#155) found the rest. Against an existing `JevSmokeProbe/A/B`:
+
+| Name tried | Gmail's answer |
+|------------|----------------|
+| `jevsmokeprobe/a/b`, `JEVSMOKEPROBE/A/B` | 409 "Label name exists or conflicts" |
+| `JevSmokeProbe/ A/B`, `JevSmokeProbe/A/ B` (a space **after** a `/`) | 409 |
+| `JevSmokeProbe/A/B ` (a space at the end) | 409 |
+| `JevSmokeProbe /A/B`, `JevSmokeProbe/A /B` (a space **before** a `/`) | created, stored exactly as given |
+| `JevSmokeProbe / A / B` | created, stored exactly as given |
+
+So Gmail ignores case, a space after a `/` and a space at the end of the name, but **a space before a `/` makes a different label**. Not observed: a space at the start of a name, two or more spaces, a tab. For E6 and #41, read "spaces around `/` ignored" as "a space after a `/` and at the end ignored". `labelKey` follows this rule, and the schema still rejects rule labels with a space at either end of a part (so also around a `/`).
+
 ## Design changes
 
 - **SD §6.5 "Labels":** corrected. Gmail doesn't create parents, and the web UI nests a label only under existing ones, so E6 creates missing ancestors top-down. The bullet also records case-insensitive matching and the 409 handling, with "Confirmed by E1".
