@@ -57,11 +57,21 @@ describe('decideOutcome results', () => {
   });
 
   it('de-duplicates labels by labelKey, first spelling wins', () => {
-    const rules = [label('a', 'Finance/Bill'), label('b', 'finance / bill')];
+    const rules = [label('a', 'Finance/Bill'), label('b', 'FINANCE/BILL')];
     expect(decide(rules, { a: 1, b: 1 })).toEqual({
       fired: ['a', 'b'],
       labels: ['Finance/Bill'],
     });
+  });
+
+  it('de-duplicates labels Gmail takes for one name', () => {
+    const rules = [label('a', 'Finance/Bill'), label('b', 'Finance-Bill')];
+    expect(decide(rules, { a: 1, b: 1 }).labels).toEqual(['Finance/Bill']);
+  });
+
+  it('keeps labels Gmail holds apart', () => {
+    const rules = [label('a', 'Finance/Bill'), label('b', 'Finance_Bill')];
+    expect(decide(rules, { a: 1, b: 1 }).labels).toEqual(['Finance/Bill', 'Finance_Bill']);
   });
 
   it('picks the first firing move rule, both in fired', () => {

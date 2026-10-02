@@ -545,7 +545,7 @@ describe('FakeGmail labels', () => {
     expect(names).toEqual(['Finance/Bill']);
   });
 
-  it.each(['finance/bill', 'FINANCE / BILL', 'Finance/ Bill'])(
+  it.each(['finance/bill', 'Finance-Bill', 'Finance Bill', ' Finance/Bill  '])(
     'returns label_exists for %j',
     (name) => {
       const gmail = new FakeGmail();
@@ -557,6 +557,20 @@ describe('FakeGmail labels', () => {
       });
     },
   );
+
+  it.each(['Finance /Bill', 'Finance/ Bill', 'Finance / Bill', 'Finance_Bill', 'Finance.Bill'])(
+    'creates %j as another label than Finance/Bill',
+    (name) => {
+      const gmail = new FakeGmail();
+      gmail.seedLabel('Finance/Bill');
+      expect(unwrap(gmail.createLabel(name)).label.name).toBe(name);
+    },
+  );
+
+  it('stores a name trimmed, with each run of white space as one space', () => {
+    const gmail = new FakeGmail();
+    expect(unwrap(gmail.createLabel('  P9a/\t\t A ')).label.name).toBe('P9a/ A');
+  });
 
   it.each([
     'inbox',

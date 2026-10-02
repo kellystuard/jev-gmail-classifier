@@ -33,11 +33,41 @@ describe('createLabelCache', () => {
     expect(callsTo(gmail, 'listLabels')).toHaveLength(1);
   });
 
-  it.each(['finance / bill', 'FINANCE/BILL'])('finds a seeded label as %j', (name) => {
+  it.each(['finance-bill', 'FINANCE/BILL', 'Finance Bill'])(
+    'finds a seeded label as %j',
+    (name) => {
+      const { gmail, cache } = setup();
+      const seeded = gmail.seedLabel('Finance/Bill');
+      expect(cache.idFor(name)).toEqual({ ok: true, id: seeded.id, created: false });
+      expect(callsTo(gmail, 'createLabel')).toHaveLength(0);
+    },
+  );
+
+  it.each(['Finance-Bill', 'Finance Bill', 'FINANCE-BILL'])(
+    'uses the mailbox label %j for a rule that says Finance/Bill, and creates nothing',
+    (existing) => {
+      const { gmail, cache } = setup();
+      const seeded = gmail.seedLabel(existing);
+      expect(cache.idFor('Finance/Bill')).toEqual({ ok: true, id: seeded.id, created: false });
+      expect(callsTo(gmail, 'createLabel')).toHaveLength(0);
+    },
+  );
+
+  it('creates Finance/Bill when the mailbox only has Finance / Bill (three separators)', () => {
     const { gmail, cache } = setup();
-    const seeded = gmail.seedLabel('Finance/Bill');
-    expect(cache.idFor(name)).toEqual({ ok: true, id: seeded.id, created: false });
-    expect(callsTo(gmail, 'createLabel')).toHaveLength(0);
+    const odd = gmail.seedLabel('Finance / Bill');
+    const found = cache.idFor('Finance/Bill');
+    expect(found).toMatchObject({ ok: true, created: true });
+    expect(found).not.toMatchObject({ id: odd.id });
+    expect(callsTo(gmail, 'createLabel')).toEqual([['Finance'], ['Finance/Bill']]);
+  });
+
+  it('treats an existing flat ancestor as the ancestor of a deeper rule label', () => {
+    const { gmail, cache } = setup();
+    gmail.seedLabel('Finance-Bill');
+    gmail.seedLabel('Finance');
+    expect(cache.idFor('Finance/Bill/Late')).toMatchObject({ ok: true, created: true });
+    expect(callsTo(gmail, 'createLabel')).toEqual([['Finance/Bill/Late']]);
   });
 
   it('creates missing ancestors top-down and logs each', () => {

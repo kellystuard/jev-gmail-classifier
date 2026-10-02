@@ -833,6 +833,16 @@ Results from `node spikes/run.mjs`, reduced to the fields that matter. Error det
 
 **For #41 (config schema):** reject label names that are reserved (`Inbox`, `Spam`, `Trash`, `Sent`, `Drafts`, `Starred`, `Important`, `Unread`, `Chats`, any case), and names with empty segments or a leading or trailing `/`. Also reject two rules whose labels differ only in case or in spaces around `/`.
 
+## Correction (2026-10-02, #329)
+
+The conclusion above, "Gmail also ignores spaces around `/` when it compares names", and the "For E6" and "For #41" lines that repeat it, are wrong. Case 9's refusal of `S25odd/ X` was a conflict with `S25odd//X` (created earlier in the same run), not with `S25odd / X`. #155's second label probe (`s155_labelProbe2`, test account, one base name per case) found the rule. Gmail compares two label names after it has:
+
+1. trimmed white space at both ends and turned each run of white space (a tab included) into one space (this is also what it stores);
+2. ignored case;
+3. taken a space, a `/` and a `-` as the same character.
+
+So `Finance/Bill`, `Finance-Bill` and `Finance Bill` are one name, `Finance /Bill` and `Finance/ Bill` are one name (two separators), and `Finance / Bill` is another (three). `_` and `.` stay themselves. Examples: `Q6 A` then `Q6/A` gives 409, `Q7-A` then `Q7/A` gives 409, `Q8_A` then `Q8/A` and `P5/ A` then `P5/A` are created. Not observed: other punctuation and non-ASCII letters. For E6 and #41: look names up by this key (`labelKey` in `src/config/labels.ts`), and reject two rule labels with the same key.
+
 ## Design changes
 
 - **SD §6.5 "Labels":** corrected. Gmail doesn't create parents, and the web UI nests a label only under existing ones, so E6 creates missing ancestors top-down. The bullet also records case-insensitive matching and the 409 handling, with "Confirmed by E1".

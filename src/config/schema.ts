@@ -230,7 +230,7 @@ const rulesSchema = z
           ctx.addIssue({
             code: 'custom',
             path: [index, found.field],
-            message: `label "${found.label}" differs only in case from "${first.label}" in rules[${String(first.index)}]; Gmail treats them as one label`,
+            message: `label "${found.label}" differs only in case, spaces, '/' or '-' from "${first.label}" in rules[${String(first.index)}]; Gmail ignores case and treats a space, a '/' and a '-' in a label name as the same character, so these are one label`,
           });
         }
       }

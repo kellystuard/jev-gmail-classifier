@@ -309,7 +309,7 @@ Once, at the end, after section X:
 | L2 | required | | `createLabel('JevSmoke/A/B')` | **Returns** `{ ok: true, label }` with a `Label_<n>` ID and the name `JevSmoke/A/B`. |
 | L3 | required | | `listLabels()` again. | **Returns** that leaf only: no `JevSmoke` and no `JevSmoke/A` was created. |
 | L4 | required | | `createLabel('JevSmoke/A/B')` again. | **Returns** `{ ok: false, kind: 'label_exists', message }`. It doesn't throw. |
-| L5 | required | | `createLabel('jevsmoke / a / b')` | **Returns** `{ ok: false, kind: 'label_exists', message }`. It doesn't throw. |
+| L5 | required | | `createLabel('jevsmoke/a-b')` (a `-` for a `/`: Gmail takes them as the same character, #329) | **Returns** `{ ok: false, kind: 'label_exists', message }`. It doesn't throw. |
 | L6 | required | | `createLabel('Inbox')` | **Returns** `{ ok: false, kind: 'invalid_label_name', message }`. It doesn't throw. |
 | L7 | required | | `modifyThread(<JevSmoke direct 02's ID>, { addLabelIds: [<L2's ID>], removeLabelIds: [] })` | **Returns** `{ ok: true }`. **Mailbox:** every message of the thread has the label. |
 | L8 | required | | The same call again. | **Returns** `{ ok: true }`. **Mailbox:** nothing changed. |
