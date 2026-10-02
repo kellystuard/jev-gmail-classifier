@@ -759,6 +759,75 @@ function s155_labelProbe(base, variants) {
   return s155_out_(out);
 }
 
+/**
+ * The other direction of `s155_labelProbe` (for #329): the mailbox holds the
+ * spaced label, and the clean name is created. Each case has its own base
+ * name, so no case affects another. A case creates its `existing` names in
+ * order, then tries each name in `create`, and every step's answer is kept:
+ * created (with the name as Gmail stored it) or refused (Gmail's text).
+ * Every name must hold `JevSmokeProbe`. It deletes everything it created, and
+ * any `JevSmokeProbe` label left by an earlier run, and gives the label count
+ * before and after.
+ */
+function s155_labelProbe2(cases) {
+  var P = 'JevSmokeProbe';
+  cases = cases || [
+    { id: '1', existing: [P + 'P1 /A'], create: [P + 'P1/A'] },
+    { id: '2a', existing: [P + 'P2 / A'], create: [P + 'P2/A'] },
+    { id: '2b', existing: [P + 'P3 / A'], create: [P + 'P3/ A'] },
+    { id: '2c', existing: [P + 'P4/ A'], create: [P + 'P4 / A'] },
+    { id: '3a', existing: [P + 'P5/ A'], create: [P + 'P5/A'] },
+    { id: '3b', existing: [P + 'P6/A '], create: [P + 'P6/A'] },
+    { id: '4a', existing: [P + 'P7 ', P + 'P7 /A'], create: [P + 'P7/A'] },
+    { id: '4b', existing: [P + 'P8', P + 'P8/A'], create: [P + 'P8 /A'] },
+    { id: '5a', existing: [P + 'P9a/A'], create: [P + 'P9a/  A'] },
+    { id: '5b', existing: [P + 'P9b/A'], create: [' ' + P + 'P9b/A'] },
+    { id: '5c', existing: [P + 'P9c/A'], create: [P + 'P9c/A  '] },
+    { id: '5d', existing: [P + 'P9d/A'], create: [P + 'P9d/\tA'] }
+  ];
+  var isProbe = function (name) { return /jevsmokeprobe/i.test(String(name)); };
+  var ok = cases.every(function (c) { return (c.existing || []).concat(c.create || []).every(isProbe); });
+  if (!ok) return s155_out_({ refused: 'every name holds JevSmokeProbe' });
+  var list = function () { return Gmail.Users.Labels.list('me').labels || []; };
+  var before = list();
+  var leftovers = before.filter(function (l) { return isProbe(l.name); });
+  leftovers.forEach(function (l) { Gmail.Users.Labels.remove('me', l.id); });
+  var created = [];
+  var make = function (name) {
+    try {
+      var label = Gmail.Users.Labels.create({ name: name }, 'me');
+      created.push(label.id);
+      return { asked: name, created: true, storedAs: label.name, storedExactly: label.name === name };
+    } catch (e) {
+      return { asked: name, created: false, message: String(e && e.message) };
+    }
+  };
+  var out = { labelsBefore: before.length, leftoversDeleted: leftovers.map(function (l) { return l.name; }), cases: {} };
+  try {
+    cases.forEach(function (c) {
+      out.cases[c.id] = { existing: (c.existing || []).map(make), create: (c.create || []).map(make) };
+    });
+  } finally {
+    var failed = [];
+    created.forEach(function (id) {
+      try {
+        Gmail.Users.Labels.remove('me', id);
+      } catch (e) {
+        failed.push(String(e && e.message));
+      }
+    });
+    out.deleted = created.length - failed.length;
+    out.deleteFailures = failed;
+  }
+  var after = list();
+  out.labelsAfter = after.length;
+  out.probeLabelsLeft = after.filter(function (l) { return isProbe(l.name); }).map(function (l) { return l.name; });
+  out.sameLabelsAsBefore =
+    JSON.stringify(after.map(function (l) { return l.id; }).sort()) ===
+    JSON.stringify(before.filter(function (l) { return !isProbe(l.name); }).map(function (l) { return l.id; }).sort());
+  return s155_out_(out);
+}
+
 function s155_textParts_(part, out) {
   out = out || { types: [], filenames: [], text: null };
   out.types.push(part.mimeType);
