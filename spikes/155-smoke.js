@@ -631,6 +631,29 @@ function s155_labelCounts(args) {
   return s155_out_({ count: ids.length, read: read, labelSummary: summary });
 }
 
+/**
+ * The threads that hold a message from `example.test` **and** a message from
+ * someone else (for check S3: a search matches a thread when any message
+ * matches, so `excludeQuery` matches these). For each: how many messages, how
+ * many are from `example.test`, how many the account sent, and the subject
+ * when it starts with `JevSmoke`.
+ */
+function s155_mixed() {
+  var address = s155_address_().toLowerCase();
+  var ids = s155_listAll_('threads', 'from:' + s155_K.domain, true);
+  var mixed = [];
+  ids.forEach(function (id) {
+    var thread = s155_retry_(function () { return Gmail.Users.Threads.get('me', id, { format: 'metadata', metadataHeaders: ['From', 'Subject'] }); });
+    var messages = thread.messages || [];
+    var synthetic = messages.filter(function (m) { return String(s155_header_(m, 'From')).indexOf('@' + s155_K.domain) >= 0; }).length;
+    if (synthetic === messages.length) return;
+    var own = messages.filter(function (m) { return String(s155_header_(m, 'From')).toLowerCase().indexOf(address) >= 0; }).length;
+    var subject = String(s155_header_(messages[0], 'Subject') || '');
+    mixed.push({ messages: messages.length, fromExampleTest: synthetic, fromTheAccount: own, subject: subject.indexOf(s155_K.subject) === 0 ? subject : '(not a JevSmoke thread)' });
+  });
+  return s155_out_({ threadsFromExampleTest: ids.length, mixed: mixed });
+}
+
 /** One thread's labels, by ID or by exact subject (`{subject}`). */
 function s155_thread(arg) {
   var address = s155_address_();
@@ -650,7 +673,12 @@ function s155_threadId_(subject) {
 }
 
 function s155_ownLabel_(name) {
-  return name === 'Jev' || name === 'Jev/Error' || name === 'JevSmoke' || name.indexOf('JevSmoke/') === 0;
+  return name === 'Jev' || name === 'Jev/Error' || s155_smokeLabel_(name);
+}
+
+/** A label of the smoke test: `JevSmoke` or under it, in any case (check L5 makes `jevsmoke / a / b`). */
+function s155_smokeLabel_(name) {
+  return /^jevsmoke(\s*\/|$)/i.test(name);
 }
 
 /**
@@ -699,6 +727,38 @@ function s155_label(action, name, target) {
   return s155_out_(result);
 }
 
+/**
+ * Which label names Gmail takes as the same label (after check L5, #155).
+ * With `base` created first, it tries to create each of `variants` and says
+ * whether Gmail made it or refused it. It deletes everything it created.
+ * Every name must start with `JevSmoke`, in any case.
+ */
+function s155_labelProbe(base, variants) {
+  base = base || 'JevSmokeProbe/A/B';
+  variants = variants || ['jevsmokeprobe/a/b', 'JevSmokeProbe / A / B', 'JevSmokeProbe/A /B', 'JevSmokeProbe/A/ B', 'JevSmokeProbe /A/B', 'JevSmokeProbe/ A/B'];
+  var names = [base].concat(variants);
+  if (!names.every(function (n) { return /^jevsmoke/i.test(String(n)); })) return s155_out_({ refused: 'every name starts with JevSmoke' });
+  var created = [];
+  var out = { base: base, variants: {} };
+  var make = function (name) {
+    try {
+      var label = Gmail.Users.Labels.create({ name: name }, 'me');
+      created.push(label.id);
+      return { created: true, storedAs: label.name };
+    } catch (e) {
+      return { created: false, message: String(e && e.message) };
+    }
+  };
+  try {
+    out.baseResult = make(base);
+    variants.forEach(function (name) { out.variants[name] = make(name); });
+  } finally {
+    created.forEach(function (id) { Gmail.Users.Labels.remove('me', id); });
+  }
+  out.deleted = created.length;
+  return s155_out_(out);
+}
+
 function s155_textParts_(part, out) {
   out = out || { types: [], filenames: [], text: null };
   out.types.push(part.mimeType);
@@ -719,6 +779,7 @@ function s155_describeAlert_(message, names) {
     from: s155_header_(message, 'From'),
     to: s155_header_(message, 'To'),
     subject: s155_header_(message, 'Subject'),
+    contentType: s155_header_(message, 'Content-Type'),
     labels: (message.labelIds || []).map(function (labelId) { return names[labelId] || labelId; }).sort(),
     mimeTypes: parts.types,
     filenames: parts.filenames,
@@ -748,6 +809,44 @@ function s155_alerts(args) {
   });
   alerts.sort(function (a, b) { return a.internalDate - b.internalDate; });
   return s155_out_({ count: alerts.length, alerts: alerts });
+}
+
+/**
+ * Prepares checks N13 and N14 for the person who opens the links: puts the
+ * label `Jev/Error` on one synthetic thread, and sends the account an email
+ * with the two Gmail links, built the way the `Jev/Error` alert builds them
+ * (`src/core/alert-email.ts`). The links hold the account's address, so they
+ * are only ever in that email, never in what this function returns.
+ */
+function s155_linksEmail(args) {
+  args = args || {};
+  var address = s155_address_();
+  var subject = args.subject || 'JevSmoke direct 05 [' + (args.tag || 'r1') + ']';
+  var threadId = s155_threadId_(subject);
+  if (!threadId) return s155_out_({ sent: false, refused: 'no such synthetic thread' });
+  var labels = {};
+  (Gmail.Users.Labels.list('me').labels || []).forEach(function (l) { labels[l.name] = l.id; });
+  var created = [];
+  ['Jev', 'Jev/Error'].forEach(function (name) {
+    if (labels[name]) return;
+    labels[name] = Gmail.Users.Labels.create({ name: name }, 'me').id;
+    created.push(name);
+  });
+  Gmail.Users.Threads.modify({ addLabelIds: [labels['Jev/Error']] }, 'me', threadId);
+  var base = 'https://mail.google.com/mail/?authuser=' + encodeURIComponent(address);
+  var body = [
+    'Smoke test (#155): two links to open, built the way the Jev/Error alert email builds them.',
+    '',
+    '1. This link should open the thread "' + subject + '", in this account:',
+    base + '#all/' + encodeURIComponent(threadId),
+    '',
+    '2. This link should list that same thread under the label Jev/Error, in this account:',
+    'All threads with the label: ' + base + '#label/' + encodeURIComponent('Jev/Error'),
+    '',
+    'This email was sent by the smoke-test helper (spikes/155-smoke.js), not by the classifier.'
+  ].join('\n');
+  var result = new (s155_adapters_().GasMailAdapter)().send(address, s155_K.alertPrefix + ' Smoke test links', body);
+  return s155_out_({ sent: result, thread: subject, labelsCreated: created, jevErrorLabelId: labels['Jev/Error'], threadLabels: s155_threadLabels_(threadId) });
 }
 
 /**
@@ -814,7 +913,7 @@ function s155_jevRequest_(headers) {
  * Runs the direct checks of one section, or one check: `G`, `T`, `L`, `U`,
  * `H`, `K1`, `K2`, `K3` (run it while the sleeper sleeps; it covers K3 and
  * the first half of K4), `K5` (it throws on purpose), `K7`, `K8`, `A`, `M`,
- * `S3`, `R5`, `C`, `P`. `args.tag` is the run tag of the synthetic mail.
+ * `Mflowed` (M6 with long lines), `S3`, `R5`, `C`, `P`. `args.tag` is the run tag of the synthetic mail.
  * Each check's value is what the adapter returned, cut down to what the
  * checklist compares, or `{threw}`.
  */
@@ -823,7 +922,7 @@ function s155_check(id, args) {
   var groups = {
     G: s155_checkG_, T: s155_checkT_, L: s155_checkL_, U: s155_checkU_, H: s155_checkH_,
     K1: s155_checkK_, K2: s155_checkK_, K3: s155_checkK_, K5: s155_checkK_, K7: s155_checkK_, K8: s155_checkK_,
-    A: s155_checkA_, M: s155_checkM_, S3: s155_checkS3_, R5: s155_checkR5_, C: s155_checkC_, P: s155_checkP_
+    A: s155_checkA_, M: s155_checkM_, Mflowed: s155_checkMflowed_, S3: s155_checkS3_, R5: s155_checkR5_, C: s155_checkC_, P: s155_checkP_
   };
   if (!groups[id]) return s155_out_({ refused: 'id is one of: ' + Object.keys(groups).join(', ') });
   var tag = ' [' + (args.tag || 'r1') + ']';
@@ -1011,7 +1110,7 @@ function s155_checkL_(A, tag) {
   var out = {};
   var tid = function (n) { return s155_threadId_('JevSmoke direct ' + s155_pad_(n, 2) + tag); };
   var smokeNames = function (labels) {
-    return labels.filter(function (l) { return l.name === 'JevSmoke' || l.name.indexOf('JevSmoke/') === 0; }).map(function (l) { return l.name; }).sort();
+    return labels.filter(function (l) { return s155_smokeLabel_(l.name); }).map(function (l) { return l.name; }).sort();
   };
   var labelId;
 
@@ -1270,6 +1369,40 @@ function s155_checkM_(A) {
   return out;
 }
 
+/**
+ * M6 again with long lines: 5,000 characters in five paragraphs, each one
+ * line. `MailApp` sends `format=flowed; delsp=yes` (RFC 3676), so a long line
+ * arrives soft-wrapped: a line that ends with a space goes on in the next
+ * line, and that space is not part of the text.
+ */
+function s155_checkMflowed_(A) {
+  var mail = new A.GasMailAdapter();
+  var address = s155_address_();
+  var subject = s155_K.alertPrefix + ' Smoke test 4';
+  var paragraph = '';
+  for (var i = 0; paragraph.length < 999; i++) paragraph += 'word' + s155_pad_(i, 3) + ' ';
+  paragraph = paragraph.slice(0, 999);
+  var body = [paragraph, paragraph, paragraph, paragraph, paragraph].join('\n').slice(0, 5000);
+  var at = Date.now();
+  var result = mail.send(address, subject, body);
+  var message = s155_wait_(function () { return s155_findOwn_(subject, at); }, 60);
+  if (!message) return { M6: { result: result, arrived: false } };
+  var text = s155_textParts_(message.payload).text;
+  var lines = text.split('\r\n');
+  var unflowed = '';
+  lines.forEach(function (line, index) {
+    var soft = line.charAt(line.length - 1) === ' ' && line !== '-- ';
+    unflowed += soft ? line.slice(0, -1) : line + (index < lines.length - 1 ? '\n' : '');
+  });
+  return {
+    M6: {
+      result: result, contentType: s155_header_(message, 'Content-Type'), sentChars: body.length, sentLongestLine: 999,
+      receivedChars: text.length, receivedLines: lines.length, receivedLongestLine: Math.max.apply(null, lines.map(function (l) { return l.length; })),
+      identicalAfterUnflowing: unflowed.replace(/\n+$/, '') === body.replace(/\n+$/, '')
+    }
+  };
+}
+
 function s155_checkS3_(A, tag, args) {
   var gmail = new A.GasGmailAdapter();
   var all = function (q) {
@@ -1422,7 +1555,7 @@ function s155_cleanup(args) {
     out.labelsDeleted = [];
     (Gmail.Users.Labels.list('me').labels || [])
       .filter(function (l) {
-        if (l.name === 'JevSmoke' || l.name.indexOf('JevSmoke/') === 0) return true;
+        if (s155_smokeLabel_(l.name)) return true;
         return args.deleteJevError === true && (l.name === 'Jev' || l.name === 'Jev/Error');
       })
       .sort(function (a, b) { return b.name.length - a.name.length; })
