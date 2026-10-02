@@ -910,7 +910,8 @@ function s155_jevRequest_(headers) {
 }
 
 /**
- * Runs the direct checks of one section, or one check: `G`, `T`, `L`, `U`,
+ * Runs the direct checks of one section, or one check: `G`, `T`, `L`,
+ * `deleted` (T12 and L15, with `args.threadId` and `args.labelId`), `U`,
  * `H`, `K1`, `K2`, `K3` (run it while the sleeper sleeps; it covers K3 and
  * the first half of K4), `K5` (it throws on purpose), `K7`, `K8`, `A`, `M`,
  * `Mflowed` (M6 with long lines), `S3`, `R5`, `C`, `P`. `args.tag` is the run tag of the synthetic mail.
@@ -920,7 +921,7 @@ function s155_jevRequest_(headers) {
 function s155_check(id, args) {
   args = args || {};
   var groups = {
-    G: s155_checkG_, T: s155_checkT_, L: s155_checkL_, U: s155_checkU_, H: s155_checkH_,
+    G: s155_checkG_, T: s155_checkT_, L: s155_checkL_, deleted: s155_checkDeleted_, U: s155_checkU_, H: s155_checkH_,
     K1: s155_checkK_, K2: s155_checkK_, K3: s155_checkK_, K5: s155_checkK_, K7: s155_checkK_, K8: s155_checkK_,
     A: s155_checkA_, M: s155_checkM_, Mflowed: s155_checkMflowed_, S3: s155_checkS3_, R5: s155_checkR5_, C: s155_checkC_, P: s155_checkP_
   };
@@ -1174,6 +1175,19 @@ function s155_checkL_(A, tag) {
   out.L14 = move(10, true, { addLabelIds: ['TRASH'], removeLabelIds: [] });
   out.userLabelId = labelId;
   return out;
+}
+
+/**
+ * T12 and L15, after a person has deleted a thread forever in Gmail.
+ * `args.threadId` is that thread's ID, `args.labelId` an existing user label.
+ */
+function s155_checkDeleted_(A, tag, args) {
+  var gmail = new A.GasGmailAdapter();
+  if (!args.threadId || !args.labelId) return { refused: 'pass threadId and labelId' };
+  return {
+    T12: s155_try_(function () { return gmail.getThread(args.threadId, { format: 'minimal' }); }),
+    L15: s155_try_(function () { return gmail.modifyThread(args.threadId, { addLabelIds: [args.labelId], removeLabelIds: [] }); })
+  };
 }
 
 function s155_checkU_(A, tag) {
