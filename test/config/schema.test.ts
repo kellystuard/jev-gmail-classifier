@@ -503,7 +503,7 @@ describe.each([
     },
   );
 
-  it('rejects a name that differs only in case from an earlier rule, at the later rule', () => {
+  it('rejects a name that differs only in case, spaces, `/` or `-` from an earlier rule, at the later rule', () => {
     const rules = [
       { ...LABEL_RULE, id: 'first', label: 'Finance/Bill' },
       form.rule('finance/bill'),
@@ -512,9 +512,19 @@ describe.each([
       {
         path: `rules[1].${form.field}`,
         message:
-          'label "finance/bill" differs only in case from "Finance/Bill" in rules[0]; Gmail treats them as one label',
+          'label "finance/bill" differs only in case, spaces, `/` or `-` from "Finance/Bill" in rules[0]; Gmail ignores case and treats a space, a `/` and a `-` in a label name as the same character, so these are one label',
       },
     ]);
+  });
+
+  it.each(['Finance-Bill', 'Finance Bill'])('rejects %j next to Finance/Bill', (name) => {
+    const rules = [{ ...LABEL_RULE, id: 'first', label: 'Finance/Bill' }, form.rule(name)];
+    expect(issues(config({ rules }))).toHaveLength(1);
+  });
+
+  it.each(['Finance_Bill', 'Finance.Bill'])('accepts %j next to Finance/Bill', (name) => {
+    const rules = [{ ...LABEL_RULE, id: 'first', label: 'Finance/Bill' }, form.rule(name)];
+    expect(issues(config({ rules }))).toEqual([]);
   });
 
   it('rejects a case-only collision with an earlier move destination', () => {
@@ -523,7 +533,7 @@ describe.each([
       {
         path: `rules[1].${form.field}`,
         message:
-          'label "FINANCE/BILL" differs only in case from "Finance/Bill" in rules[0]; Gmail treats them as one label',
+          'label "FINANCE/BILL" differs only in case, spaces, `/` or `-` from "Finance/Bill" in rules[0]; Gmail ignores case and treats a space, a `/` and a `-` in a label name as the same character, so these are one label',
       },
     ]);
   });
@@ -536,6 +546,6 @@ describe.each([
 
 describe('labelKey', () => {
   it('is exported from the schema module for the label cache (E6)', () => {
-    expect(labelKey('Finance/ Bill')).toBe('finance/bill');
+    expect(labelKey('Finance-Bill')).toBe('finance/bill');
   });
 });

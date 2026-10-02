@@ -210,7 +210,8 @@ Unknown fields fail the build, so a typo such as `treshold` is caught instead of
 - Gmail's system labels can't be used: `Inbox`, `Spam`, `Trash`, `Sent`, `Drafts`, `Starred`, `Important`, `Unread` and `Chats`, in any case. They can't be the first part of a nested name either: Gmail would show `Inbox/Receipts` as a separate label, not under the Inbox. `Work/Inbox` is fine.
 - `Jev` and every name under `Jev/` are reserved for the classifier's own `Jev/Error` label.
 - Each part between `/` must be non-empty, with no spaces around the `/`: write `Finance/Bill`, not `Finance / Bill` or `Finance//Bill`.
-- Several rules can add the same label, but they must spell it the same way. Gmail treats `Finance/Bill` and `finance/bill` as one label, so the build rejects the pair.
+- Several rules can add the same label, but they must spell it the same way. Gmail ignores case and treats a space, a `/` and a `-` as the same character, so `Finance/Bill`, `finance/bill`, `Finance-Bill` and `Finance Bill` are one label, and the build rejects two rules that differ only in those.
+- When the mailbox already has a label of that name, the rule uses it, because Gmail won't create a second one. A rule for `Finance/Bill` with a flat `Finance-Bill` in the mailbox adds `Finance-Bill`; it isn't nested.
 
 Apps Script cannot read YAML files, so a build step validates `config.yaml` and converts it into a script file before [deployment](#setup). An invalid config fails the build. The script checks the configuration again each time it runs, and stops with an alert if the configuration is invalid.
 

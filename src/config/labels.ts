@@ -1,11 +1,10 @@
 /**
  * Gmail label-name rules for the config (Solution Design §6.5, §7.2).
  *
- * Observed by E1 (`spikes/25-nested-labels.md`) and by #155's smoke check L5
- * (#329): Gmail compares label names case-insensitively and ignores a space
- * after a `/` and at the end of the name, but not a space before a `/`. It
- * stores names exactly as typed. Instead of normalizing names, the schema
- * rejects the forms that would surprise the user.
+ * Observed by E1 (`spikes/25-nested-labels.md`) and by #155's two label probes
+ * (#329): Gmail stores a name trimmed, with each run of white space as one
+ * space, and compares names by a looser key (`labelKey`). Instead of
+ * normalizing names, the schema rejects the forms that would surprise the user.
  */
 
 /** Gmail system labels. `labels.create` rejects them in any case (400 `Invalid label name`). */
@@ -25,20 +24,26 @@ export const RESERVED_LABEL_NAMES = [
 const CLASSIFIER_NAMESPACE = 'Jev';
 
 /**
- * The key Gmail compares label names by: lower case, with one space after a
- * `/` and one at the end of the name dropped. A space before a `/` is kept, so
- * `Finance/ Bill`, `Finance/Bill ` and `FINANCE/BILL` give `finance/bill`, while
- * `Finance /Bill` and `Finance / Bill` give other keys (they are other labels).
+ * The key Gmail compares label names by (#329): trimmed, each run of white
+ * space (a tab included) as one space, lower case, and then a space, a `/` and
+ * a `-` taken as the same character. So `Finance/Bill`, `finance-bill` and
+ * `Finance Bill` share a key, `Finance /Bill` and `Finance/ Bill` share
+ * another (two separators), and `Finance / Bill` (three) a third.
  *
- * Observed (#329, table of the smoke probe): a case change, one space after a
- * `/`, one space at the end (all 409), and one space before a `/` (created).
- * NOT observed: a space at the start, two or more spaces, a tab or other
- * whitespace. Those are left out of the rule on purpose: two names the key
- * tells apart only make the classifier create the label the config names,
- * while two it wrongly merges could add a label the config doesn't name.
+ * Observed (second probe, `s155_labelProbe2`, cases 7a to 7d, 7g, 7h, 6b to
+ * 6e, 3b, 5b, 5c: same name; 1, 2a to 2c, 3a, 4b, 5a, 5d, 6a, 7e, 7f: different
+ * names). `_` and `.` stay themselves (7e, 7f).
+ * NOT observed: other punctuation and non-ASCII letters. They are left out of
+ * the key. If Gmail merges more than the key does, a create answers
+ * `label_exists`, the lookup finds nothing, and the label cache fails loudly
+ * (`label_exists_but_missing`); it never adds a label the config doesn't name.
  */
 export function labelKey(name: string): string {
-  return name.toLowerCase().replace(/\/ /g, '/').replace(/ $/, '');
+  return name
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .replace(/[ -]/g, '/');
 }
 
 function findReserved(part: string): string | undefined {

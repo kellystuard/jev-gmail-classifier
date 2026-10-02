@@ -835,17 +835,13 @@ Results from `node spikes/run.mjs`, reduced to the fields that matter. Error det
 
 ## Correction (2026-10-02, #329)
 
-The conclusion above, "Gmail also ignores spaces around `/` when it compares names", and the "For E6" and "For #41" lines that repeat it, were drawn from one pair (`S25odd/ X` against `S25odd / X`), which shows only that a space **after** a `/` is ignored. Smoke check L5 (#155) found the rest. Against an existing `JevSmokeProbe/A/B`:
+The conclusion above, "Gmail also ignores spaces around `/` when it compares names", and the "For E6" and "For #41" lines that repeat it, are wrong. Case 9's refusal of `S25odd/ X` was a conflict with `S25odd//X` (created earlier in the same run), not with `S25odd / X`. #155's second label probe (`s155_labelProbe2`, test account, one base name per case) found the rule. Gmail compares two label names after it has:
 
-| Name tried | Gmail's answer |
-|------------|----------------|
-| `jevsmokeprobe/a/b`, `JEVSMOKEPROBE/A/B` | 409 "Label name exists or conflicts" |
-| `JevSmokeProbe/ A/B`, `JevSmokeProbe/A/ B` (a space **after** a `/`) | 409 |
-| `JevSmokeProbe/A/B ` (a space at the end) | 409 |
-| `JevSmokeProbe /A/B`, `JevSmokeProbe/A /B` (a space **before** a `/`) | created, stored exactly as given |
-| `JevSmokeProbe / A / B` | created, stored exactly as given |
+1. trimmed white space at both ends and turned each run of white space (a tab included) into one space (this is also what it stores);
+2. ignored case;
+3. taken a space, a `/` and a `-` as the same character.
 
-So Gmail ignores case, a space after a `/` and a space at the end of the name, but **a space before a `/` makes a different label**. Not observed: a space at the start of a name, two or more spaces, a tab. For E6 and #41, read "spaces around `/` ignored" as "a space after a `/` and at the end ignored". `labelKey` follows this rule, and the schema still rejects rule labels with a space at either end of a part (so also around a `/`).
+So `Finance/Bill`, `Finance-Bill` and `Finance Bill` are one name, `Finance /Bill` and `Finance/ Bill` are one name (two separators), and `Finance / Bill` is another (three). `_` and `.` stay themselves. Examples: `Q6 A` then `Q6/A` gives 409, `Q7-A` then `Q7/A` gives 409, `Q8_A` then `Q8/A` and `P5/ A` then `P5/A` are created. Not observed: other punctuation and non-ASCII letters. For E6 and #41: look names up by this key (`labelKey` in `src/config/labels.ts`), and reject two rule labels with the same key.
 
 ## Design changes
 

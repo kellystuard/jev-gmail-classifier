@@ -360,7 +360,7 @@ export class FakeGmail implements GmailPort {
         return fail('label_exists', { message: 'Label name exists or conflicts' });
       }
     }
-    const label = this.addUserLabel(name);
+    const label = this.addUserLabel(normalizeLabelName(name));
     return ok({ label: { ...label } });
   }
 
@@ -721,11 +721,17 @@ function labelChange(m: StoredMessage, labelId: string): GmailLabelChange {
 }
 
 /**
- * Gmail's label-name comparison as observed (spike 25, #329): case-insensitive,
- * one space after a `/` and one at the end ignored, a space before a `/` kept.
+ * Gmail's label-name comparison as observed (#329, second probe): trimmed,
+ * white space runs as one space, case ignored, and a space, a `/` and a `-`
+ * the same character.
  */
 function labelKey(name: string): string {
-  return name.toLowerCase().replace(/\/ /g, '/').replace(/ $/, '');
+  return normalizeLabelName(name).toLowerCase().replace(/[ -]/g, '/');
+}
+
+/** What Gmail stores for a created name: trimmed, each run of white space one space. */
+function normalizeLabelName(name: string): string {
+  return name.trim().replace(/\s+/g, ' ');
 }
 
 function encodeToken(kind: 'history', value: number): string {
