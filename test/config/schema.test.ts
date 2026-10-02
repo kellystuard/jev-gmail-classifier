@@ -511,8 +511,7 @@ describe.each([
     expect(issues(config({ rules }))).toEqual([
       {
         path: `rules[1].${form.field}`,
-        message:
-          'label "finance/bill" differs only in case, spaces, `/` or `-` from "Finance/Bill" in rules[0]; Gmail ignores case and treats a space, a `/` and a `-` in a label name as the same character, so these are one label',
+        message: `label "finance/bill" differs only in case, spaces, '/' or '-' from "Finance/Bill" in rules[0]; Gmail ignores case and treats a space, a '/' and a '-' in a label name as the same character, so these are one label`,
       },
     ]);
   });
@@ -532,8 +531,7 @@ describe.each([
     expect(issues(config({ rules }))).toEqual([
       {
         path: `rules[1].${form.field}`,
-        message:
-          'label "FINANCE/BILL" differs only in case, spaces, `/` or `-` from "Finance/Bill" in rules[0]; Gmail ignores case and treats a space, a `/` and a `-` in a label name as the same character, so these are one label',
+        message: `label "FINANCE/BILL" differs only in case, spaces, '/' or '-' from "Finance/Bill" in rules[0]; Gmail ignores case and treats a space, a '/' and a '-' in a label name as the same character, so these are one label`,
       },
     ]);
   });

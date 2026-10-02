@@ -39,11 +39,7 @@ const CLASSIFIER_NAMESPACE = 'Jev';
  * (`label_exists_but_missing`); it never adds a label the config doesn't name.
  */
 export function labelKey(name: string): string {
-  return name
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLowerCase()
-    .replace(/[ -]/g, '/');
+  return name.trim().replace(/\s+/g, ' ').toLowerCase().replace(/[ -]/g, '/');
 }
 
 function findReserved(part: string): string | undefined {
