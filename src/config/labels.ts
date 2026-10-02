@@ -62,6 +62,13 @@ export function labelNameProblem(name: string): string | undefined {
   if (first.toLowerCase() === CLASSIFIER_NAMESPACE.toLowerCase()) {
     return `labels under ${CLASSIFIER_NAMESPACE}/ are reserved for the classifier (${CLASSIFIER_NAMESPACE}/Error)`;
   }
+  // Gmail takes a space, a `/` and a `-` as the same, so `Jev-Error` and
+  // `Jev Error` are `Jev/Error`.
+  const key = labelKey(name);
+  const namespaceKey = CLASSIFIER_NAMESPACE.toLowerCase();
+  if (key === namespaceKey || key.startsWith(`${namespaceKey}/`)) {
+    return `Gmail treats a space, a / and a - in a label name as the same, so "${name}" falls under the classifier's ${CLASSIFIER_NAMESPACE}/ labels (${CLASSIFIER_NAMESPACE}/Error); choose another name`;
+  }
   if (parts.length === 1) {
     if (findReserved(name) !== undefined) {
       return `"${name}" is a Gmail system label; choose another name`;

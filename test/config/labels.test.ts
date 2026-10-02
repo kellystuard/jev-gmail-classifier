@@ -73,6 +73,26 @@ describe('labelKey', () => {
   });
 });
 
+describe('labelNameProblem and the Jev namespace', () => {
+  it.each(['Jev-Error', 'Jev Error', 'JEV-anything', 'Jev Notes', 'jev-x/y'])(
+    'rejects %j by its key',
+    (name) => {
+      expect(labelNameProblem(name)).toMatch(/falls under the classifier's Jev\/ labels/);
+    },
+  );
+
+  it.each(['Jev', 'jev/x', 'JEV/Error'])('rejects %j as before', (name) => {
+    expect(labelNameProblem(name)).toBeDefined();
+  });
+
+  it.each(['Jevons', 'Jev_Notes', 'MyJev/Error', 'Jev.Notes', 'Work/Jev-Error'])(
+    'accepts %j',
+    (name) => {
+      expect(labelNameProblem(name)).toBeUndefined();
+    },
+  );
+});
+
 describe('labelNameProblem', () => {
   it.each(['Bill', 'Finance/Bill', 'Approval Required', 'Social', 'Work/Inbox', 'A/B/C', 'Jevons'])(
     'accepts %j',

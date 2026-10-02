@@ -494,6 +494,18 @@ describe.each([
     },
   );
 
+  it.each(['Jev-Error', 'Jev Error', 'JEV-anything', 'Jev Notes'])(
+    'rejects %j: Gmail takes it for a Jev/ label',
+    (name) => {
+      expect(nameIssues(name)).toHaveLength(1);
+      expect(nameIssues(name)[0]?.message).toContain("falls under the classifier's Jev/ labels");
+    },
+  );
+
+  it.each(['Jevons', 'Jev_Notes', 'MyJev/Error'])('accepts %j', (name) => {
+    expect(nameIssues(name)).toEqual([]);
+  });
+
   it.each(['Jev', 'Jev/Error', 'jev/x', 'JEV/Other/Deep'])(
     'rejects %j in the reserved Jev namespace',
     (name) => {

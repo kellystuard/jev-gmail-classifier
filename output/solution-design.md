@@ -602,7 +602,7 @@ There is **no** `Jev/Processed` label. Progress is tracked in state ([ADR-0004](
   - No empty part and no space at either end of a part: `A/`, `/A`, `A//B`, `A / B` and ` A` are rejected.
   - Not a Gmail system label: `Inbox`, `Spam`, `Trash`, `Sent`, `Drafts`, `Starred`, `Important`, `Unread` or `Chats`, in any case. `Social` is allowed.
   - The first part isn't a system label either (`Inbox/Receipts`), because Gmail would show a separate label, not one under the Inbox. Deeper parts are fine (`Work/Inbox`).
-  - The first part isn't `Jev`: the `Jev/` namespace is reserved for the classifier's own `Jev/Error` ([§7.1](#71-gmail-labels)).
+  - The first part isn't `Jev`, and the name's `labelKey` isn't `jev` or under `jev/`: the `Jev/` namespace is reserved for the classifier's own `Jev/Error` ([§7.1](#71-gmail-labels)). Gmail takes a space, a `/` and a `-` as the same, so `Jev-Error` and `Jev Error` are `Jev/Error` and are rejected too. `Jevons`, `Jev_Notes` and `MyJev/Error` are fine. A system label with a `-` or space after it (`Inbox-Bills`) is not rejected: nothing observed says what Gmail does with it.
   - No two names across the config that Gmail takes for one name: they differ only in case, spaces, `/` or `-` (`Finance/Bill`, `finance/bill`, `Finance-Bill`), because Gmail treats them as one label. The same name written identically in several rules is fine.
 
   `labelKey(name)` in the schema module gives the comparison key Gmail uses (trimmed, white space collapsed, lower case, space, `/` and `-` as one character), for E6's label cache: a rule's label is the mailbox's existing label of that key, if there is one.
