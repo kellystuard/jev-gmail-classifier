@@ -27,9 +27,9 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 - **Checklist:** `docs/smoke-test.md` at `ee3da4a`, with #330's correction of L5 and the corrections made in the same pull request as this file.
 - **How a result was read:** a return value or a throw through `s155_call` or `s155_check`; log lines captured by `s155_call`, which redefines `console.info`, `console.warn` and `console.error` for the length of one call; Script Properties and triggers through `s155_props` and `s155_triggers`; the mailbox through the Gmail API. The log of a run that the trigger started itself can't be read this way: those checks read `state.runs` and the mailbox.
 
-**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 140 pass, 0 fail, 10 not run. Of the other 16: 16 not run.
+**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 147 pass, 0 fail, 3 not run. Of the other 16: 16 not run.
 
-**This run is not finished.** The second session (from 2026-10-03 03:14 UTC) is running the checks from S5 on. A row that says `not run (waits for …)` has not been reached yet. Section Z waits for E1 #21 to close.
+**This run is finished except for section Z** (Z1 to Z3, the time zone), which waits for E1 #21 to close. Every other check has its row. Every `thread.classified` line captured (all but the few runs the trigger started itself) was for a synthetic thread or one of the classifier's own emails: no real mail was seen reaching Jev.
 
 | ID | Marking | Result | Run by | Note |
 |----|---------|--------|--------|------|
@@ -133,12 +133,12 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 | E6 | required | pass | agent | While the sleeper held the lock: `{ entry: 'onTrigger', status: 'skipped', reason: 'busy' }`, and one log line, `run.skipped`. |
 | E7 | required | pass | agent | `RunAbortError` ("The Jev API key is not set: add JEV_API_KEY in Script Properties"). Log: `run.start`, then `run.failed` (`error: RunAbortError`, `reason: missing_key`, `alerts: [auth]`, `consecutiveFailures: 1`), then `alert.sent`: no `ingest.done`, so no Gmail or Jev work came first. No thread labelled. |
 | E8 | required | pass | agent | `status: 'ok'`; `state.runs` `consecutiveFailures: 0`. It classified one thread: E7's `auth` alert email (the account's own mail, #304), with no rule firing. |
-| C1 | required | pass | agent | Over every line captured in sections S, E and P (and later J, N, V, X: see the note of C6): each line is one JSON object whose first four keys are `event`, `runId`, `entry`, `ts`, at a level `LOG_EVENT_LEVELS` allows. |
+| C1 | required | pass | agent | Over all 350 lines that 52 entry-point executions wrote in this run (sections K, S, E, P, J, N, V, X): each is one JSON object whose first four keys are `event`, `runId`, `entry`, `ts`, at a level `LOG_EVENT_LEVELS` allows. |
 | C2 | required | pass | agent | One `runId` per execution, a UUID. |
 | C3 | required | pass | agent | No `runId` repeats across executions. |
-| C4 | required | not run (waits for the Jev key in the test project) |  |  |
+| C4 | required | pass | agent | `entry` is the entry point that ran in every line: `install` (10 executions), `onTrigger` (26), `startManualRun` (7), `continueManualRun` (4), `cancelManualRun` (2), `uninstall` (3). |
 | C5 | required | pass | agent | Every `ts` ends with `Z` and lies between the times taken just before and after its call. |
-| C6 | required | not run (waits for the Jev key in the test project) |  |  |
+| C6 | required | pass | agent | In all 350 lines: no `JevSmokeBody`, no key, no `Bearer`, no `"state":` field. (The account's address is in 12 `thread.classified` lines, as `from` of the classifier's own emails, which the checklist allows.) |
 | C7 | required | pass | agent | An integer, between the two `Date.now()` values. |
 | C8 | required | pass | agent | E1: `lastStart` and `lastEnd` lie between the times taken just before and after the call, `lastStart <= lastEnd`. |
 | C9 | required | pass | agent | 1,501 ms. |
@@ -194,11 +194,11 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 | V1 | required | pass | agent | After `install` (position kept, trigger back), the changed-rule build was pushed with no `install`. Read at once: `state.installedAt` and `state.position` identical; every other `state.*` key still there (`alerts`, `budget`, `gmailCalls`, `jevErrorLabel`, `runs`). |
 | V2 | required | pass | agent | Exactly one `onTrigger` trigger, with the same unique ID as before the push. |
 | V3 | required | pass | agent | `JevSmoke/Test` exists, and its 136 threads still have it. |
-| V4 | required | not run (waits for the Jev key in the test project) |  |  |
-| V5 | required | not run (waits for the Jev key in the test project) |  |  |
-| X1 | required | not run (waits for the Jev key in the test project) |  |  |
-| X2 | required | not run (waits for the Jev key in the test project) |  |  |
-| X3 | required | not run (waits for the Jev key in the test project) |  |  |
+| V4 | required | pass | agent | The trigger's own first run of the new build: `state.runs` `lastOutcome: 'ok'`, `consecutiveFailures: 0`. |
+| V5 | required | pass | agent | `JevSmoke live 09 [r1]` has `JevSmoke/Upgraded`, which the classifier created, and not `JevSmoke/Test`; the 136 threads labelled earlier keep `JevSmoke/Test`. (The message was delivered before V4's run, so that one trigger run served both checks.) |
+| X1 | required | pass | agent | `{ entry: 'uninstall', status: 'ok', triggersDeleted: 1, keysDeleted: 7 }` (7 `state.*` keys before). `run.end` with both counts. No `onTrigger` trigger; `s155_other`'s still there. No `state.*` key; `JEV_API_KEY`, `RESET_POSITION` and `MANUAL_QUERY` still there. Labels `JevSmoke/Test`, `JevSmoke/Upgraded` and `Jev/Error` still there. |
+| X2 | required | pass | agent | `triggersDeleted: 0`, `keysDeleted: 0`. |
+| X3 | required | pass | agent | `StateError` ("State state.position is missing: install writes it"); `run.failed` with `error: StateError`, `reason: missing`, `key: state.position`. It wrote `state.runs` and `state.gmailCalls`; one more `uninstall` removed them (`keysDeleted: 2`). |
 
 ### First observations
 
