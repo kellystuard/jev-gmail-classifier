@@ -41,7 +41,9 @@
  * secret value, so `redact` scrubs it from every string. The adapter reads it
  * at most once, at its first event, never when it is built.
  *
- * Each returns plain JSON, which the editor shows: `{entry, status: 'ok', …}`,
+ * Each returns plain JSON, which the Apps Script API (`scripts.run`) hands back
+ * but the editor does not show (only the log lines show there, SD §6.1):
+ * `{entry, status: 'ok', …}`,
  * `{entry, status: 'rejected', reason}` for a refused manual start, or
  * `{entry, status: 'skipped', reason: 'busy'}` when another execution holds
  * the lock. A failure isn't caught here: `runEntry` logs `run.failed`
