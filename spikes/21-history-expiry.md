@@ -1,0 +1,872 @@
+# 21: History expiry and the 404 response
+
+- Task: #21
+- Date run: 2026-09-26 (day 0: error cases, trigger installed). Observation window: 2026-09-26 to 2026-10-03 or later
+- Account: `<test-account>` (consumer)
+- Run by: agent via #163
+
+## Question
+
+1. Exactly what does the Advanced Gmail Service throw when `users.history.list` gets an expired or invalid `startHistoryId`? How can E3's adapter tell "expired or invalid position" apart from other failures (401, 403 scope, 429, 5xx)?
+2. How long does a saved position stay valid on this account, observed daily for at least 7 days?
+
+Design text being tested:
+
+- SD §6.3: "A 404 from `history.list` means Gmail has discarded the history. This is typically after a week or more, and sometimes after hours. Fall back to searching `after:<epoch of last successful ingest − 1 h>`, reset the position from `getProfile`, and alert once."
+- Google's reference: a history ID is "typically valid for at least a week" but "in some rare circumstances may be valid for only a few hours", and an invalid or out-of-date ID "typically" returns HTTP 404.
+- The Advanced Service throws an exception instead of returning an HTTP status. What it throws is not documented.
+
+## Functions
+
+`spikes/21-history-expiry.js`. Every function takes one optional JSON args object and returns its result (also logged). The test account's address never appears in results (`s21_out_` scrubs it anyway).
+
+| Function | Does |
+|----------|------|
+| `s21_errors()` | Calls `Gmail.Users.History.list('me', {startHistoryId, maxResults: 1})` for each error case below, in `try/catch`. On success: `history` length, the response `historyId`, and whether `nextPageToken` is present. On an exception: `e.name`, `e.constructor.name`, `String(e)`, `e.message`, `JSON.stringify(e.details)`, `Object.keys(e)`, `Object.getOwnPropertyNames(e)`, and the first line of `e.stack`. |
+| `s21_rawStatus()` | Cross-check: the same cases through `UrlFetchApp.fetch` against `https://gmail.googleapis.com/gmail/v1/users/me/history` with `Authorization: Bearer ScriptApp.getOAuthToken()` and `muteHttpExceptions: true`. Returns the HTTP status and the JSON error body. It uses the scopes already declared (`script.external_request` for the fetch, `gmail.modify` in the token), so the manifest doesn't change. |
+| `s21_savePosition()` | Appends `{historyId, savedAt}` from `getProfile` to `s21.positions` (the newest 60 are kept). |
+| `s21_daily()` | The trigger handler, also runnable by hand. Saves a new position, then checks every saved position with `History.list` and appends `{checkedAt, historyId, savedAt, ageHours, ok, historyCount, errorSummary}` for each to `s21.results.YYYY-MM-DD` (today's date, UTC). Also logs each entry. |
+| `s21_installTrigger()` | Deletes any `s21_daily` trigger, then creates `ScriptApp.newTrigger('s21_daily').timeBased().everyDays(1).atHour(9)`. Returns the trigger ID and the project's triggers. |
+| `s21_removeTrigger()` | Deletes every `s21_daily` trigger and returns the project's remaining triggers. Other spikes' triggers are never touched. |
+| `s21_oldest({samples?})` | Day-0 retention estimate, extra to the task. Bisects for the oldest `startHistoryId` that `History.list` still accepts (a non-404 error aborts), then dates the messages in the first `messageAdded` records after it (`Messages.get` minimal, `internalDate`). Returns IDs, counts, and dates only. |
+| `s21_report()` | Returns every position and result, a per-position summary (checks, latest check, last success, first failure), the oldest position still valid, any failures, and the project's triggers. |
+
+Results are stored per day (`s21.results.YYYY-MM-DD`, kept for 45 days) rather than in one list of the last 200 entries as the task sketched, because one Script Properties value holds at most 9 KB. Seven-plus days of checks against a growing list of positions would overflow a single value. A trigger run's return value and console output don't reach the agent, so Script Properties is how the results get back (through `s21_report`).
+
+## Error cases
+
+`s21_errors` and `s21_rawStatus` compute the values from `getProfile('me').historyId` at run time.
+
+| # | `startHistoryId` | Expected (check) |
+|---|------------------|------------------|
+| E1 | `'1'` | 404, unless the account's history happens to start that low. |
+| E2a | current − 1,000,000 (skipped unless current > 1,000,000) | 404 for very old; may succeed if still retained. |
+| E2b | current − 100,000 (skipped unless current > 100,000) | As E2a. |
+| E3 | `'abc'` (non-numeric) | 400? |
+| E4 | `'-5'` | 400? |
+| E5 | current + 1,000,000 (future) | An error, or empty history? |
+| E6 | current (valid control) | Success, empty `history`. |
+| E7 | the oldest position in `s21.positions` saved at least 24 h ago | Success expected. Skipped on day 0; rerun `s21_errors` on a later day to fill it in. |
+
+## Runbook
+
+The agent runs every step via #163 (`node spikes/run.mjs run <fn> [json-args]`).
+
+1. Day 0: `s21_savePosition`, then `s21_installTrigger`. If creating the trigger fails through `scripts.run`, ask the maintainer to run `s21_installTrigger` once in the editor (see Maintainer steps).
+2. Day 0: `s21_errors` and `s21_rawStatus`. Fill in the errors table (E7 stays open). **Post the errors table and the detection rule on #73 straight away**, so E3 isn't blocked.
+3. Day 0: `s21_oldest`, for how far back the account's history reaches today.
+4. Leave the trigger running for at least 7 days. The other spikes' activity on the account helps.
+5. During the week, run `s21_report` now and then to check the trigger is firing (at least one `s21.results.*` day per calendar day). On day 1 or later, rerun `s21_errors` to fill in E7.
+6. Day 7 or later: `s21_report`, and record the retention table. Then `s21_removeTrigger`, and confirm no `s21_daily` trigger remains.
+7. Keep the next-check dates in #21's `**Agent status**` comment, so whichever session resumes can continue. The PR stays in draft until step 5.
+
+## Maintainer steps
+
+None expected. If trigger creation fails through `scripts.run`, the agent asks, in one comment:
+
+1. Open the spike project in the Apps Script editor as `<test-account>`, select `s21_installTrigger`, and run it.
+2. After the observation (day 7 or later), select `s21_removeTrigger` and run it.
+
+## Results
+
+### Errors
+
+From `s21_errors` and `s21_rawStatus`, 2026-09-26 08:06 UTC, current `historyId` 36554823. Every exception had `e.name` `GoogleJsonResponseException`, `e.constructor.name` `Error`, `Object.keys(e)` `name`, `details`, and own properties `stack`, `message`, `name`, `details`. `e.details` is a plain object: `{code, message, errors: [{reason, domain?, message}]}`. `String(e)` and the first stack line are `GoogleJsonResponseException: ` followed by `e.message`.
+
+| # | Value | Threw? | e.name / constructor | e.message (verbatim) | e.details (verbatim) | HTTP status (raw fetch) | Notes |
+|---|-------|--------|----------------------|----------------------|----------------------|-------------------------|-------|
+| E1 | `1` | Yes | `GoogleJsonResponseException` / `Error` | `API call to gmail.users.history.list failed with error: Requested entity was not found.` | `{"errors":[{"reason":"notFound","domain":"global","message":"Requested entity was not found."}],"code":404,"message":"Requested entity was not found."}` | 404 `NOT_FOUND` | Expired. |
+| E2a | `35554823` (current − 1,000,000) | Yes | as E1 | as E1 | as E1 | 404 `NOT_FOUND` | Expired. |
+| E2b | `36454823` (current − 100,000) | No | | | | 200 | Still retained: 1 record, `nextPageToken` present. |
+| E3 | `abc` | Yes | as E1 | `API call to gmail.users.history.list failed with error: Invalid value at 'start_history_id' (TYPE_UINT64), "abc"` | `{"code":400,"errors":[{"message":"Invalid value at 'start_history_id' (TYPE_UINT64), \"abc\"","reason":"invalid"}],"message":"Invalid value at 'start_history_id' (TYPE_UINT64), \"abc\""}` | 400 `INVALID_ARGUMENT` | The raw body adds a `google.rpc.BadRequest` field violation on `start_history_id`; the Advanced Service's `details` doesn't carry it. |
+| E4 | `-5` | Yes | as E1 | `… Invalid value at 'start_history_id' (TYPE_UINT64), "-5"` | as E3, with `"-5"` | 400 `INVALID_ARGUMENT` | Same as E3. |
+| E5 | `37554823` (current + 1,000,000) | Yes | as E1 | as E1 (`Requested entity was not found.`) | as E1 | 404 `NOT_FOUND` | **A future position is a 404, the same as an expired one.** |
+| E6 | `36554823` (current) | No | | | | 200 | Empty `history`, response `historyId` = current, no `nextPageToken`. |
+| E7 | `36554805` (saved 2026-09-26 08:05 UTC, 25.5 h old) | No | | | | | Day 1 (2026-09-27 09:34 UTC, current 36589051): valid. 1 record, `nextPageToken` present. On day 1, E1–E6 matched day 0 exactly (404, 404, 200, 400, 400, 404, 200). |
+
+**How far back history reaches (`s21_oldest`, 2026-09-26 08:06 UTC).** 26 probes. The oldest accepted `startHistoryId` was 36181823 (36181822 got a 404), 373,078 IDs below the current 36554901. The first 10 messages added after it have `internalDate` from 2026-08-28 23:49 to 2026-08-29 00:45 UTC, about **680 hours (28 days)** before the check. Their message IDs, which Gmail derives from the time, agree. So on this account, Gmail kept about four weeks of history on day 0. The account holds about 41.7k messages, many of them imported in bulk, and it isn't a normal busy inbox.
+
+### Retention
+
+From `s21_report` (final run on 2026-10-03; 44 checks, 9 positions, 8 calendar days). The `s21_daily` trigger fired at 09:08 UTC on every day from 2026-09-26 to 2026-10-03, and each run saved a new position and re-checked every earlier one. **No check failed.** The oldest position (saved 2026-09-26 08:05 UTC) was still valid at 169 h, just over 7 days. A check reads `history.list` from the position and counts the records returned; "valid" means a 200, not a 404. Ages are rounded to the hour except one (145.1 h).
+
+| Position saved (YYYY-MM-DD HH:MM UTC) | historyId | Checked | Age (h) | Valid? | Error |
+|---|---|---|---|---|---|
+| 2026-09-26 08:05 | 36554805 | 2026-09-26 09:08 | 1 | yes | |
+| 2026-09-26 09:08 | 36560075 | 2026-09-26 09:08 | 0 | yes | |
+| 2026-09-26 08:05 | 36554805 | 2026-09-27 09:08 | 25 | yes | |
+| 2026-09-26 09:08 | 36560075 | 2026-09-27 09:08 | 24 | yes | |
+| 2026-09-27 09:08 | 36588982 | 2026-09-27 09:08 | 0 | yes | |
+| 2026-09-26 08:05 | 36554805 | 2026-09-28 09:08 | 49 | yes | |
+| 2026-09-26 09:08 | 36560075 | 2026-09-28 09:08 | 48 | yes | |
+| 2026-09-27 09:08 | 36588982 | 2026-09-28 09:08 | 24 | yes | |
+| 2026-09-28 09:08 | 36601240 | 2026-09-28 09:08 | 0 | yes | |
+| 2026-09-26 08:05 | 36554805 | 2026-09-29 09:08 | 73 | yes | |
+| 2026-09-26 09:08 | 36560075 | 2026-09-29 09:08 | 72 | yes | |
+| 2026-09-27 09:08 | 36588982 | 2026-09-29 09:08 | 48 | yes | |
+| 2026-09-28 09:08 | 36601240 | 2026-09-29 09:08 | 24 | yes | |
+| 2026-09-29 09:08 | 36615314 | 2026-09-29 09:08 | 0 | yes | |
+| 2026-09-26 08:05 | 36554805 | 2026-09-30 09:08 | 97 | yes | |
+| 2026-09-26 09:08 | 36560075 | 2026-09-30 09:08 | 96 | yes | |
+| 2026-09-27 09:08 | 36588982 | 2026-09-30 09:08 | 72 | yes | |
+| 2026-09-28 09:08 | 36601240 | 2026-09-30 09:08 | 48 | yes | |
+| 2026-09-29 09:08 | 36615314 | 2026-09-30 09:08 | 24 | yes | |
+| 2026-09-30 09:08 | 36632851 | 2026-09-30 09:08 | 0 | yes | |
+| 2026-09-26 08:05 | 36554805 | 2026-10-01 09:08 | 121 | yes | |
+| 2026-09-26 09:08 | 36560075 | 2026-10-01 09:08 | 120 | yes | |
+| 2026-09-27 09:08 | 36588982 | 2026-10-01 09:08 | 96 | yes | |
+| 2026-09-28 09:08 | 36601240 | 2026-10-01 09:08 | 72 | yes | |
+| 2026-09-29 09:08 | 36615314 | 2026-10-01 09:08 | 48 | yes | |
+| 2026-09-30 09:08 | 36632851 | 2026-10-01 09:08 | 24 | yes | |
+| 2026-10-01 09:08 | 36649179 | 2026-10-01 09:08 | 0 | yes | |
+| 2026-09-26 08:05 | 36554805 | 2026-10-02 09:09 | 145.1 | yes | |
+| 2026-09-26 09:08 | 36560075 | 2026-10-02 09:09 | 144 | yes | |
+| 2026-09-27 09:08 | 36588982 | 2026-10-02 09:09 | 120 | yes | |
+| 2026-09-28 09:08 | 36601240 | 2026-10-02 09:09 | 96 | yes | |
+| 2026-09-29 09:08 | 36615314 | 2026-10-02 09:09 | 72 | yes | |
+| 2026-09-30 09:08 | 36632851 | 2026-10-02 09:09 | 48 | yes | |
+| 2026-10-01 09:08 | 36649179 | 2026-10-02 09:09 | 24 | yes | |
+| 2026-10-02 09:09 | 36683331 | 2026-10-02 09:09 | 0 | yes | |
+| 2026-09-26 08:05 | 36554805 | 2026-10-03 09:08 | 169 | yes | |
+| 2026-09-26 09:08 | 36560075 | 2026-10-03 09:08 | 168 | yes | |
+| 2026-09-27 09:08 | 36588982 | 2026-10-03 09:08 | 144 | yes | |
+| 2026-09-28 09:08 | 36601240 | 2026-10-03 09:08 | 120 | yes | |
+| 2026-09-29 09:08 | 36615314 | 2026-10-03 09:08 | 96 | yes | |
+| 2026-09-30 09:08 | 36632851 | 2026-10-03 09:08 | 72 | yes | |
+| 2026-10-01 09:08 | 36649179 | 2026-10-03 09:08 | 48 | yes | |
+| 2026-10-02 09:09 | 36683331 | 2026-10-03 09:08 | 24 | yes | |
+| 2026-10-03 09:08 | 37158209 | 2026-10-03 09:08 | 0 | yes | |
+
+### Findings
+
+1. **The expired-position exception and the detection rule.** The Advanced Service throws `GoogleJsonResponseException` (a plain `Error` whose `name` is set) with `e.message` `API call to gmail.users.history.list failed with error: Requested entity was not found.` and a structured `e.details` object: `code: 404`, `errors[0].reason: 'notFound'`. **Detection rule for the adapter:** around the `history.list` call only, catch, and if `e.details && e.details.code === 404`, return the distinct "position not found" result. A 400 with `errors[0].reason === 'invalid'` is an invalid position (finding 2). Anything else (401, 403, 429, 5xx, or no `details`) rethrows, or goes to the adapter's normal error mapping. The message text isn't needed, and shouldn't be used: it can change. 401, 403, and 429 weren't produced here. #27 records the scope error; its rule should use the same `e.details.code` approach.
+2. **Non-numeric or negative IDs** fail differently from an expired one: HTTP 400, `details.code === 400`, `reason: 'invalid'`, with the message `Invalid value at 'start_history_id' (TYPE_UINT64), "<value>"`. I agree with the recommendation: this is corrupt state, an exception per ADR-0006 (it can only come from a bug or a hand-edited Script Property), not expiry. The domain can also refuse it before calling Gmail, since a valid position is a string of digits.
+3. **A future ID** (current + 1,000,000) is a **404, the same as an expired one**. So a position ahead of the mailbox (for example after restoring stale state from another account, or a hand edit) doesn't fail silently with empty history. It takes the expired-position path: fall back to a search, reset from `getProfile`, and alert. That is safe. If E3 wants a clearer alert, it can compare the rejected position with `getProfile().historyId` and say "ahead of the mailbox" when it is larger. It doesn't need different handling.
+4. **Retention:** every saved position was still valid at the end of the watch. The oldest, saved 2026-09-26 08:05 UTC, was valid at **169 h (7 days and 1 h)**, and none expired sooner (0 failures in 44 checks). So history lasts **at least 7 days** here, which matches Google's "typically at least a week". The true limit was not observed: nothing expired. Day 0's `s21_oldest` probe found history reaching back about 28 days on this account, so a lightly used test account may keep history much longer than a busy inbox, and a mailbox with heavy traffic could expire sooner. Hours-long expiry (which Google says is rare) was not seen. The fallback in §6.3 therefore stays needed, but a daily trigger that stays up never gets near the limit.
+
+## Raw output
+
+<details><summary>s21_savePosition, s21_installTrigger (2026-09-26)</summary>
+
+`s21_savePosition`:
+
+```json
+{
+ "positions": [
+  {
+   "historyId": "36554805",
+   "savedAt": "2026-09-26T08:05:44.078Z"
+  }
+ ],
+ "saved": {
+  "historyId": "36554805",
+  "savedAt": "2026-09-26T08:05:44.078Z"
+ }
+}
+```
+
+`s21_installTrigger`:
+
+```json
+{
+ "removedExisting": [],
+ "triggerId": "7592073902986100736",
+ "triggers": [
+  {
+   "handler": "s21_daily",
+   "id": "7592073902986100736",
+   "source": "CLOCK"
+  }
+ ]
+}
+```
+
+</details>
+
+<details><summary>s21_errors, s21_rawStatus, s21_oldest (2026-09-26)</summary>
+
+`s21_errors`:
+
+```json
+{
+ "at": "2026-09-26T08:05:59.053Z",
+ "currentHistoryId": "36554823",
+ "results": [
+  {
+   "case": "E1",
+   "exception": {
+    "constructorName": "Error",
+    "details": "{\"errors\":[{\"reason\":\"notFound\",\"domain\":\"global\",\"message\":\"Requested entity was not found.\"}],\"code\":404,\"message\":\"Requested entity was not found.\"}",
+    "keys": [
+     "name",
+     "details"
+    ],
+    "message": "API call to gmail.users.history.list failed with error: Requested entity was not found.",
+    "name": "GoogleJsonResponseException",
+    "ownPropertyNames": [
+     "stack",
+     "message",
+     "name",
+     "details"
+    ],
+    "stackFirstLine": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Requested entity was not found.",
+    "string": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Requested entity was not found."
+   },
+   "label": "very old: 1",
+   "threw": true,
+   "value": "1"
+  },
+  {
+   "case": "E2a",
+   "exception": {
+    "constructorName": "Error",
+    "details": "{\"errors\":[{\"reason\":\"notFound\",\"domain\":\"global\",\"message\":\"Requested entity was not found.\"}],\"code\":404,\"message\":\"Requested entity was not found.\"}",
+    "keys": [
+     "name",
+     "details"
+    ],
+    "message": "API call to gmail.users.history.list failed with error: Requested entity was not found.",
+    "name": "GoogleJsonResponseException",
+    "ownPropertyNames": [
+     "stack",
+     "message",
+     "name",
+     "details"
+    ],
+    "stackFirstLine": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Requested entity was not found.",
+    "string": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Requested entity was not found."
+   },
+   "label": "current - 1,000,000",
+   "threw": true,
+   "value": "35554823"
+  },
+  {
+   "case": "E2b",
+   "hasNextPageToken": true,
+   "historyLength": 1,
+   "label": "current - 100,000",
+   "responseHistoryId": "36554823",
+   "threw": false,
+   "value": "36454823"
+  },
+  {
+   "case": "E3",
+   "exception": {
+    "constructorName": "Error",
+    "details": "{\"code\":400,\"errors\":[{\"message\":\"Invalid value at 'start_history_id' (TYPE_UINT64), \\\"abc\\\"\",\"reason\":\"invalid\"}],\"message\":\"Invalid value at 'start_history_id' (TYPE_UINT64), \\\"abc\\\"\"}",
+    "keys": [
+     "name",
+     "details"
+    ],
+    "message": "API call to gmail.users.history.list failed with error: Invalid value at 'start_history_id' (TYPE_UINT64), \"abc\"",
+    "name": "GoogleJsonResponseException",
+    "ownPropertyNames": [
+     "stack",
+     "message",
+     "name",
+     "details"
+    ],
+    "stackFirstLine": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Invalid value at 'start_history_id' (TYPE_UINT64), \"abc\"",
+    "string": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Invalid value at 'start_history_id' (TYPE_UINT64), \"abc\""
+   },
+   "label": "non-numeric",
+   "threw": true,
+   "value": "abc"
+  },
+  {
+   "case": "E4",
+   "exception": {
+    "constructorName": "Error",
+    "details": "{\"errors\":[{\"message\":\"Invalid value at 'start_history_id' (TYPE_UINT64), \\\"-5\\\"\",\"reason\":\"invalid\"}],\"message\":\"Invalid value at 'start_history_id' (TYPE_UINT64), \\\"-5\\\"\",\"code\":400}",
+    "keys": [
+     "details",
+     "name"
+    ],
+    "message": "API call to gmail.users.history.list failed with error: Invalid value at 'start_history_id' (TYPE_UINT64), \"-5\"",
+    "name": "GoogleJsonResponseException",
+    "ownPropertyNames": [
+     "stack",
+     "message",
+     "details",
+     "name"
+    ],
+    "stackFirstLine": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Invalid value at 'start_history_id' (TYPE_UINT64), \"-5\"",
+    "string": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Invalid value at 'start_history_id' (TYPE_UINT64), \"-5\""
+   },
+   "label": "negative",
+   "threw": true,
+   "value": "-5"
+  },
+  {
+   "case": "E5",
+   "exception": {
+    "constructorName": "Error",
+    "details": "{\"code\":404,\"message\":\"Requested entity was not found.\",\"errors\":[{\"message\":\"Requested entity was not found.\",\"reason\":\"notFound\",\"domain\":\"global\"}]}",
+    "keys": [
+     "name",
+     "details"
+    ],
+    "message": "API call to gmail.users.history.list failed with error: Requested entity was not found.",
+    "name": "GoogleJsonResponseException",
+    "ownPropertyNames": [
+     "stack",
+     "message",
+     "name",
+     "details"
+    ],
+    "stackFirstLine": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Requested entity was not found.",
+    "string": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Requested entity was not found."
+   },
+   "label": "future: current + 1,000,000",
+   "threw": true,
+   "value": "37554823"
+  },
+  {
+   "case": "E6",
+   "hasNextPageToken": false,
+   "historyLength": 0,
+   "label": "current (valid control)",
+   "responseHistoryId": "36554823",
+   "threw": false,
+   "value": "36554823"
+  },
+  {
+   "case": "E7",
+   "label": "saved at least 24 h ago",
+   "skipped": "no position in s21.positions is 24 h old yet; rerun later"
+  }
+ ]
+}
+```
+
+`s21_rawStatus`:
+
+```json
+{
+ "at": "2026-09-26T08:06:08.745Z",
+ "currentHistoryId": "36554823",
+ "results": [
+  {
+   "case": "E1",
+   "error": {
+    "code": 404,
+    "errors": [
+     {
+      "domain": "global",
+      "message": "Requested entity was not found.",
+      "reason": "notFound"
+     }
+    ],
+    "message": "Requested entity was not found.",
+    "status": "NOT_FOUND"
+   },
+   "httpStatus": 404,
+   "label": "very old: 1",
+   "value": "1"
+  },
+  {
+   "case": "E2a",
+   "error": {
+    "code": 404,
+    "errors": [
+     {
+      "domain": "global",
+      "message": "Requested entity was not found.",
+      "reason": "notFound"
+     }
+    ],
+    "message": "Requested entity was not found.",
+    "status": "NOT_FOUND"
+   },
+   "httpStatus": 404,
+   "label": "current - 1,000,000",
+   "value": "35554823"
+  },
+  {
+   "case": "E2b",
+   "hasNextPageToken": true,
+   "historyLength": 1,
+   "httpStatus": 200,
+   "label": "current - 100,000",
+   "responseHistoryId": "36554823",
+   "value": "36454823"
+  },
+  {
+   "case": "E3",
+   "error": {
+    "code": 400,
+    "details": [
+     {
+      "@type": "type.googleapis.com/google.rpc.BadRequest",
+      "fieldViolations": [
+       {
+        "description": "Invalid value at 'start_history_id' (TYPE_UINT64), \"abc\"",
+        "field": "start_history_id"
+       }
+      ]
+     }
+    ],
+    "errors": [
+     {
+      "message": "Invalid value at 'start_history_id' (TYPE_UINT64), \"abc\"",
+      "reason": "invalid"
+     }
+    ],
+    "message": "Invalid value at 'start_history_id' (TYPE_UINT64), \"abc\"",
+    "status": "INVALID_ARGUMENT"
+   },
+   "httpStatus": 400,
+   "label": "non-numeric",
+   "value": "abc"
+  },
+  {
+   "case": "E4",
+   "error": {
+    "code": 400,
+    "details": [
+     {
+      "@type": "type.googleapis.com/google.rpc.BadRequest",
+      "fieldViolations": [
+       {
+        "description": "Invalid value at 'start_history_id' (TYPE_UINT64), \"-5\"",
+        "field": "start_history_id"
+       }
+      ]
+     }
+    ],
+    "errors": [
+     {
+      "message": "Invalid value at 'start_history_id' (TYPE_UINT64), \"-5\"",
+      "reason": "invalid"
+     }
+    ],
+    "message": "Invalid value at 'start_history_id' (TYPE_UINT64), \"-5\"",
+    "status": "INVALID_ARGUMENT"
+   },
+   "httpStatus": 400,
+   "label": "negative",
+   "value": "-5"
+  },
+  {
+   "case": "E5",
+   "error": {
+    "code": 404,
+    "errors": [
+     {
+      "domain": "global",
+      "message": "Requested entity was not found.",
+      "reason": "notFound"
+     }
+    ],
+    "message": "Requested entity was not found.",
+    "status": "NOT_FOUND"
+   },
+   "httpStatus": 404,
+   "label": "future: current + 1,000,000",
+   "value": "37554823"
+  },
+  {
+   "case": "E6",
+   "hasNextPageToken": false,
+   "historyLength": 0,
+   "httpStatus": 200,
+   "label": "current (valid control)",
+   "responseHistoryId": "36554823",
+   "value": "36554823"
+  },
+  {
+   "case": "E7",
+   "label": "saved at least 24 h ago",
+   "skipped": "no position in s21.positions is 24 h old yet; rerun later"
+  }
+ ]
+}
+```
+
+`s21_oldest`:
+
+```json
+{
+ "at": "2026-09-26T08:06:41.531Z",
+ "currentHistoryId": "36554901",
+ "firstMessagesAdded": [
+  {
+   "ageHours": 680.3,
+   "internalDateIso": "2026-08-28T23:49:24.000Z",
+   "messageId": "1a04ad16694b2562",
+   "recordId": "36181824"
+  },
+  {
+   "ageHours": 680.1,
+   "internalDateIso": "2026-08-29T00:00:44.000Z",
+   "messageId": "1a04ad198dcd15f3",
+   "recordId": "36181846"
+  },
+  {
+   "ageHours": 680.1,
+   "internalDateIso": "2026-08-29T00:01:02.000Z",
+   "messageId": "1a04ad1e1148e7bb",
+   "recordId": "36181917"
+  },
+  {
+   "ageHours": 680.1,
+   "internalDateIso": "2026-08-29T00:03:05.000Z",
+   "messageId": "1a04ad4106c1668e",
+   "recordId": "36182008"
+  },
+  {
+   "ageHours": 680,
+   "internalDateIso": "2026-08-29T00:06:54.000Z",
+   "messageId": "1a04ad73f4363dac",
+   "recordId": "36182026"
+  },
+  {
+   "ageHours": 679.8,
+   "internalDateIso": "2026-08-29T00:16:07.000Z",
+   "messageId": "1a04adfad2e4a463",
+   "recordId": "36182045"
+  },
+  {
+   "ageHours": 679.8,
+   "internalDateIso": "2026-08-29T00:21:07.000Z",
+   "messageId": "1a04ae44bb1b2c9f",
+   "recordId": "36182065"
+  },
+  {
+   "ageHours": 679.4,
+   "internalDateIso": "2026-08-29T00:39:54.000Z",
+   "messageId": "1a04af6222d6eba0",
+   "recordId": "36182142"
+  },
+  {
+   "ageHours": 680.2,
+   "internalDateIso": "2026-08-28T23:52:36.000Z",
+   "messageId": "1a04afc154f9c72e",
+   "recordId": "36182279"
+  },
+  {
+   "ageHours": 679.4,
+   "internalDateIso": "2026-08-29T00:45:30.000Z",
+   "messageId": "1a04afecbe21af17",
+   "recordId": "36182303"
+  }
+ ],
+ "idsRetained": 373078,
+ "newestRejected": "36181822",
+ "oldestValid": "36181823",
+ "probes": 26
+}
+```
+
+</details>
+
+<details><summary>Day 1 (2026-09-27): s21_report, s21_errors</summary>
+
+`s21_report_day1`:
+
+```json
+{
+ "perPosition": [
+  {
+   "checks": 2,
+   "firstFailure": null,
+   "historyId": "36554805",
+   "lastOk": {
+    "ageHours": 25,
+    "checkedAt": "2026-09-27T09:08:30.837Z"
+   },
+   "latest": {
+    "ageHours": 25,
+    "checkedAt": "2026-09-27T09:08:30.837Z",
+    "ok": true
+   },
+   "savedAt": "2026-09-26T08:05:44.078Z"
+  },
+  {
+   "checks": 2,
+   "firstFailure": null,
+   "historyId": "36560075",
+   "lastOk": {
+    "ageHours": 24,
+    "checkedAt": "2026-09-27T09:08:30.837Z"
+   },
+   "latest": {
+    "ageHours": 24,
+    "checkedAt": "2026-09-27T09:08:30.837Z",
+    "ok": true
+   },
+   "savedAt": "2026-09-26T09:08:30.997Z"
+  },
+  {
+   "checks": 1,
+   "firstFailure": null,
+   "historyId": "36588982",
+   "lastOk": {
+    "ageHours": 0,
+    "checkedAt": "2026-09-27T09:08:30.837Z"
+   },
+   "latest": {
+    "ageHours": 0,
+    "checkedAt": "2026-09-27T09:08:30.837Z",
+    "ok": true
+   },
+   "savedAt": "2026-09-27T09:08:30.501Z"
+  }
+ ],
+ "positions": [
+  {
+   "historyId": "36554805",
+   "savedAt": "2026-09-26T08:05:44.078Z"
+  },
+  {
+   "historyId": "36560075",
+   "savedAt": "2026-09-26T09:08:30.997Z"
+  },
+  {
+   "historyId": "36588982",
+   "savedAt": "2026-09-27T09:08:30.501Z"
+  }
+ ],
+ "results": [
+  {
+   "ageHours": 1,
+   "checkedAt": "2026-09-26T09:08:31.312Z",
+   "errorSummary": null,
+   "historyCount": 1,
+   "historyId": "36554805",
+   "ok": true,
+   "savedAt": "2026-09-26T08:05:44.078Z"
+  },
+  {
+   "ageHours": 0,
+   "checkedAt": "2026-09-26T09:08:31.312Z",
+   "errorSummary": null,
+   "historyCount": 1,
+   "historyId": "36560075",
+   "ok": true,
+   "savedAt": "2026-09-26T09:08:30.997Z"
+  },
+  {
+   "ageHours": 25,
+   "checkedAt": "2026-09-27T09:08:30.837Z",
+   "errorSummary": null,
+   "historyCount": 1,
+   "historyId": "36554805",
+   "ok": true,
+   "savedAt": "2026-09-26T08:05:44.078Z"
+  },
+  {
+   "ageHours": 24,
+   "checkedAt": "2026-09-27T09:08:30.837Z",
+   "errorSummary": null,
+   "historyCount": 1,
+   "historyId": "36560075",
+   "ok": true,
+   "savedAt": "2026-09-26T09:08:30.997Z"
+  },
+  {
+   "ageHours": 0,
+   "checkedAt": "2026-09-27T09:08:30.837Z",
+   "errorSummary": null,
+   "historyCount": 0,
+   "historyId": "36588982",
+   "ok": true,
+   "savedAt": "2026-09-27T09:08:30.501Z"
+  }
+ ],
+ "summary": {
+  "checkDays": [
+   "2026-09-26",
+   "2026-09-27"
+  ],
+  "checks": 5,
+  "failures": [],
+  "oldestValid": {
+   "ageHours": 25,
+   "checkedAt": "2026-09-27T09:08:30.837Z",
+   "historyId": "36554805",
+   "savedAt": "2026-09-26T08:05:44.078Z"
+  },
+  "positions": 3,
+  "triggers": [
+   {
+    "handler": "s21_daily",
+    "id": "7592073902986100736",
+    "source": "CLOCK"
+   }
+  ]
+ }
+}
+```
+
+`s21_errors_day1`:
+
+```json
+{
+ "at": "2026-09-27T09:34:44.908Z",
+ "currentHistoryId": "36589051",
+ "results": [
+  {
+   "case": "E1",
+   "exception": {
+    "constructorName": "Error",
+    "details": "{\"errors\":[{\"reason\":\"notFound\",\"message\":\"Requested entity was not found.\",\"domain\":\"global\"}],\"message\":\"Requested entity was not found.\",\"code\":404}",
+    "keys": [
+     "details",
+     "name"
+    ],
+    "message": "API call to gmail.users.history.list failed with error: Requested entity was not found.",
+    "name": "GoogleJsonResponseException",
+    "ownPropertyNames": [
+     "stack",
+     "message",
+     "details",
+     "name"
+    ],
+    "stackFirstLine": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Requested entity was not found.",
+    "string": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Requested entity was not found."
+   },
+   "label": "very old: 1",
+   "threw": true,
+   "value": "1"
+  },
+  {
+   "case": "E2a",
+   "exception": {
+    "constructorName": "Error",
+    "details": "{\"code\":404,\"message\":\"Requested entity was not found.\",\"errors\":[{\"message\":\"Requested entity was not found.\",\"reason\":\"notFound\",\"domain\":\"global\"}]}",
+    "keys": [
+     "details",
+     "name"
+    ],
+    "message": "API call to gmail.users.history.list failed with error: Requested entity was not found.",
+    "name": "GoogleJsonResponseException",
+    "ownPropertyNames": [
+     "stack",
+     "message",
+     "details",
+     "name"
+    ],
+    "stackFirstLine": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Requested entity was not found.",
+    "string": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Requested entity was not found."
+   },
+   "label": "current - 1,000,000",
+   "threw": true,
+   "value": "35589051"
+  },
+  {
+   "case": "E2b",
+   "hasNextPageToken": true,
+   "historyLength": 1,
+   "label": "current - 100,000",
+   "responseHistoryId": "36589051",
+   "threw": false,
+   "value": "36489051"
+  },
+  {
+   "case": "E3",
+   "exception": {
+    "constructorName": "Error",
+    "details": "{\"code\":400,\"message\":\"Invalid value at 'start_history_id' (TYPE_UINT64), \\\"abc\\\"\",\"errors\":[{\"message\":\"Invalid value at 'start_history_id' (TYPE_UINT64), \\\"abc\\\"\",\"reason\":\"invalid\"}]}",
+    "keys": [
+     "name",
+     "details"
+    ],
+    "message": "API call to gmail.users.history.list failed with error: Invalid value at 'start_history_id' (TYPE_UINT64), \"abc\"",
+    "name": "GoogleJsonResponseException",
+    "ownPropertyNames": [
+     "stack",
+     "message",
+     "name",
+     "details"
+    ],
+    "stackFirstLine": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Invalid value at 'start_history_id' (TYPE_UINT64), \"abc\"",
+    "string": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Invalid value at 'start_history_id' (TYPE_UINT64), \"abc\""
+   },
+   "label": "non-numeric",
+   "threw": true,
+   "value": "abc"
+  },
+  {
+   "case": "E4",
+   "exception": {
+    "constructorName": "Error",
+    "details": "{\"message\":\"Invalid value at 'start_history_id' (TYPE_UINT64), \\\"-5\\\"\",\"errors\":[{\"reason\":\"invalid\",\"message\":\"Invalid value at 'start_history_id' (TYPE_UINT64), \\\"-5\\\"\"}],\"code\":400}",
+    "keys": [
+     "details",
+     "name"
+    ],
+    "message": "API call to gmail.users.history.list failed with error: Invalid value at 'start_history_id' (TYPE_UINT64), \"-5\"",
+    "name": "GoogleJsonResponseException",
+    "ownPropertyNames": [
+     "stack",
+     "message",
+     "details",
+     "name"
+    ],
+    "stackFirstLine": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Invalid value at 'start_history_id' (TYPE_UINT64), \"-5\"",
+    "string": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Invalid value at 'start_history_id' (TYPE_UINT64), \"-5\""
+   },
+   "label": "negative",
+   "threw": true,
+   "value": "-5"
+  },
+  {
+   "case": "E5",
+   "exception": {
+    "constructorName": "Error",
+    "details": "{\"code\":404,\"errors\":[{\"domain\":\"global\",\"message\":\"Requested entity was not found.\",\"reason\":\"notFound\"}],\"message\":\"Requested entity was not found.\"}",
+    "keys": [
+     "details",
+     "name"
+    ],
+    "message": "API call to gmail.users.history.list failed with error: Requested entity was not found.",
+    "name": "GoogleJsonResponseException",
+    "ownPropertyNames": [
+     "stack",
+     "message",
+     "details",
+     "name"
+    ],
+    "stackFirstLine": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Requested entity was not found.",
+    "string": "GoogleJsonResponseException: API call to gmail.users.history.list failed with error: Requested entity was not found."
+   },
+   "label": "future: current + 1,000,000",
+   "threw": true,
+   "value": "37589051"
+  },
+  {
+   "case": "E6",
+   "hasNextPageToken": false,
+   "historyLength": 0,
+   "label": "current (valid control)",
+   "responseHistoryId": "36589051",
+   "threw": false,
+   "value": "36589051"
+  },
+  {
+   "case": "E7",
+   "hasNextPageToken": true,
+   "historyLength": 1,
+   "label": "saved at 2026-09-26T08:05:44.078Z",
+   "responseHistoryId": "36589051",
+   "threw": false,
+   "value": "36554805"
+  }
+ ]
+}
+```
+
+</details>
+
+<details><summary>s21_report (day 7+), s21_removeTrigger</summary>
+
+</details>
+
+## Conclusion
+
+The watch ran 7 days with a daily trigger and 44 checks; no saved position expired, and the oldest was valid at 169 h. History lasts at least 7 days on this test account (about 28 days reached back on day 0). The expired-position error is a 404 with `e.details.code === 404`; a non-numeric or negative ID is a 400. Both are in the findings above.
+
+## Design changes
+
+SD §6.3 "Expired position" has the detection rule and the invalid-position case; SD §14's first row has the retention figure (at least 7 days observed, 169 h). The trigger was removed on 2026-10-03: `s21_removeTrigger` removed it and a later `s21_report` listed no triggers.
