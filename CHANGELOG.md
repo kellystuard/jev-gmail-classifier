@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.1](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.9.0...v0.9.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* **install:** remember an existing Jev/Error label ([#334](https://github.com/kellystuard/jev-gmail-classifier/issues/334)) ([7ed0793](https://github.com/kellystuard/jev-gmail-classifier/commit/7ed07932ff9b9442fe15c8def9a018ad6e93802a)), closes [#326](https://github.com/kellystuard/jev-gmail-classifier/issues/326)
+* **labels:** compare label names the way Gmail does ([#330](https://github.com/kellystuard/jev-gmail-classifier/issues/330)) ([45ccca8](https://github.com/kellystuard/jev-gmail-classifier/commit/45ccca83a5a25187c9db3ecb58a689d128d4981d)), closes [#329](https://github.com/kellystuard/jev-gmail-classifier/issues/329)
+
 ## [0.9.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.8.0...v0.9.0) (2026-10-01)
 
 
