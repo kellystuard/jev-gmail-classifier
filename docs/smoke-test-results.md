@@ -27,7 +27,7 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 - **Checklist:** `docs/smoke-test.md` at `ee3da4a`, with #330's correction of L5 and the corrections made in the same pull request as this file.
 - **How a result was read:** a return value or a throw through `s155_call` or `s155_check`; log lines captured by `s155_call`, which redefines `console.info`, `console.warn` and `console.error` for the length of one call; Script Properties and triggers through `s155_props` and `s155_triggers`; the mailbox through the Gmail API. The log of a run that the trigger started itself can't be read this way: those checks read `state.runs` and the mailbox.
 
-**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 123 pass, 0 fail, 27 not run. Of the other 16: 16 not run.
+**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 137 pass, 0 fail, 13 not run. Of the other 16: 16 not run.
 
 **This run is not finished.** The second session (from 2026-10-03 03:14 UTC) is running the checks from S5 on. A row that says `not run (waits for …)` has not been reached yet. Section Z waits for E1 #21 to close.
 
@@ -167,22 +167,22 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 | J15 | required | pass | agent | `{ cancelled: true, removed: 200 }`. `manual.cancelled` (`reason: 'cancelled'`), no `run.end`. `state.manual` gone, no queue left, `state.runs` unchanged. The 100 threads labelled by the job keep `JevSmoke/Test`. |
 | J16 | required | pass | agent | `cancelled: false`, `removed: 0`. |
 | J17 | required | pass | agent | `job: 'none'`, `stopped: 'no_job'`; `run.end` with `stopped: 'no_job'`. |
-| N1 | required | not run (waits for the Jev key in the test project) |  |  |
-| N2 | required | not run (waits for the Jev key in the test project) |  |  |
-| N3 | required | not run (waits for the Jev key in the test project) |  |  |
-| N4 | required | not run (waits for the Jev key in the test project) |  |  |
-| N5 | required | not run (waits for the Jev key in the test project) |  |  |
-| N6 | required | not run (waits for the Jev key in the test project) |  |  |
-| N7 | required | not run (waits for the Jev key in the test project) |  |  |
-| N8 | required | not run (waits for the Jev key in the test project) |  |  |
-| N9 | required | not run (waits for the Jev key in the test project) |  |  |
-| N10 | required | not run (waits for the Jev key in the test project) |  |  |
-| N11 | required | not run (waits for the Jev key in the test project) |  |  |
-| N12 | required | not run (waits for the Jev key in the test project) |  |  |
+| N1 | required | pass | agent | `alerts: []`; no `alert.sent`, no `alert.failed`; no `state.alerts`; no email. |
+| N2 | required | pass | agent | `RunAbortError`. `run.failed` (`alerts: [auth]`), then `alert.sent` (`condition: auth`, `day: 2026-10-03`). One email: sender `Jev Gmail Classifier`, subject `[Jev Gmail Classifier] Jev API key missing or rejected`, plain text, ending with the footer that gives the day and `Etc/UTC`. `state.alerts` `{"v":1,"sent":{"auth":"2026-10-03"}}`. |
+| N3 | required | pass | agent | `run.failed` with `consecutiveFailures: 2`, no `alert.sent`, no email. |
+| N4 | required | pass | agent | `run.failed` with `consecutiveFailures: 3`, `alerts: [auth, run_failures]`; `alert.sent` (`run_failures`). Email `[Jev Gmail Classifier] Runs are failing repeatedly`, which says 3 runs. |
+| N5 | required | pass | agent | `consecutiveFailures: 4`, no `alert.sent`, no email. |
+| N6 | required | pass | agent | `status: 'ok'`, `alerts: []`. `thread.classified` for the two alert emails' own threads (no rule fired); no new alert. `consecutiveFailures: 0`. |
+| N7 | required | pass | agent | With `auth`'s day set to 2026-10-02: `alert.sent` (`auth`), the email arrived again, and `auth`'s day is 2026-10-03 again. Then the key was back and `onTrigger` succeeded. |
+| N8 | required | pass | agent | Budget variation (`dailyTokenBudget: 1`), `state.budget` deleted first: `thread.classified` for the delivered message (the first batch is sent and crosses the budget); `state.budget` `inputTokens: 406` for today. |
+| N9 | required | pass | agent | `stopped: 'budget'`, `alerts: ['budget_reached']`; `budget.reached` (`warn`) with `day`, `inputTokens`, `dailyTokenBudget: 1`; `alert.sent` (`budget_reached`). Email `[Jev Gmail Classifier] Daily token budget reached`. Then the smoke config again. |
+| N10 | required | pass | agent | Model variation: `RunAbortError` ("Jev rejected the configured model: check jevModel in config.yaml"). `jev.batch` `config: 2`; `run.end` `stopped: 'abort'`, `untouched: 2`; `run.failed` (`reason: config_invalid`); `alert.sent` (`config_invalid`). Email `[Jev Gmail Classifier] Configuration is invalid`. No thread got `Jev/Error`. Then the smoke config, and one `onTrigger` that classified the waiting threads. |
+| N11 | required | pass | agent | `historyId` set to `"1"`: `history.expired` (`aheadOfMailbox: false`), `alert.sent` (`history_expired`). Email `[Jev Gmail Classifier] Gmail history expired: catching up`. |
+| N12 | required | pass | agent | N11's own run finished the catch-up: `ingest.done` with `fallbackDone: true` (one window, `fallbackMissed: 0`). No `state.fallback`; `state.position` holds a `historyId` of the mailbox again. The window re-read 14 recent threads: 5 synthetic and 6 of the classifier's own emails classified, 3 excluded, none of real mail sent. |
 | N13 | required, person | pass | maintainer | Reported by the maintainer: link 1 of the email `[Jev Gmail Classifier] Smoke test links` opened the thread `JevSmoke direct 05 [r1]` in the test account (the browser was signed in to one Google account). Recorded in SD §14 (links row). |
 | N14 | required, person | pass | maintainer | Reported by the maintainer: link 2 opened the label `Jev/Error`, listing that thread, in the test account. The label was then removed from the thread. Recorded in SD §14 (links row). |
-| N15 | required | not run (waits for the Jev key in the test project) |  |  |
-| N16 | required | not run (waits for the Jev key in the test project) |  |  |
+| N15 | required | pass | agent | Recorded: N2's and N7's `auth` emails are in two different Gmail threads (as M4 saw for the self-send). |
+| N16 | required | pass | agent | No `alert.sent` or `alert.failed` line captured in the whole run holds the account's address, a subject or a body. The address appears only in `thread.classified`'s `from` for the classifier's own emails (12 lines). No `alert.failed` was logged. |
 | N17 | not observed, person | not run (accepted v1 risk, SD §14) |  |  |
 | N18 | not observed, person | not run (accepted v1 risk, SD §14) |  |  |
 | N19 | not observed | not run (accepted v1 risk, SD §14) |  |  |
