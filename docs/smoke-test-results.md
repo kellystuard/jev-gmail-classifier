@@ -27,9 +27,9 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 - **Checklist:** `docs/smoke-test.md` at `ee3da4a`, with #330's correction of L5 and the corrections made in the same pull request as this file.
 - **How a result was read:** a return value or a throw through `s155_call` or `s155_check`; log lines captured by `s155_call`, which redefines `console.info`, `console.warn` and `console.error` for the length of one call; Script Properties and triggers through `s155_props` and `s155_triggers`; the mailbox through the Gmail API. The log of a run that the trigger started itself can't be read this way: those checks read `state.runs` and the mailbox.
 
-**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 147 pass, 0 fail, 3 not run. Of the other 16: 16 not run.
+**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 147 pass, 0 fail, 3 not run (Z1 to Z3, skipped by the maintainer). Of the other 16: 16 not run.
 
-**This run is finished except for section Z** (Z1 to Z3, the time zone), which waits for E1 #21 to close. Every other check has its row. Every `thread.classified` line captured (all but the few runs the trigger started itself) was for a synthetic thread or one of the classifier's own emails: no real mail was seen reaching Jev.
+**This run is finished.** Section Z (Z1 to Z3, the time zone) was **not run**: on 2026-10-03 the maintainer decided to skip it and accept the risk. These are three required checks, so the run does not meet "every required check passes"; the three rows say why. Every other check has its row. Every `thread.classified` line captured (all but the few runs the trigger started itself) was for a synthetic thread or one of the classifier's own emails: no real mail was seen reaching Jev.
 
 | ID | Marking | Result | Run by | Note |
 |----|---------|--------|--------|------|
@@ -188,9 +188,9 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 | N19 | not observed | not run (accepted v1 risk, SD §14) |  |  |
 | N20 | when it happens | not run (did not happen) |  |  |
 | N21 | when it happens | not run (did not happen) |  |  |
-| Z1 | required | not run (waits for #21 to close) |  | The time zone of the shared spike project can't be changed while E1 #21's daily trigger runs there. |
-| Z2 | required | not run (waits for #21 to close) |  | The time zone of the shared spike project can't be changed while E1 #21's daily trigger runs there. |
-| Z3 | required | not run (waits for #21 to close) |  | The time zone of the shared spike project can't be changed while E1 #21's daily trigger runs there. |
+| Z1 | required | not run (skipped by the maintainer, 2026-10-03) |  | The maintainer chose not to run section Z and accepted the risk that the time-zone behavior is unverified live: `GasClockAdapter.timeZone()` and the day keys that use it (`state.gmailCalls`, `state.budget`, `state.alerts`). Unit tests cover the day logic with a fake clock. |
+| Z2 | required | not run (skipped by the maintainer, 2026-10-03) |  | The maintainer chose not to run section Z and accepted the risk that the time-zone behavior is unverified live: `GasClockAdapter.timeZone()` and the day keys that use it (`state.gmailCalls`, `state.budget`, `state.alerts`). Unit tests cover the day logic with a fake clock. |
+| Z3 | required | not run (skipped by the maintainer, 2026-10-03) |  | The maintainer chose not to run section Z and accepted the risk that the time-zone behavior is unverified live: `GasClockAdapter.timeZone()` and the day keys that use it (`state.gmailCalls`, `state.budget`, `state.alerts`). Unit tests cover the day logic with a fake clock. |
 | V1 | required | pass | agent | After `install` (position kept, trigger back), the changed-rule build was pushed with no `install`. Read at once: `state.installedAt` and `state.position` identical; every other `state.*` key still there (`alerts`, `budget`, `gmailCalls`, `jevErrorLabel`, `runs`). |
 | V2 | required | pass | agent | Exactly one `onTrigger` trigger, with the same unique ID as before the push. |
 | V3 | required | pass | agent | `JevSmoke/Test` exists, and its 136 threads still have it. |
@@ -199,6 +199,15 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 | X1 | required | pass | agent | `{ entry: 'uninstall', status: 'ok', triggersDeleted: 1, keysDeleted: 7 }` (7 `state.*` keys before). `run.end` with both counts. No `onTrigger` trigger; `s155_other`'s still there. No `state.*` key; `JEV_API_KEY`, `RESET_POSITION` and `MANUAL_QUERY` still there. Labels `JevSmoke/Test`, `JevSmoke/Upgraded` and `Jev/Error` still there. |
 | X2 | required | pass | agent | `triggersDeleted: 0`, `keysDeleted: 0`. |
 | X3 | required | pass | agent | `StateError` ("State state.position is missing: install writes it"); `run.failed` with `error: StateError`, `reason: missing`, `key: state.position`. It wrote `state.runs` and `state.gmailCalls`; one more `uninstall` removed them (`keysDeleted: 2`). |
+
+### Clean-up (2026-10-03)
+
+Run with `s155_cleanup({ deleteJevError: true })`, in several executions because Gmail's per-minute limit stopped the trashing of about 370 threads (each execution went on where the last stopped). Section Z's step 7 (the manifest's `timeZone`) did not apply: it was never changed.
+
+- `uninstall`: `triggersDeleted: 0`, `keysDeleted: 0`. No `state.*` key, no `JEV_API_KEY`, no `MANUAL_*`, no `RESET_POSITION`.
+- Triggers: only `s21_daily` (E1 #21's, unchanged). Other spikes' Script Properties: 25 keys, names digest `05bba20534709c72`, as before the run.
+- Mailbox: every synthetic thread and every alert email of the run is in Trash. The labels `JevSmoke/Upgraded`, `JevSmoke/Test`, `JevSmoke`, `Jev/Error` and `Jev` are deleted.
+- `155-product` and `155-adapters` are overwritten with one-line stubs and pushed. `run install` and `run onTrigger` are refused: "not in the spike project".
 
 ### First observations
 
