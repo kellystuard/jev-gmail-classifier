@@ -27,7 +27,7 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 - **Checklist:** `docs/smoke-test.md` at `ee3da4a`, with #330's correction of L5 and the corrections made in the same pull request as this file.
 - **How a result was read:** a return value or a throw through `s155_call` or `s155_check`; log lines captured by `s155_call`, which redefines `console.info`, `console.warn` and `console.error` for the length of one call; Script Properties and triggers through `s155_props` and `s155_triggers`; the mailbox through the Gmail API. The log of a run that the trigger started itself can't be read this way: those checks read `state.runs` and the mailbox.
 
-**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 83 pass, 0 fail, 67 not run. Of the other 16: 16 not run.
+**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 86 pass, 0 fail, 64 not run. Of the other 16: 16 not run.
 
 **This run is not finished.** The second session (from 2026-10-03 03:14 UTC) is running the checks from S5 on. A row that says `not run (waits for …)` has not been reached yet. Section Z waits for E1 #21 to close.
 
@@ -115,10 +115,10 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 | S3 | required | pass | agent | Counts: (a) 43,120, (b) 397, (c) 4, (d) 43,518. Every thread of (d) is in (a), (b) or (c). The 4 threads that are neither excluded nor synthetic are the classifier's own emails of section M. In both (a) and (b): 3 threads, the one marked `JevSmokeExcluded` and 2 threads of earlier spikes that hold one message from `example.test` and one that the account sent (the check was corrected for them: see the pull request). |
 | S4 | required | pass | agent | `RunAbortError` with that message. `run.start`, then `run.failed` (`error`, `reason: missing_key`, `alerts: [auth]`), then `alert.sent`. No `state.position`, no `state.installedAt`, no trigger. The run wrote `state.gmailCalls` and `state.alerts` (#325). Run with no key in the project at all. |
 | S5 | required | pass | agent | `position: 'set'`, `triggerMinutes: 10`, `missingScopes: []`. One time-driven (`CLOCK`) trigger for `onTrigger`. `state.position` (`historyId`, `savedAt`), `state.installedAt`, `state.gmailCalls`. Log: `run.start`, `run.end`; nothing else. |
-| S6 | required | not run (waits for the Jev key in the test project) |  |  |
+| S6 | required | pass | agent | Delivered `JevSmoke live 01 [r1]` (label kind) and `JevSmoke live 02 JevSmokeExcluded [r1]`, ran nothing. The trigger's own run started about 3 minutes later: `state.runs` has `lastOutcome: 'ok'`, `consecutiveFailures: 0`, and `lastSummary` with `ingested: 2`, `excluded: 1`, `sent: 1`, `classified: 1`. Mailbox: `live 01` has `JevSmoke/Test`, `live 02` has no label. (Its log can't be read through the runner; the maintainer's Setup walk saw a completed trigger run on the Executions page.) |
 | S7 | required | pass | agent | `position: 'kept'` with the `historyId` that `state.position` held; `savedAt` unchanged. Still one `onTrigger` trigger: `install` replaced it (a new unique ID). |
-| S8 | required | not run (waits for the Jev key in the test project) |  |  |
-| S9 | required | not run (waits for the Jev key in the test project) |  |  |
+| S8 | required | pass | agent | `position: 'reset'` and the mailbox's current `historyId`; `state.position` has a new `savedAt`; `RESET_POSITION` is deleted. |
+| S9 | required | pass | agent | `position: 'kept'`. `run.end` at `warn` with `resetPositionIgnored: true`, without the value. `RESET_POSITION` (`yes`) still there; `state.position` unchanged. Then deleted. |
 | R1 | required | not run (waits for the Jev key in the test project) |  |  |
 | R2 | required | not run (waits for the Jev key in the test project) |  |  |
 | R3 | required | not run (waits for the Jev key in the test project) |  |  |
