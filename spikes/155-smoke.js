@@ -39,8 +39,14 @@ var s155_K = {
 
 // ---------------------------------------------------------------- output
 
+/** Per-execution cache: the address is read once, so a result can still be scrubbed after a run used up Gmail's per-minute quota. */
+var s155_cache = {};
+
 function s155_address_() {
-  return String(Gmail.Users.getProfile('me').emailAddress);
+  if (!s155_cache.address) {
+    s155_cache.address = String(s155_retry_(function () { return Gmail.Users.getProfile('me'); }).emailAddress);
+  }
+  return s155_cache.address;
 }
 
 function s155_escape_(text) {

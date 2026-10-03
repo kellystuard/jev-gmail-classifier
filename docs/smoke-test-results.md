@@ -27,7 +27,7 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 - **Checklist:** `docs/smoke-test.md` at `ee3da4a`, with #330's correction of L5 and the corrections made in the same pull request as this file.
 - **How a result was read:** a return value or a throw through `s155_call` or `s155_check`; log lines captured by `s155_call`, which redefines `console.info`, `console.warn` and `console.error` for the length of one call; Script Properties and triggers through `s155_props` and `s155_triggers`; the mailbox through the Gmail API. The log of a run that the trigger started itself can't be read this way: those checks read `state.runs` and the mailbox.
 
-**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 106 pass, 0 fail, 44 not run. Of the other 16: 16 not run.
+**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 117 pass, 0 fail, 33 not run. Of the other 16: 16 not run.
 
 **This run is not finished.** The second session (from 2026-10-03 03:14 UTC) is running the checks from S5 on. A row that says `not run (waits for …)` has not been reached yet. Section Z waits for E1 #21 to close.
 
@@ -150,17 +150,17 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 | P3 | required | pass | agent | After S and E: `state.alerts`, `state.budget`, `state.gmailCalls`, `state.installedAt`, `state.position`, `state.runs`, each one line of JSON starting `{"v":`. No other key written; `JEV_API_KEY` still set. |
 | P4 | required | pass | agent | `StateError`; `run.failed` with `error: StateError`, `reason: parse`, `key: state.position`, and a `cause` that names a position in the text, not the text. The value stayed as edited. Restored. |
 | P5 | required | pass | agent | `StateError`; `run.failed` with `reason: version` (`version: 99`). The value stayed as edited. Restored; the next `onTrigger` succeeded. |
-| J1 | required | not run (waits for the Jev key in the test project) |  |  |
-| J2 | required | not run (waits for the Jev key in the test project) |  |  |
-| J3 | required | not run (waits for the Jev key in the test project) |  |  |
-| J4 | required | not run (waits for the Jev key in the test project) |  |  |
-| J5 | required | not run (waits for the Jev key in the test project) |  |  |
-| J6 | required | not run (waits for the Jev key in the test project) |  |  |
-| J7 | required | not run (waits for the Jev key in the test project) |  |  |
-| J8 | required | not run (waits for the Jev key in the test project) |  |  |
-| J9 | required | not run (waits for the Jev key in the test project) |  |  |
-| J10 | required | not run (waits for the Jev key in the test project) |  |  |
-| J11 | required | not run (waits for the Jev key in the test project) |  |  |
+| J1 | required | pass | agent | `{ entry: 'startManualRun', status: 'rejected', reason: 'no_input' }`, no throw. Log: `run.start`, `manual.rejected` (`warn`); no `run.end`. No `state.manual`. |
+| J2 | required | pass | agent | `rejected`, `invalid_timespan`. `MANUAL_QUERY` and `MANUAL_TIMESPAN` still there. |
+| J3 | required | pass | agent | `status: 'ok'`, `query: '(from:smoke-manual@example.test) after:<seconds>'`, `applyMoves: false`, `job: 'completed'`, `stopped: 'completed'`. Log: `manual.started` with that query, `manual.progress`, `manual.completed` (`classified: 30`, `labels: { JevSmoke/Test: 30 }`). The `MANUAL_*` inputs and `state.manual` are gone. The 30 threads have the label. (Before J1, `Jev/Error` was put on `JevSmoke manual error [r1]` and `state.jevErrorLabel` was set by hand, as the checklist says.) |
+| J4 | required | pass | agent | `thread.excluded` for `JevSmoke manual JevSmokeExcluded [r1]`, no `thread.classified` for it; `manual.completed` `excluded: 1`; `manual.started`'s query holds no part of the `excludeQuery`. The thread has no `JevSmoke` label. |
+| J5 | required | pass | agent | `thread.skipped` (`reason: 'jev_error'`) for `JevSmoke manual error [r1]`, no `thread.classified` for it; `manual.completed` `skipped: 1`. |
+| J6 | required | pass | agent | Each of the 30 `thread.classified` has `smoke_archive` in `fired` and `actions: ['label:JevSmoke/Test']` only. The 30 threads are still in the inbox. |
+| J7 | required | pass | agent | `applyMoves: true`, `job: 'completed'`; `manual.completed` `moves: { archive: 30 }`. Only 2 threads of the manual set are left in the inbox (the excluded one and the `Jev/Error` one). |
+| J8 | required | pass | agent | `RunAbortError` (`missing_key`). Log: `manual.started`, then `run.failed` (`reason: missing_key`, `alerts: [auth]`; no new email, the `auth` alert was already sent today). `state.manual` exists; the `MANUAL_*` inputs are deleted. Key restored. |
+| J9 | required | pass | agent | `rejected`, `job_unfinished`; `manual.rejected` names the running job's query. `MANUAL_QUERY` still there, `state.manual` unchanged. |
+| J10 | required | pass | agent | Run twice. The first call's job ran (`state.runs` `ok`, 20 classified), but its result was lost: the helper's own `getProfile`, after the run, hit Gmail's per-minute limit, which the run had used up (the helper now reads the address once per execution, with a retry). The second call replaced that unfinished job the same way: `status: 'ok'`, `query: 'from:smoke-bulk@example.test'`, `job: 'active'`. Log: `manual.cancelled` (`reason: 'replaced'`, `removed: 180`), `manual.started` (`replaced: true`), `manual.progress` with `stopped: 'rate_limited'` (40 classified). `state.manual` holds the new query. |
+| J11 | required | pass | agent | `state.queue.0` (9,210 bytes) and `state.queue.1`: no gap, each at most 9,216 bytes. |
 | J12 | required | not run (waits for the Jev key in the test project) |  |  |
 | J13 | required | not run (waits for the Jev key in the test project) |  |  |
 | J14 | required | not run (waits for the Jev key in the test project) |  |  |
