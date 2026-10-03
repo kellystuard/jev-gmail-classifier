@@ -35,6 +35,7 @@ export const LOG_EVENT_LEVELS = {
   'alert.failed': ['warn'],
   'label.created': ['info'],
   'label.parent_failed': ['warn'],
+  'install.label_lookup_failed': ['warn'],
   'manual.started': ['info'],
   'manual.rejected': ['warn'],
   'manual.progress': ['info'],
