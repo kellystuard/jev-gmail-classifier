@@ -371,5 +371,5 @@ Google's pages don't settle these. Each says how the pilot settles it or works a
 
 **What the trial export showed** (filled in by agent step 4; the names only):
 
-- The payload field that held the line:
-- `resource.type`:
+- The payload field that held the line: `jsonPayload.message`
+- `resource.type`: `app_script_function`
