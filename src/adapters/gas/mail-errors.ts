@@ -14,7 +14,10 @@
  * Neither the scope text nor the quota text has been observed (SD §14): the
  * scope fragments are in `scope-errors.ts`, and the quota text is Google's
  * documented wording, `Service invoked too many times for one day: email.`
- * Record the first real text in `docs/smoke-test.md` ("Mail adapter").
+ * Still unobserved
+ * (the release smoke test saw only the invalid-address text, M7 in
+ * `docs/smoke-test-results.md`): record the first real scope or quota text
+ * there, and in SD §14.
  *
  * The message is the exception's own text, with every occurrence of the
  * recipient replaced by `<recipient>` (Apps Script may quote an address in
