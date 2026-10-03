@@ -88,7 +88,7 @@ From `s21_errors` and `s21_rawStatus`, 2026-09-26 08:06 UTC, current `historyId`
 
 ### Retention
 
-From `s21_report`. The table fills in as the watch goes on; day 7 or later closes it. The `s21_daily` trigger fired at 09:08 UTC on 2026-09-26 and 2026-09-27.
+From `s21_report` (final run on 2026-10-03; 44 checks, 9 positions, 8 calendar days). The `s21_daily` trigger fired at 09:08 UTC on every day from 2026-09-26 to 2026-10-03, and each run saved a new position and re-checked every earlier one. **No check failed.** The oldest position (saved 2026-09-26 08:05 UTC) was still valid at 169 h, just over 7 days. A check reads `history.list` from the position and counts the records returned; "valid" means a 200, not a 404. Ages are rounded to the hour except one (145.1 h).
 
 | Position saved (YYYY-MM-DD HH:MM UTC) | historyId | Checked | Age (h) | Valid? | Error |
 |---|---|---|---|---|---|
@@ -97,13 +97,52 @@ From `s21_report`. The table fills in as the watch goes on; day 7 or later close
 | 2026-09-26 08:05 | 36554805 | 2026-09-27 09:08 | 25 | yes | |
 | 2026-09-26 09:08 | 36560075 | 2026-09-27 09:08 | 24 | yes | |
 | 2026-09-27 09:08 | 36588982 | 2026-09-27 09:08 | 0 | yes | |
+| 2026-09-26 08:05 | 36554805 | 2026-09-28 09:08 | 49 | yes | |
+| 2026-09-26 09:08 | 36560075 | 2026-09-28 09:08 | 48 | yes | |
+| 2026-09-27 09:08 | 36588982 | 2026-09-28 09:08 | 24 | yes | |
+| 2026-09-28 09:08 | 36601240 | 2026-09-28 09:08 | 0 | yes | |
+| 2026-09-26 08:05 | 36554805 | 2026-09-29 09:08 | 73 | yes | |
+| 2026-09-26 09:08 | 36560075 | 2026-09-29 09:08 | 72 | yes | |
+| 2026-09-27 09:08 | 36588982 | 2026-09-29 09:08 | 48 | yes | |
+| 2026-09-28 09:08 | 36601240 | 2026-09-29 09:08 | 24 | yes | |
+| 2026-09-29 09:08 | 36615314 | 2026-09-29 09:08 | 0 | yes | |
+| 2026-09-26 08:05 | 36554805 | 2026-09-30 09:08 | 97 | yes | |
+| 2026-09-26 09:08 | 36560075 | 2026-09-30 09:08 | 96 | yes | |
+| 2026-09-27 09:08 | 36588982 | 2026-09-30 09:08 | 72 | yes | |
+| 2026-09-28 09:08 | 36601240 | 2026-09-30 09:08 | 48 | yes | |
+| 2026-09-29 09:08 | 36615314 | 2026-09-30 09:08 | 24 | yes | |
+| 2026-09-30 09:08 | 36632851 | 2026-09-30 09:08 | 0 | yes | |
+| 2026-09-26 08:05 | 36554805 | 2026-10-01 09:08 | 121 | yes | |
+| 2026-09-26 09:08 | 36560075 | 2026-10-01 09:08 | 120 | yes | |
+| 2026-09-27 09:08 | 36588982 | 2026-10-01 09:08 | 96 | yes | |
+| 2026-09-28 09:08 | 36601240 | 2026-10-01 09:08 | 72 | yes | |
+| 2026-09-29 09:08 | 36615314 | 2026-10-01 09:08 | 48 | yes | |
+| 2026-09-30 09:08 | 36632851 | 2026-10-01 09:08 | 24 | yes | |
+| 2026-10-01 09:08 | 36649179 | 2026-10-01 09:08 | 0 | yes | |
+| 2026-09-26 08:05 | 36554805 | 2026-10-02 09:09 | 145.1 | yes | |
+| 2026-09-26 09:08 | 36560075 | 2026-10-02 09:09 | 144 | yes | |
+| 2026-09-27 09:08 | 36588982 | 2026-10-02 09:09 | 120 | yes | |
+| 2026-09-28 09:08 | 36601240 | 2026-10-02 09:09 | 96 | yes | |
+| 2026-09-29 09:08 | 36615314 | 2026-10-02 09:09 | 72 | yes | |
+| 2026-09-30 09:08 | 36632851 | 2026-10-02 09:09 | 48 | yes | |
+| 2026-10-01 09:08 | 36649179 | 2026-10-02 09:09 | 24 | yes | |
+| 2026-10-02 09:09 | 36683331 | 2026-10-02 09:09 | 0 | yes | |
+| 2026-09-26 08:05 | 36554805 | 2026-10-03 09:08 | 169 | yes | |
+| 2026-09-26 09:08 | 36560075 | 2026-10-03 09:08 | 168 | yes | |
+| 2026-09-27 09:08 | 36588982 | 2026-10-03 09:08 | 144 | yes | |
+| 2026-09-28 09:08 | 36601240 | 2026-10-03 09:08 | 120 | yes | |
+| 2026-09-29 09:08 | 36615314 | 2026-10-03 09:08 | 96 | yes | |
+| 2026-09-30 09:08 | 36632851 | 2026-10-03 09:08 | 72 | yes | |
+| 2026-10-01 09:08 | 36649179 | 2026-10-03 09:08 | 48 | yes | |
+| 2026-10-02 09:09 | 36683331 | 2026-10-03 09:08 | 24 | yes | |
+| 2026-10-03 09:08 | 37158209 | 2026-10-03 09:08 | 0 | yes | |
 
 ### Findings
 
 1. **The expired-position exception and the detection rule.** The Advanced Service throws `GoogleJsonResponseException` (a plain `Error` whose `name` is set) with `e.message` `API call to gmail.users.history.list failed with error: Requested entity was not found.` and a structured `e.details` object: `code: 404`, `errors[0].reason: 'notFound'`. **Detection rule for the adapter:** around the `history.list` call only, catch, and if `e.details && e.details.code === 404`, return the distinct "position not found" result. A 400 with `errors[0].reason === 'invalid'` is an invalid position (finding 2). Anything else (401, 403, 429, 5xx, or no `details`) rethrows, or goes to the adapter's normal error mapping. The message text isn't needed, and shouldn't be used: it can change. 401, 403, and 429 weren't produced here. #27 records the scope error; its rule should use the same `e.details.code` approach.
 2. **Non-numeric or negative IDs** fail differently from an expired one: HTTP 400, `details.code === 400`, `reason: 'invalid'`, with the message `Invalid value at 'start_history_id' (TYPE_UINT64), "<value>"`. I agree with the recommendation: this is corrupt state, an exception per ADR-0006 (it can only come from a bug or a hand-edited Script Property), not expiry. The domain can also refuse it before calling Gmail, since a valid position is a string of digits.
 3. **A future ID** (current + 1,000,000) is a **404, the same as an expired one**. So a position ahead of the mailbox (for example after restoring stale state from another account, or a hand edit) doesn't fail silently with empty history. It takes the expired-position path: fall back to a search, reset from `getProfile`, and alert. That is safe. If E3 wants a clearer alert, it can compare the rejected position with `getProfile().historyId` and say "ahead of the mailbox" when it is larger. It doesn't need different handling.
-4. **Retention:** (day 7 or later). Day 0: history reached back about 28 days (`s21_oldest`). Day 1: every saved position is still valid (the oldest is 25 h). The watch continues daily.
+4. **Retention:** every saved position was still valid at the end of the watch. The oldest, saved 2026-09-26 08:05 UTC, was valid at **169 h (7 days and 1 h)**, and none expired sooner (0 failures in 44 checks). So history lasts **at least 7 days** here, which matches Google's "typically at least a week". The true limit was not observed: nothing expired. Day 0's `s21_oldest` probe found history reaching back about 28 days on this account, so a lightly used test account may keep history much longer than a busy inbox, and a mailbox with heavy traffic could expire sooner. Hours-long expiry (which Google says is rare) was not seen. The fallback in §6.3 therefore stays needed, but a daily trigger that stays up never gets near the limit.
 
 ## Raw output
 
@@ -826,8 +865,8 @@ From `s21_report`. The table fills in as the watch goes on; day 7 or later close
 
 ## Conclusion
 
-(After the run.)
+The watch ran 7 days with a daily trigger and 44 checks; no saved position expired, and the oldest was valid at 169 h. History lasts at least 7 days on this test account (about 28 days reached back on day 0). The expired-position error is a 404 with `e.details.code === 404`; a non-numeric or negative ID is a 400. Both are in the findings above.
 
 ## Design changes
 
-(SD §6.3 "Expired position", SD §14 first row, and #62, #73, after the run.)
+SD §6.3 "Expired position" has the detection rule and the invalid-position case; SD §14's first row has the retention figure (at least 7 days observed, 169 h). The trigger was removed on 2026-10-03: `s21_removeTrigger` removed it and a later `s21_report` listed no triggers.
