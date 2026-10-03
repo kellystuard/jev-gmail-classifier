@@ -27,7 +27,7 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 - **Checklist:** `docs/smoke-test.md` at `ee3da4a`, with #330's correction of L5 and the corrections made in the same pull request as this file.
 - **How a result was read:** a return value or a throw through `s155_call` or `s155_check`; log lines captured by `s155_call`, which redefines `console.info`, `console.warn` and `console.error` for the length of one call; Script Properties and triggers through `s155_props` and `s155_triggers`; the mailbox through the Gmail API. The log of a run that the trigger started itself can't be read this way: those checks read `state.runs` and the mailbox.
 
-**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 86 pass, 0 fail, 64 not run. Of the other 16: 16 not run.
+**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 106 pass, 0 fail, 44 not run. Of the other 16: 16 not run.
 
 **This run is not finished.** The second session (from 2026-10-03 03:14 UTC) is running the checks from S5 on. A row that says `not run (waits for …)` has not been reached yet. Section Z waits for E1 #21 to close.
 
@@ -119,37 +119,37 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 | S7 | required | pass | agent | `position: 'kept'` with the `historyId` that `state.position` held; `savedAt` unchanged. Still one `onTrigger` trigger: `install` replaced it (a new unique ID). |
 | S8 | required | pass | agent | `position: 'reset'` and the mailbox's current `historyId`; `state.position` has a new `savedAt`; `RESET_POSITION` is deleted. |
 | S9 | required | pass | agent | `position: 'kept'`. `run.end` at `warn` with `resetPositionIgnored: true`, without the value. `RESET_POSITION` (`yes`) still there; `state.position` unchanged. Then deleted. |
-| R1 | required | not run (waits for the Jev key in the test project) |  |  |
-| R2 | required | not run (waits for the Jev key in the test project) |  |  |
-| R3 | required | not run (waits for the Jev key in the test project) |  |  |
-| R4 | required | not run (waits for the Jev key in the test project) |  |  |
-| R5 | required | pass | agent | `{ ok: true }`, one `onTrigger` trigger in between, then `{ ok: true, deleted: 1 }`; no HTTP 500. Run on its own, before `install`: it needs no key. |
+| R1 | required | pass | agent | Two trigger runs in a row, nothing run by hand in between: `lastStart` 601 s apart (10.0 minutes). |
+| R2 | required | pass | agent | Built and pushed with `triggerMinutes: 5`; `install` returned `triggerMinutes: 5`, `position: 'kept'`. Still one `onTrigger` trigger (a new unique ID). |
+| R3 | required | pass | agent | Two trigger runs in a row at the 5-minute build: `lastStart` 294 s apart (4.9 minutes). Then the smoke config was built and pushed again and `install` returned `triggerMinutes: 10`. |
+| R4 | required | pass | agent | With a second `onTrigger` trigger and an hourly `s155_other` trigger made by hand, `install` left exactly one `onTrigger` trigger, and `s155_other`'s (same unique ID) untouched. |
+| R5 | required | pass | agent | `{ ok: true }`, one `onTrigger` trigger in between, then `{ ok: true, deleted: 1 }`; no HTTP 500. Run on its own before `install` at `ee3da4a`, and again after R4 at `45ccca8`, which paused the trigger. Then the `s155_other` trigger was deleted. |
 | R6 | not observed, person | not run (accepted v1 risk, SD §14) |  |  |
-| E1 | required | not run (waits for the Jev key in the test project) |  |  |
-| E2 | required | not run (waits for the Jev key in the test project) |  |  |
-| E3 | required | not run (waits for the Jev key in the test project) |  |  |
-| E4 | required | not run (waits for the Jev key in the test project) |  |  |
-| E5 | required | not run (waits for the Jev key in the test project) |  |  |
-| E6 | required | not run (waits for the Jev key in the test project) |  |  |
-| E7 | required | not run (waits for the Jev key in the test project) |  |  |
-| E8 | required | not run (waits for the Jev key in the test project) |  |  |
-| C1 | required | not run (waits for the Jev key in the test project) |  |  |
-| C2 | required | not run (waits for the Jev key in the test project) |  |  |
-| C3 | required | not run (waits for the Jev key in the test project) |  |  |
+| E1 | required | pass | agent | `{ entry: 'onTrigger', status: 'ok', stopped: 'drained', summary, alerts: [] }`. Log: `run.start`, `ingest.done`, `jev.batch`, `thread.classified` (`probabilities.smoke_label` 0.99, `actions: ['label:JevSmoke/Test']`), `run.end` (`ingested: 1`, `classified: 1`); no `scope_missing`. `state.runs`: `ok`, `consecutiveFailures: 0`. The thread has the label. |
+| E2 | required | pass | agent | `thread.classified` with both rules in `fired` and `actions: ['label:JevSmoke/Test', 'move:archive']`; `run.end` `moves: { archive: 1 }`. The thread has the label and left the inbox. |
+| E3 | required | pass | agent | Imported with a `Date` 2 days old. `thread.classified` at `info`, `smoke_archive` in `fired`, `actions: ['label:JevSmoke/Test']` only. The thread has the label and is still in the inbox. |
+| E4 | required | pass | agent | `thread.excluded` (`reason: 'matched'`) for the thread, no `thread.classified`; `run.end` `excluded: 1`, `sent: 0`. No label on the thread. |
+| E5 | required | pass | agent | `stopped: 'drained'`; `run.end` with `ingested: 0`, `sent: 0`, `classified: 0`. |
+| E6 | required | pass | agent | While the sleeper held the lock: `{ entry: 'onTrigger', status: 'skipped', reason: 'busy' }`, and one log line, `run.skipped`. |
+| E7 | required | pass | agent | `RunAbortError` ("The Jev API key is not set: add JEV_API_KEY in Script Properties"). Log: `run.start`, then `run.failed` (`error: RunAbortError`, `reason: missing_key`, `alerts: [auth]`, `consecutiveFailures: 1`), then `alert.sent`: no `ingest.done`, so no Gmail or Jev work came first. No thread labelled. |
+| E8 | required | pass | agent | `status: 'ok'`; `state.runs` `consecutiveFailures: 0`. It classified one thread: E7's `auth` alert email (the account's own mail, #304), with no rule firing. |
+| C1 | required | pass | agent | Over every line captured in sections S, E and P (and later J, N, V, X: see the note of C6): each line is one JSON object whose first four keys are `event`, `runId`, `entry`, `ts`, at a level `LOG_EVENT_LEVELS` allows. |
+| C2 | required | pass | agent | One `runId` per execution, a UUID. |
+| C3 | required | pass | agent | No `runId` repeats across executions. |
 | C4 | required | not run (waits for the Jev key in the test project) |  |  |
-| C5 | required | not run (waits for the Jev key in the test project) |  |  |
+| C5 | required | pass | agent | Every `ts` ends with `Z` and lies between the times taken just before and after its call. |
 | C6 | required | not run (waits for the Jev key in the test project) |  |  |
 | C7 | required | pass | agent | An integer, between the two `Date.now()` values. |
-| C8 | required | not run (waits for the Jev key in the test project) |  |  |
+| C8 | required | pass | agent | E1: `lastStart` and `lastEnd` lie between the times taken just before and after the call, `lastStart <= lastEnd`. |
 | C9 | required | pass | agent | 1,501 ms. |
 | C10 | required | pass | agent | `Etc/UTC`. |
 | C11 | required | pass | agent | 1,000 values from 0.0003 to 0.998, all different. |
 | C12 | when it happens | not run (did not happen) |  |  |
 | P1 | required | pass | agent | The stored text is `{"v":1,"text":"é日🙂"}`. |
 | P2 | required | pass | agent |  |
-| P3 | required | not run (waits for the Jev key in the test project) |  |  |
-| P4 | required | not run (waits for the Jev key in the test project) |  |  |
-| P5 | required | not run (waits for the Jev key in the test project) |  |  |
+| P3 | required | pass | agent | After S and E: `state.alerts`, `state.budget`, `state.gmailCalls`, `state.installedAt`, `state.position`, `state.runs`, each one line of JSON starting `{"v":`. No other key written; `JEV_API_KEY` still set. |
+| P4 | required | pass | agent | `StateError`; `run.failed` with `error: StateError`, `reason: parse`, `key: state.position`, and a `cause` that names a position in the text, not the text. The value stayed as edited. Restored. |
+| P5 | required | pass | agent | `StateError`; `run.failed` with `reason: version` (`version: 99`). The value stayed as edited. Restored; the next `onTrigger` succeeded. |
 | J1 | required | not run (waits for the Jev key in the test project) |  |  |
 | J2 | required | not run (waits for the Jev key in the test project) |  |  |
 | J3 | required | not run (waits for the Jev key in the test project) |  |  |
