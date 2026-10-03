@@ -90,30 +90,32 @@ Tune the config for as long as you want (README "Tuning"). Nothing before the st
 
 ## 4. Start record
 
-Filled in by an agent from the values the maintainer posts on #157. It is empty until the start.
+Filled in by an agent from the values the maintainer posts on #157. For this first start, the maintainer asked an agent (2026-10-03) to derive the values instead: from the deploy checkout, the config file and the exported log. The comment on #157 that declares the start says where each value came from.
 
 | Item | Value |
 |------|-------|
-| Deploy date | |
-| T0 (`YYYY-MM-DDTHH:MMZ`) | |
-| Commit (full SHA) | |
-| Version (`package.json` at that commit) | |
-| `triggerIntervalMinutes` | |
-| `timeZone` as deployed | |
-| `jevModel` | |
-| Account kind (consumer or Workspace) | |
-| Label rules (count) | |
-| Move rules (count) | |
-| Move destinations by kind (`archive`, `spam`, `trash`, `label`) | |
-| `excludeQuery` set (yes or no) | |
-| Logging: standard Cloud project attached (yes or no) | |
-| Logging: consent screen's publishing status | |
-| Logging: date of the trial export | |
-| Logging: payload field that held the line | |
-| README walk-through: date | |
-| README walk-through: commit of the README that was followed | |
-| README walk-through: corrections, each with its bug and PR number (or "none") | |
-| README walk-through: all merged before T0 (yes or no) | |
+| Deploy date | 2026-10-03 |
+| T0 (`YYYY-MM-DDTHH:MMZ`) | 2026-10-03T22:23Z |
+| Commit (full SHA) | `6c7153c845be548bc2364f3fbe214dfab3ccfd26` |
+| Version (`package.json` at that commit) | 0.9.1 |
+| `triggerIntervalMinutes` | 10 |
+| `timeZone` as deployed | `Etc/UTC` |
+| `jevModel` | `jev-latest` |
+| Account kind (consumer or Workspace) | consumer |
+| Label rules (count) | 12 |
+| Move rules (count) | 4 |
+| Move destinations by kind (`archive`, `spam`, `trash`, `label`) | `archive` 1, `spam` 0, `trash` 0, `label` 3 |
+| `excludeQuery` set (yes or no) | yes |
+| Logging: standard Cloud project attached (yes or no) | yes |
+| Logging: consent screen's publishing status | In production (set by the maintainer in section 3.2; no agent opens the console, so it was not checked again) |
+| Logging: date of the trial export | 2026-10-03 |
+| Logging: payload field that held the line | `jsonPayload.message` |
+| README walk-through: date | 2026-10-03 |
+| README walk-through: commit of the README that was followed | `7ed07932ff9b9442fe15c8def9a018ad6e93802a` (the last commit that changed `README.md` before the walk; the maintainer didn't post the clone's commit) |
+| README walk-through: corrections, each with its bug and PR number (or "none") | none |
+| README walk-through: all merged before T0 (yes or no) | yes (there was nothing to merge) |
+
+The checkpoints follow from T0: C1 is 2026-10-04T22:23Z, C2 is 2026-10-10T22:23Z and C3 is 2026-10-17T22:23Z. The window ends at C3.
 
 Never in this record: a rule's question, a label name, the exclusion query, the Cloud project's ID or number, the script ID, an address, or a path on the maintainer's machine other than `~/.local/share/jev-pilot/`.
 
