@@ -106,7 +106,7 @@ describe('LOG_EVENTS', () => {
   it('is the keys of LOG_EVENT_LEVELS, in order, with no duplicate', () => {
     expect(LOG_EVENTS).toEqual(Object.keys(LOG_EVENT_LEVELS));
     expect(new Set(LOG_EVENTS).size).toBe(LOG_EVENTS.length);
-    expect(LOG_EVENTS).toHaveLength(27);
+    expect(LOG_EVENTS).toHaveLength(28);
   });
 
   it.each(LOG_EVENTS)('%s is a dotted lower-case name with at least one level', (name) => {

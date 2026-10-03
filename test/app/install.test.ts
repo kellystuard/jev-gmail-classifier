@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { ingest } from '../../src/app/ingest.ts';
 import { type AlertCollector, createAlertCollector } from '../../src/app/alerts.ts';
 import { install } from '../../src/app/install.ts';
+import {
+  readJevErrorLabelIds,
+  rememberJevErrorLabelId,
+} from '../../src/app/jev-error-label-store.ts';
 import { loadQueue, saveQueue } from '../../src/app/queue-store.ts';
 import { loadConfig } from '../../src/config/loader.ts';
 import type { Config } from '../../src/config/schema.ts';
@@ -10,6 +14,7 @@ import type { AlertCondition } from '../../src/core/alert-condition.ts';
 import { DECLARED_SCOPES } from '../../src/core/declared-scopes.ts';
 import { RunAbortError, StateError, UnexpectedResponseError } from '../../src/core/errors.ts';
 import { FALLBACK_KEY } from '../../src/core/history-fallback.ts';
+import { JEV_ERROR_LABEL_KEY } from '../../src/core/jev-error-label.ts';
 import { INSTALLED_AT_KEY } from '../../src/core/install-record.ts';
 import { decodePosition, encodePosition, POSITION_KEY } from '../../src/core/position.ts';
 import { fail } from '../../src/core/result.ts';
@@ -89,6 +94,10 @@ function queueText(p: FakePorts): Record<string, string> {
 
 function getProfileCalls(p: FakePorts): number {
   return p.gmail.calls.filter((c) => c.method === 'getProfile').length;
+}
+
+function listLabelsCalls(p: FakePorts): number {
+  return p.gmail.calls.filter((c) => c.method === 'listLabels').length;
 }
 
 describe('install', () => {
@@ -273,7 +282,87 @@ describe('install', () => {
     expect(p.state.snapshot()).toEqual({});
     expect(p.trigger.calls).toEqual([]);
     expect(getProfileCalls(p)).toBe(0);
+    expect(listLabelsCalls(p)).toBe(0);
     expect(alerts.added).toEqual([]);
+  });
+
+  describe('8a. an existing Jev/Error label (#326)', () => {
+    it('remembers its ID, and again after uninstall and install', () => {
+      const { p, run } = setup();
+      const label = p.gmail.seedLabel('Jev/Error');
+
+      run();
+      expect(readJevErrorLabelIds(p.state)).toEqual([label.id]);
+
+      p.state.delete(JEV_ERROR_LABEL_KEY);
+      run();
+      expect(readJevErrorLabelIds(p.state)).toEqual([label.id]);
+    });
+
+    it('finds it by the way Gmail compares names, and keeps older IDs', () => {
+      const { p, run } = setup();
+      rememberJevErrorLabelId(p.state, 'Label_old');
+      const label = p.gmail.seedLabel('jev-error');
+
+      run();
+      expect(readJevErrorLabelIds(p.state)).toEqual(['Label_old', label.id]);
+    });
+
+    it('writes nothing for the label when the ID is already known', () => {
+      const { p, run } = setup();
+      rememberJevErrorLabelId(p.state, p.gmail.seedLabel('Jev/Error').id);
+      const before = p.state.calls.length;
+
+      run();
+      const written = p.state.calls
+        .slice(before)
+        .filter((c) => c.method === 'set')
+        .map((c) => c.args[0]);
+      expect(written).not.toContain(JEV_ERROR_LABEL_KEY);
+    });
+
+    it('does nothing without the label: no key, no label created', () => {
+      const { p, run } = setup();
+      p.gmail.seedLabel('Jev');
+      p.gmail.seedLabel('Finance');
+
+      run();
+      expect(p.state.snapshot()).not.toHaveProperty(JEV_ERROR_LABEL_KEY);
+      expect(p.gmail.calls.map((c) => c.method)).not.toContain('createLabel');
+      expect(p.log.events.map((e) => e.event)).toEqual(['run.end']);
+    });
+
+    it.each([
+      ['scope', fail('scope', { message: SCOPE_ERROR_MESSAGE })],
+      ['rate_limited', FakeGmail.rateLimited()],
+    ] as const)('a %s failure of listLabels is logged and install carries on', (kind, failure) => {
+      const { p, run } = setup();
+      p.gmail.seedLabel('Jev/Error');
+      p.gmail.failNext('listLabels', failure);
+
+      expect(run().position).toBe('set');
+      expect(p.state.snapshot()).not.toHaveProperty(JEV_ERROR_LABEL_KEY);
+      expect(p.trigger.triggers).toEqual([{ handler: HANDLER, minutes: 10 }]);
+      expect(p.log.events[0]).toEqual({
+        level: 'warn',
+        event: 'install.label_lookup_failed',
+        fields: { kind },
+      });
+
+      // The next install finds it.
+      run();
+      expect(readJevErrorLabelIds(p.state)).toHaveLength(1);
+    });
+
+    it('a corrupt state.jevErrorLabel stops install before the trigger', () => {
+      const { p, run } = setup();
+      p.gmail.seedLabel('Jev/Error');
+      p.state.seedRaw(JEV_ERROR_LABEL_KEY, 'not json');
+
+      expect(caught(run)).toBeInstanceOf(StateError);
+      expect(p.trigger.calls).toEqual([]);
+      expect(p.state.snapshot()[JEV_ERROR_LABEL_KEY]).toBe('not json');
+    });
   });
 
   describe('9. each missing scope', () => {

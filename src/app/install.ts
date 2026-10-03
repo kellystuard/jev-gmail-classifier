@@ -10,11 +10,13 @@
  * Re-running `install` never skips or duplicates mail: the position is kept
  * (unless `RESET_POSITION=true`), and the queue is never read or written.
  */
+import { labelKey } from '../config/labels.ts';
 import type { DeclaredScope } from '../core/declared-scopes.ts';
 import { RunAbortError, UnexpectedResponseError } from '../core/errors.ts';
 import { FALLBACK_KEY } from '../core/history-fallback.ts';
 import { encodeInstallRecord, INSTALLED_AT_KEY } from '../core/install-record.ts';
 import type { LogValue } from '../core/log-fields.ts';
+import { JEV_ERROR_LABEL } from '../core/label-path.ts';
 import { decodePosition, encodePosition, POSITION_KEY } from '../core/position.ts';
 import { INSTALL_REQUIRED_SCOPES } from '../core/scope-features.ts';
 import type { AuthPort } from '../ports/auth-port.ts';
@@ -24,6 +26,7 @@ import type { LogPort } from '../ports/log-port.ts';
 import type { SecretsPort } from '../ports/secrets-port.ts';
 import type { StatePort } from '../ports/state-port.ts';
 import type { TriggerIntervalMinutes, TriggerPort } from '../ports/trigger-port.ts';
+import { rememberJevErrorLabelId } from './jev-error-label-store.ts';
 import type { RunContext } from './run-entry.ts';
 import { checkScopes } from './scope-preflight.ts';
 
@@ -73,8 +76,14 @@ type ResetRequest = 'reset' | 'none' | 'ignored';
  * 4. `state.installedAt` (the last install time).
  * 5. The position: kept, or set (reset) from `getProfile`, after deleting
  *    `state.fallback`. A reset then deletes `RESET_POSITION`.
- * 6. The trigger, last: `replaceRecurringTrigger(handler, …)`.
- * 7. `run.end`.
+ * 6. `Jev/Error`: `listLabels`; if a label with that name exists (compared by
+ *    `labelKey`), its ID is remembered in `state.jevErrorLabel`, so threads
+ *    that still carry it after an `uninstall` are skipped and retried as
+ *    before. A failed listing is logged (`install.label_lookup_failed`) and
+ *    never stops install: the classifier then learns the ID when it next
+ *    marks a thread.
+ * 7. The trigger, last: `replaceRecurringTrigger(handler, …)`.
+ * 8. `run.end`.
  *
  * Throws `RunAbortError` `scope_missing` for a `scope` result from
  * `getProfile` or the trigger, `UnexpectedResponseError` for Gmail's
@@ -112,7 +121,10 @@ export function install(ctx: InstallContext, deps: InstallDeps, handler: string)
   const reset = readResetRequest(deps.state);
   const position = savePosition(ctx, deps, reset === 'reset');
 
-  // 6. The trigger, last.
+  // 6. An existing `Jev/Error` label.
+  rememberExistingJevErrorLabel(deps);
+
+  // 7. The trigger, last.
   const triggerMinutes = ctx.config.triggerIntervalMinutes;
   const replaced = deps.trigger.replaceRecurringTrigger(handler, triggerMinutes);
   if (!replaced.ok) {
@@ -120,7 +132,7 @@ export function install(ctx: InstallContext, deps: InstallDeps, handler: string)
     throw scopeMissing([SCRIPTAPP]);
   }
 
-  // 7. `run.end`.
+  // 8. `run.end`.
   const fields: Record<string, LogValue> = {
     position: position.outcome,
     historyId: position.historyId,
@@ -144,6 +156,27 @@ export function install(ctx: InstallContext, deps: InstallDeps, handler: string)
     triggerMinutes,
     missingScopes: scopes.missing,
   };
+}
+
+/**
+ * Remembers the ID of the `Jev/Error` label when the mailbox already has one
+ * (left by an earlier install: `uninstall` deletes `state.jevErrorLabel`, not
+ * the label). A failed listing is logged and skipped, not thrown: the lookup
+ * only restores what `uninstall` removed, and the classifier remembers the ID
+ * itself the next time it marks a thread. A `StateError` from the store (a
+ * corrupt value) propagates, as every other state error does in install.
+ */
+function rememberExistingJevErrorLabel(deps: InstallDeps): void {
+  const listed = deps.gmail.listLabels();
+  if (!listed.ok) {
+    deps.log.warn('install.label_lookup_failed', { kind: listed.kind });
+    return;
+  }
+  const key = labelKey(JEV_ERROR_LABEL);
+  const found = listed.labels.find((label) => labelKey(label.name) === key);
+  if (found !== undefined) {
+    rememberJevErrorLabelId(deps.state, found.id);
+  }
 }
 
 /**
