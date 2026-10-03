@@ -990,7 +990,7 @@ function s155_jevRequest_(headers) {
 function s155_check(id, args) {
   args = args || {};
   var groups = {
-    G: s155_checkG_, T: s155_checkT_, L: s155_checkL_, deleted: s155_checkDeleted_, U: s155_checkU_, H: s155_checkH_,
+    G: s155_checkG_, T: s155_checkT_, L: s155_checkL_, deleted: s155_checkDeleted_, L5: s155_checkL5_, U: s155_checkU_, H: s155_checkH_,
     K1: s155_checkK_, K2: s155_checkK_, K3: s155_checkK_, K5: s155_checkK_, K7: s155_checkK_, K8: s155_checkK_,
     A: s155_checkA_, M: s155_checkM_, Mflowed: s155_checkMflowed_, S3: s155_checkS3_, R5: s155_checkR5_, C: s155_checkC_, P: s155_checkP_
   };
@@ -1257,6 +1257,17 @@ function s155_checkDeleted_(A, tag, args) {
     T12: s155_try_(function () { return gmail.getThread(args.threadId, { format: 'minimal' }); }),
     L15: s155_try_(function () { return gmail.modifyThread(args.threadId, { addLabelIds: [args.labelId], removeLabelIds: [] }); })
   };
+}
+
+/** L5 as #329 corrected it: with `JevSmoke/A/B` in the mailbox, `createLabel('jevsmoke/a-b')`. */
+function s155_checkL5_(A) {
+  var gmail = new A.GasGmailAdapter();
+  var before = gmail.listLabels();
+  var exists = before.ok && before.labels.some(function (l) { return l.name === 'JevSmoke/A/B'; });
+  var result = s155_try_(function () { return gmail.createLabel('jevsmoke/a-b'); });
+  var made = result && result.ok ? result.label.id : null;
+  if (made) Gmail.Users.Labels.remove('me', made);
+  return { L5: { baseExists: exists, result: result, deletedWhatItMade: Boolean(made) } };
 }
 
 function s155_checkU_(A, tag) {

@@ -6,19 +6,30 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 - A run **passes** when every **required** check is `pass` in its latest row. A check that failed is run again after its bug is fixed, in a new dated section that holds only the rows that were run again, with the bug's number.
 - The account is written `<test-account>`. The results hold event names, field names, counts, and what synthetic mail showed. They never hold an address, a subject or sender of real mail, the API key, or an `Authorization` header.
 
+## 2026-10-03: L5 again, after #329
+
+- **Commit tested:** `45ccca8` (`main`, with PR #330, the fix of #329). The adapter bundle built from it is the same, byte for byte, as the one the first run used.
+- **Account and runner:** as in the run below.
+- **The check:** L5 as #330 corrected it in `docs/smoke-test.md`: `createLabel('jevsmoke/a-b')` while `JevSmoke/A/B` exists.
+
+| ID | Marking | Result | Run by | Note |
+|----|---------|--------|--------|------|
+| L5 | required | pass | agent | `{ ok: false, kind: 'label_exists', message }`; the message ends "Label name exists or conflicts". No throw. (#329) |
+
 ## 2026-10-01
 
-- **Commit tested:** `ee3da4a` (`main`), both builds made from it: the product from the checklist's smoke config, and the adapter bundle.
-- **Version:** 0.9.0.
-- **When:** the first session ran from 2026-10-01 23:49 UTC to 2026-10-02 00:15 UTC.
+- **Commits tested:**
+  - `ee3da4a` (`main`, 0.9.0): the first session, 2026-10-01 23:49 UTC to 2026-10-02 00:15 UTC. Sections G, T (but T12), L (but L15), U, K, A, M; H1 to H5 and H8; S3, S4, R5, C7, C9 to C11, P1, P2.
+  - `45ccca8` (`main` after the fix of #329, PR #330): every other row, from 2026-10-03 03:14 UTC. The adapter bundle built from `45ccca8` is byte for byte the one built from `ee3da4a` (no adapter imports `labelKey`, the one function the fix changed), so the direct checks that had passed were not run again. Only L5 was: see the section above. H3 was run again because the first session had no key to restore.
+- **Version:** 0.9.0, and `main` after it.
 - **Account:** consumer, `<test-account>`.
-- **Run by:** an agent, through the spike runner (`node spikes/run.mjs`), in the shared spike project, with the helper `spikes/155-smoke.js` ([#155](https://github.com/kellystuard/jev-gmail-classifier/issues/155), Option A). The checks marked `person` are the maintainer's.
-- **Checklist:** `docs/smoke-test.md` at `ee3da4a`, with the corrections made in the same pull request as this file.
+- **Run by:** an agent, through the spike runner (`node spikes/run.mjs`), in the shared spike project, with the helper `spikes/155-smoke.js` ([#155](https://github.com/kellystuard/jev-gmail-classifier/issues/155), Option A). The maintainer set the Jev key in the project by hand, and did the checks marked `person`; their results are taken from the maintainer's reply on #155.
+- **Checklist:** `docs/smoke-test.md` at `ee3da4a`, with #330's correction of L5 and the corrections made in the same pull request as this file.
 - **How a result was read:** a return value or a throw through `s155_call` or `s155_check`; log lines captured by `s155_call`, which redefines `console.info`, `console.warn` and `console.error` for the length of one call; Script Properties and triggers through `s155_props` and `s155_triggers`; the mailbox through the Gmail API. The log of a run that the trigger started itself can't be read this way: those checks read `state.runs` and the mailbox.
 
-**Summary:** 166 checks, 150 required. Of the required checks: 72 pass, 1 fail, 77 not run. Of the other 16: 16 not run.
+**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 83 pass, 0 fail, 67 not run. Of the other 16: 16 not run.
 
-**This run is not finished.** It stopped where the Jev key is needed: the agent that ran it was not allowed to copy the key into the test project, so the maintainer sets it by hand (#155). The checks from S5 on, and H6 and H7, wait for that. Six checks wait for the maintainer's own steps (S1, S2, T12, L15, N13, N14), and section Z waits for E1 #21 to close. One check failed (L5, #329).
+**This run is not finished.** The second session (from 2026-10-03 03:14 UTC) is running the checks from S5 on. A row that says `not run (waits for …)` has not been reached yet. Section Z waits for E1 #21 to close.
 
 | ID | Marking | Result | Run by | Note |
 |----|---------|--------|--------|------|
@@ -41,7 +52,7 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 | T9 | required | pass | agent | `body.data` is an array of numbers between -128 and 127; `internalDate` is a string. |
 | T10 | required | pass | agent | No `payload`. Gmail's `minimal` form also holds `historyId`, `sizeEstimate` and `snippet`. |
 | T11 | required | pass | agent | The trashed message is returned, with `TRASH` in `labelIds`. |
-| T12 | required, person | not run (waits for the maintainer: one thread deleted forever in the Gmail web page) |  | The thread `JevSmoke direct 06 [r1]` carries the label `JevSmoke/DeleteForever`. |
+| T12 | required, person | pass | maintainer and agent | `{ ok: false, kind: 'not_found' }`, no throw. The maintainer deleted `JevSmoke direct 06 [r1]` forever in the Gmail web page; the agent made the call. |
 | T13 | required | pass | agent | `UnexpectedResponseError`, `service: 'gmail'`, `status: 400`. Gmail's text is "Invalid id value"; no header text. |
 | T14 | not observed, person | not run (accepted v1 risk, SD §14) |  |  |
 | T15 | required | pass | agent | `invalid_page_token`; the message ends "Invalid pageToken". |
@@ -59,7 +70,7 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 | L12 | required | pass | agent | The label added and `INBOX` gone, in one call. |
 | L13 | required | pass | agent | `SPAM` added, `INBOX` gone, the user label kept. |
 | L14 | required | pass | agent | `TRASH` added, `INBOX` gone too, the user label kept. |
-| L15 | required, person | not run (waits for the maintainer: the thread of T12 deleted forever) |  |  |
+| L15 | required, person | pass | maintainer and agent | `{ ok: false, kind: 'not_found' }`, no throw, on the thread of T12. |
 | L16 | not observed, person | not run (accepted v1 risk, SD §14) |  |  |
 | U1 | required | pass | agent |  |
 | U2 | required | pass | agent |  |
@@ -69,11 +80,11 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 | U6 | required | pass | agent | The part declares `charset=ISO-8859-1`; the decoded text ends `café`. |
 | H1 | required | pass | agent |  |
 | H2 | required | pass | agent |  |
-| H3 | required | pass | agent | `'test-key'`. There was no real key to restore yet (see the note above the table). |
+| H3 | required | pass | agent | `'test-key'`; the real key was restored afterwards (run again on 2026-10-03 with the key in the project). |
 | H4 | required | pass | agent |  |
 | H5 | required | pass | agent | Status 403, `error_type: authentication_error`; 11 header names, all lower-case, with `content-type`, `set-cookie` and `x-typesafe-request-id`. |
-| H6 | required | not run (waits for the Jev key in the test project) |  |  |
-| H7 | required | not run (waits for the Jev key in the test project) |  | Tried without a key: three `transport` results with `DNS error: https://jev-smoke.invalid/`. It is run again with the key, so that the leak check means something. |
+| H6 | required | pass | agent | Status 200, an `x-typesafe-request-id` header, a body with `answers`, `model` and `usage` (`input_tokens`: 302). |
+| H7 | required | pass | agent | Three `transport` results, each `DNS error: https://jev-smoke.invalid/`. No message holds `Bearer`, the key or the payload. |
 | H8 | required | pass | agent | Status 301, `location: https://www.google.com/`. |
 | H9 | not observed, person | not run (accepted v1 risk, SD §14) |  |  |
 | K1 | required | pass | agent |  |
@@ -99,13 +110,13 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 | M7 | required | pass | agent | `UnexpectedResponseError`, `service: 'mail'`. Message: "MailApp sendEmail failed: Invalid email: <recipient>". Apps Script's own text is "Invalid email: " followed by the address given. |
 | M8 | not observed, person | not run (accepted v1 risk, SD §14) |  |  |
 | M9 | not observed | not run (accepted v1 risk, SD §14) |  |  |
-| S1 | required, person | not run (waits for the maintainer: the Setup walk in a fresh project) |  |  |
-| S2 | required, person | not run (waits for the maintainer: the Setup walk in a fresh project) |  |  |
+| S1 | required, person | pass | maintainer | Reported by the maintainer: "All as expected" (a fresh project in the test account, `npm run push` from a scratch clone with the smoke config; the editor lists `Code.gs` and `appsscript.json`). |
+| S2 | required, person | pass | maintainer | Reported by the maintainer: "All as expected" ("Google hasn't verified this app", then four permissions, none pre-ticked, none about permanent deletion). |
 | S3 | required | pass | agent | Counts: (a) 43,120, (b) 397, (c) 4, (d) 43,518. Every thread of (d) is in (a), (b) or (c). The 4 threads that are neither excluded nor synthetic are the classifier's own emails of section M. In both (a) and (b): 3 threads, the one marked `JevSmokeExcluded` and 2 threads of earlier spikes that hold one message from `example.test` and one that the account sent (the check was corrected for them: see the pull request). |
 | S4 | required | pass | agent | `RunAbortError` with that message. `run.start`, then `run.failed` (`error`, `reason: missing_key`, `alerts: [auth]`), then `alert.sent`. No `state.position`, no `state.installedAt`, no trigger. The run wrote `state.gmailCalls` and `state.alerts` (#325). Run with no key in the project at all. |
-| S5 | required | not run (waits for the Jev key in the test project) |  |  |
+| S5 | required | pass | agent | `position: 'set'`, `triggerMinutes: 10`, `missingScopes: []`. One time-driven (`CLOCK`) trigger for `onTrigger`. `state.position` (`historyId`, `savedAt`), `state.installedAt`, `state.gmailCalls`. Log: `run.start`, `run.end`; nothing else. |
 | S6 | required | not run (waits for the Jev key in the test project) |  |  |
-| S7 | required | not run (waits for the Jev key in the test project) |  |  |
+| S7 | required | pass | agent | `position: 'kept'` with the `historyId` that `state.position` held; `savedAt` unchanged. Still one `onTrigger` trigger: `install` replaced it (a new unique ID). |
 | S8 | required | not run (waits for the Jev key in the test project) |  |  |
 | S9 | required | not run (waits for the Jev key in the test project) |  |  |
 | R1 | required | not run (waits for the Jev key in the test project) |  |  |
@@ -168,8 +179,8 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 | N10 | required | not run (waits for the Jev key in the test project) |  |  |
 | N11 | required | not run (waits for the Jev key in the test project) |  |  |
 | N12 | required | not run (waits for the Jev key in the test project) |  |  |
-| N13 | required, person | not run (waits for the maintainer: a Gmail link opened in a browser) |  | The link is in the email `[Jev Gmail Classifier] Smoke test links` in the test account. |
-| N14 | required, person | not run (waits for the maintainer: a Gmail link opened in a browser) |  | The thread `JevSmoke direct 05 [r1]` carries `Jev/Error`; the link is in the same email. |
+| N13 | required, person | pass | maintainer | Reported by the maintainer: link 1 of the email `[Jev Gmail Classifier] Smoke test links` opened the thread `JevSmoke direct 05 [r1]` in the test account (the browser was signed in to one Google account). Recorded in SD §14 (links row). |
+| N14 | required, person | pass | maintainer | Reported by the maintainer: link 2 opened the label `Jev/Error`, listing that thread, in the test account. The label was then removed from the thread. Recorded in SD §14 (links row). |
 | N15 | required | not run (waits for the Jev key in the test project) |  |  |
 | N16 | required | not run (waits for the Jev key in the test project) |  |  |
 | N17 | not observed, person | not run (accepted v1 risk, SD §14) |  |  |
