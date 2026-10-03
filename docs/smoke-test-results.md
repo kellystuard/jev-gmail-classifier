@@ -27,7 +27,7 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 - **Checklist:** `docs/smoke-test.md` at `ee3da4a`, with #330's correction of L5 and the corrections made in the same pull request as this file.
 - **How a result was read:** a return value or a throw through `s155_call` or `s155_check`; log lines captured by `s155_call`, which redefines `console.info`, `console.warn` and `console.error` for the length of one call; Script Properties and triggers through `s155_props` and `s155_triggers`; the mailbox through the Gmail API. The log of a run that the trigger started itself can't be read this way: those checks read `state.runs` and the mailbox.
 
-**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 137 pass, 0 fail, 13 not run. Of the other 16: 16 not run.
+**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 140 pass, 0 fail, 10 not run. Of the other 16: 16 not run.
 
 **This run is not finished.** The second session (from 2026-10-03 03:14 UTC) is running the checks from S5 on. A row that says `not run (waits for …)` has not been reached yet. Section Z waits for E1 #21 to close.
 
@@ -191,9 +191,9 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 | Z1 | required | not run (waits for #21 to close) |  | The time zone of the shared spike project can't be changed while E1 #21's daily trigger runs there. |
 | Z2 | required | not run (waits for #21 to close) |  | The time zone of the shared spike project can't be changed while E1 #21's daily trigger runs there. |
 | Z3 | required | not run (waits for #21 to close) |  | The time zone of the shared spike project can't be changed while E1 #21's daily trigger runs there. |
-| V1 | required | not run (waits for the Jev key in the test project) |  |  |
-| V2 | required | not run (waits for the Jev key in the test project) |  |  |
-| V3 | required | not run (waits for the Jev key in the test project) |  |  |
+| V1 | required | pass | agent | After `install` (position kept, trigger back), the changed-rule build was pushed with no `install`. Read at once: `state.installedAt` and `state.position` identical; every other `state.*` key still there (`alerts`, `budget`, `gmailCalls`, `jevErrorLabel`, `runs`). |
+| V2 | required | pass | agent | Exactly one `onTrigger` trigger, with the same unique ID as before the push. |
+| V3 | required | pass | agent | `JevSmoke/Test` exists, and its 136 threads still have it. |
 | V4 | required | not run (waits for the Jev key in the test project) |  |  |
 | V5 | required | not run (waits for the Jev key in the test project) |  |  |
 | X1 | required | not run (waits for the Jev key in the test project) |  |  |
@@ -218,3 +218,7 @@ What this run saw live for the first time, and where else it is recorded.
 - **`threads.get` for an ID that isn't one** (T13) is HTTP 400, "Invalid id value".
 - **A search matches a thread when any of its messages matches** (S3). Two threads of earlier spikes, each with one message from `example.test` and one that the account sent, are matched by `-from:example.test`, and so by the smoke `excludeQuery`. That is the same rule that makes the exclusion drop a whole thread.
 - **`install` without a key** (S4) writes `state.gmailCalls` and `state.alerts`, and sends the `auth` alert. It saves no position and creates no trigger. The README sentence about it is #325.
+- **The Apps Script editor does not show an entry point's return value** (S2's Setup walk, 2026-10-03). The maintainer's pasted execution log of `install` holds the `Execution started` and `Execution completed` notices and the two JSON lines, `run.start` and `run.end`, and nothing else. A return value comes back only through the Apps Script API. SD §6.1 is corrected (`src/entry/main.ts`'s header comment still says "which the editor shows": `src/` changes only through a bug fix).
+- **The Gmail links of the `Jev/Error` alert work** (N13, N14, 2026-10-03): `#all/<threadId>` opened the thread and `#label/Jev%2FError` the label, in the test account, with the browser signed in to one Google account. Also in SD §14 (links row). Not observed: a browser signed in to several accounts.
+- **A manual editor run meets Gmail's per-minute limit** (J10 to J14). The 320-thread job classified 20 to 40 threads per execution and stopped with `rate_limited` or `units`: a manual chunk of 20 threads cost about 1,700 Gmail units, and the per-user limit is 6,000 a minute. The job went on correctly in the next execution. Right after such a run, any other Gmail call in the project can fail for a minute: the helper's own `getProfile` did once, which lost the first J10 result.
+- **Two alerts of one condition on two days are two Gmail threads** (N15), like any two `MailApp` self-sends (M4).
