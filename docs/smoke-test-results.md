@@ -27,7 +27,7 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 - **Checklist:** `docs/smoke-test.md` at `ee3da4a`, with #330's correction of L5 and the corrections made in the same pull request as this file.
 - **How a result was read:** a return value or a throw through `s155_call` or `s155_check`; log lines captured by `s155_call`, which redefines `console.info`, `console.warn` and `console.error` for the length of one call; Script Properties and triggers through `s155_props` and `s155_triggers`; the mailbox through the Gmail API. The log of a run that the trigger started itself can't be read this way: those checks read `state.runs` and the mailbox.
 
-**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 117 pass, 0 fail, 33 not run. Of the other 16: 16 not run.
+**Summary (latest row of each check, the re-run above included):** 166 checks, 150 required. Of the required checks: 123 pass, 0 fail, 27 not run. Of the other 16: 16 not run.
 
 **This run is not finished.** The second session (from 2026-10-03 03:14 UTC) is running the checks from S5 on. A row that says `not run (waits for …)` has not been reached yet. Section Z waits for E1 #21 to close.
 
@@ -161,12 +161,12 @@ This file records each run of the release checklist, [`docs/smoke-test.md`](smok
 | J9 | required | pass | agent | `rejected`, `job_unfinished`; `manual.rejected` names the running job's query. `MANUAL_QUERY` still there, `state.manual` unchanged. |
 | J10 | required | pass | agent | Run twice. The first call's job ran (`state.runs` `ok`, 20 classified), but its result was lost: the helper's own `getProfile`, after the run, hit Gmail's per-minute limit, which the run had used up (the helper now reads the address once per execution, with a retry). The second call replaced that unfinished job the same way: `status: 'ok'`, `query: 'from:smoke-bulk@example.test'`, `job: 'active'`. Log: `manual.cancelled` (`reason: 'replaced'`, `removed: 180`), `manual.started` (`replaced: true`), `manual.progress` with `stopped: 'rate_limited'` (40 classified). `state.manual` holds the new query. |
 | J11 | required | pass | agent | `state.queue.0` (9,210 bytes) and `state.queue.1`: no gap, each at most 9,216 bytes. |
-| J12 | required | not run (waits for the Jev key in the test project) |  |  |
-| J13 | required | not run (waits for the Jev key in the test project) |  |  |
-| J14 | required | not run (waits for the Jev key in the test project) |  |  |
-| J15 | required | not run (waits for the Jev key in the test project) |  |  |
-| J16 | required | not run (waits for the Jev key in the test project) |  |  |
-| J17 | required | not run (waits for the Jev key in the test project) |  |  |
+| J12 | required | pass | agent | `manual.progress` for the job (20 classified, `stopped: 'units'`), and `run.end` with `spare` (`classified: 20`). |
+| J13 | required | pass | agent | While the sleeper held the lock: `{ entry: 'continueManualRun', status: 'skipped', reason: 'busy' }`. |
+| J14 | required | pass | agent | `{ entry: 'continueManualRun', status: 'ok', job: 'active', stopped, summary }`. The second `continueManualRun` read a search page (`pages: 1`) with the token J10's execution saved: `manual.progress` `seen: 300` (J10: 200) and `totalClassified: 100` (J10: 40). No execution of the job logged `manual.cursor_reset`. Every execution stopped at Gmail's per-minute limit (`rate_limited`) or the unit budget (`units`), with 20 to 40 threads classified each. |
+| J15 | required | pass | agent | `{ cancelled: true, removed: 200 }`. `manual.cancelled` (`reason: 'cancelled'`), no `run.end`. `state.manual` gone, no queue left, `state.runs` unchanged. The 100 threads labelled by the job keep `JevSmoke/Test`. |
+| J16 | required | pass | agent | `cancelled: false`, `removed: 0`. |
+| J17 | required | pass | agent | `job: 'none'`, `stopped: 'no_job'`; `run.end` with `stopped: 'no_job'`. |
 | N1 | required | not run (waits for the Jev key in the test project) |  |  |
 | N2 | required | not run (waits for the Jev key in the test project) |  |  |
 | N3 | required | not run (waits for the Jev key in the test project) |  |  |
