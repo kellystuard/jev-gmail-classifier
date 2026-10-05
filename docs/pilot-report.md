@@ -42,7 +42,7 @@ One row per checkpoint of each window.
 
 | Window | Checkpoint | Due | Done on | What was posted | What was found |
 |--------|------------|-----|---------|-----------------|----------------|
-| `w1` | C1 | 2026-10-04T22:23Z | Not yet | Not yet | Not yet |
+| `w1` | C1 | 2026-10-04T22:23Z | 2026-10-05 | [The reducer's output and the checks](https://github.com/kellystuard/jev-gmail-classifier/issues/158#issuecomment-5987595504) | Every measure can be read. 144 runs, all clean; 80 threads classified; 40 applied actions; no failure, no alert, no bug. The start gap's p95 is 604,530 ms against a 600,000 ms interval. One run took 42,341 ms, over its 30,000 ms soft limit plus the 10,000 ms reserve and far under the 6-minute limit. |
 | `w1` | C2 | 2026-10-10T22:23Z | Not yet | Not yet | Not yet |
 | `w1` | C3 | 2026-10-17T22:23Z | Not yet | Not yet | Not yet |
 
