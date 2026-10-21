@@ -9,7 +9,7 @@ To decide what a conversation is about, the script asks **[Jev](https://docs.typ
 
 > **Privacy:** The content of your email (selected headers and the plain-text body) is sent to TypeSafe AI's API for classification. Attachments are never sent, and you can keep any mail from being sent at all with an [exclusion query](#configuration). See [What is sent to Jev](#what-is-sent-to-jev).
 
-> **Status:** Pre-release (version 0.9.0). The classifier is built and works end to end. It is in a pilot on the maintainer's own mailbox before v1.0.0, so expect changes until then. See the [Product Vision](output/product-vision.md) and [Product Design Document](output/product-design-document.md) for why and what, and the [Solution Design](output/solution-design.md) for how.
+> **Status:** v1.0.0 is released. It was verified on a consumer Gmail account, by a smoke test of every adapter and a two-week pilot on the maintainer's own mailbox. Google Workspace accounts are expected to work but were not tested: see [Permissions](#permissions) for the admin policies that can block the classifier there. What changed in each release is in the [changelog](CHANGELOG.md). See the [Product Vision](output/product-vision.md) and [Product Design Document](output/product-design-document.md) for why and what, and the [Solution Design](output/solution-design.md) for how.
 
 ## Why
 
@@ -506,12 +506,12 @@ If runs keep ending as `run.unfinished` and you didn't stop them by hand, that i
 
 ### Jev
 
-Figures below are for the Jev model version `jev-1.13.0` (the current [`jev-latest`](https://docs.typesafe.ai/models)), retrieved on 2026-10-01; the limits and the token rate were measured on 2026-09-29 ([`spikes/84-token-ratio.md`](spikes/84-token-ratio.md)). Jev measures input size in **tokens**, small chunks of text of roughly six characters of English each (fewer for URLs, and often one or more per character in other scripts). Limits and billing are both counted in tokens.
+Figures below are for the Jev model version `jev-1.13.0` (the current [`jev-latest`](https://docs.typesafe.ai/models)), retrieved on 2026-10-21; the limits and the token rate were measured on 2026-09-29 ([`spikes/84-token-ratio.md`](spikes/84-token-ratio.md)). Jev measures input size in **tokens**, small chunks of text of roughly six characters of English each (fewer for URLs, and often one or more per character in other scripts). Limits and billing are both counted in tokens.
 
 | Item                | Value                                                                                                   |
 | ------------------- | ------------------------------------------------------------------------------------------------------- |
 | Context per request | 32k (32,768) tokens for `state` plus the longest single question; 64k (65,536) tokens for `state` plus all questions combined |
-| Rate limits         | Jev's page says 100K tokens/second and 40 requests/second on 2026-10-01, and that a request over either limit returns a 429, which the classifier retries (subject to change: the limits adjust dynamically). A burst of 20 large requests was not refused when [measured](spikes/314-jev-rate-limit.md) on 2026-10-01. |
+| Rate limits         | Set per organization, in tokens per second and requests per second: your own figures are in TypeSafe's [developer console](https://console.typesafe.ai/rate-limits). Jev's page says a request over either limit returns a 429, which the classifier retries. A burst of 20 large requests was not refused when [measured](spikes/314-jev-rate-limit.md) on 2026-10-01. |
 | Price               | $0.042 per million input tokens; output is free                                                        |
 
 Jev reads the `state` once and evaluates every question against it in parallel. That is why one limit covers the `state` plus only the *longest* question.
@@ -540,7 +540,7 @@ Each scheduled run stops starting new work after a soft limit (8 s at 1 minute, 
 
 ## Roadmap
 
-- [ ] v1: Label and move threads from question and threshold rules.
+- [x] v1: Label and move threads from question and threshold rules.
 - [ ] Remove labels when a newer classification no longer matches.
 - [ ] Dry run or evaluation harness for tuning questions.
 - [ ] Periodic digest email.
@@ -573,6 +573,9 @@ The probe **sends the email's content to Jev with your key**, and each request c
 - [Solution Design](output/solution-design.md): architecture, components, runtime flows, data, and integrations.
 - [Engineering Standards](output/engineering-standards.md): tooling, code conventions, testing, git workflow, and the Definition of Done.
 - [Architecture Decision Records](output/adr/README.md): the reasoning behind each significant technical decision.
+- [Changelog](CHANGELOG.md): what changed in each release.
+- [Release checklist](docs/smoke-test.md) and its [results](docs/smoke-test-results.md): the smoke test of every adapter on a test account.
+- [Pilot report](docs/pilot-report.md): the two-week pilot that v1.0.0 passed.
 - [Archive](docs/archive/): the original notes and the superseded product requirements.
 
 ### External References
