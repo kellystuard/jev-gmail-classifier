@@ -1,6 +1,6 @@
 # Jev Gmail Classifier: Product Design Document
 
-> **Status:** Draft for v1 planning. Decided on 2026-09-24; updated on 2026-09-25 with the Solution Design decisions (see [§15](#15-decision-log)).
+> **Status:** v1 is released as v1.0.0. Decided on 2026-09-24; updated on 2026-09-25 with the Solution Design decisions (see [§15](#15-decision-log)).
 >
 > **Where this fits:** the [Product Vision](product-vision.md) says *why* the product exists. This document says *what* v1 is and *how* it is shaped, at the level needed to plan epics. The [Solution Design](solution-design.md) says how it is built (architecture, technology, patterns), with the [Engineering Standards](engineering-standards.md) and [ADRs](adr/README.md) beside it. The [README](../README.md) holds the user-facing mechanics (configuration, permissions, limits, cost figures) and is not repeated here. Low-level details are expected to be settled during development; the ones already known are listed in [§13](#13-details-to-settle-during-development).
 
