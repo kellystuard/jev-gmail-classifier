@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/kellystuard/jev-gmail-classifier/compare/v1.0.0...v1.0.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **deps:** Bump zod from 4.6.5 to 4.6.7 ([#339](https://github.com/kellystuard/jev-gmail-classifier/issues/339)) ([d6a98e9](https://github.com/kellystuard/jev-gmail-classifier/commit/d6a98e9c3f250c0034445e0b0e933a9f6f9af0a3))
+
 ## [1.0.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.9.1...v1.0.0) (2026-10-21)
 
 
