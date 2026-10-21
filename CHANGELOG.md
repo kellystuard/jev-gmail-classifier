@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.9.1...v1.0.0) (2026-10-21)
+
+
+### Documentation
+
+* mark v1.0.0 as released ([#341](https://github.com/kellystuard/jev-gmail-classifier/issues/341)) ([12d0ffc](https://github.com/kellystuard/jev-gmail-classifier/commit/12d0ffca8c8470728e702f6c7657719e68c5d44c))
+
 ## [0.9.1](https://github.com/kellystuard/jev-gmail-classifier/compare/v0.9.0...v0.9.1) (2026-10-03)
 
 
